@@ -1,0 +1,114 @@
+{
+  "name": "branchpulse",
+  "version": "0.1.0",
+  "description": "Git Branch Lifecycle Management & Monitoring Center",
+  "main": "./out/main/index.js",
+  "author": "BranchPulse",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "build:icon": "node scripts/generate-icon.mjs",
+    "package": "electron-vite build && electron-builder",
+    "package:dir": "electron-vite build && electron-builder --dir"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.15",
+    "pdfkit": "^0.15.0",
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^2.1.3",
+    "@types/node": "^22.7.0",
+    "@types/nodemailer": "^6.4.16",
+    "@types/pdfkit": "^0.13.4",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@types/sql.js": "^1.4.11",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "framer-motion": "^11.11.0",
+    "lucide-react": "^0.447.0",
+    "pngjs": "^7.0.0",
+    "postcss": "^8.4.47",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "recharts": "^2.12.7",
+    "tailwind-merge": "^2.5.3",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.2",
+    "zustand": "^4.5.5"
+  },
+    "build": {
+      "appId": "com.branchpulse.app",
+      "productName": "BranchPulse",
+      "afterPack": "scripts/after-pack.cjs",
+      "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "package.json",
+      {
+        "from": "node_modules/call-bind-apply-helpers",
+        "to": "node_modules/call-bind-apply-helpers",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "icon": "build/icon.ico",
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "BranchPulse-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BranchPulse"
+    },
+    "portable": {
+      "artifactName": "BranchPulse-Portable-${version}.${ext}"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.21.5": true
+  }
+}

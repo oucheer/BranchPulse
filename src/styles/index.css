@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: 11 13 18;
+  --fg: 230 233 242;
+  --surface: 18 21 29;
+  --surface-elevated: 24 28 38;
+  --line: 40 46 64;
+  --primary: 255 122 24;
+  --secondary: 124 92 252;
+  --ok: 52 199 123;
+  --warn: 245 166 35;
+  --danger: 239 83 80;
+  --info: 59 130 246;
+  --muted: 138 144 163;
+}
+
+html {
+  font-family: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  color: rgb(var(--muted));
+  background: rgb(var(--canvas));
+}
+
+html.light {
+  --canvas: 246 247 251;
+  --fg: 18 21 29;
+  --surface: 255 255 255;
+  --surface-elevated: 255 255 255;
+  --line: 226 230 238;
+  --primary: 232 103 12;
+  --secondary: 103 69 224;
+  --ok: 16 140 82;
+  --warn: 190 118 12;
+  --danger: 208 48 48;
+  --info: 29 96 211;
+  --muted: 96 104 122;
+}
+
+* {
+  letter-spacing: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--canvas));
+  color: rgb(var(--muted));
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(70 78 102);
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-line rounded-card;
+  }
+  .btn {
+    @apply inline-flex items-center gap-1.5 text-sm font-medium rounded-md px-3 py-1.5
+      border border-line bg-surface text-muted transition-colors
+      hover:border-primary/50 hover:text-[rgb(var(--fg))];
+    color: rgb(var(--muted));
+  }
+  .btn:disabled {
+    @apply opacity-40 cursor-not-allowed hover:border-line hover:bg-surface;
+    color: rgb(var(--muted)) !important;
+  }
+  .btn-primary {
+    @apply bg-primary text-white border-transparent hover:opacity-90;
+    color: #fff;
+  }
+  .btn-ghost {
+    @apply bg-transparent border-transparent hover:bg-surface;
+  }
+  .input {
+    @apply w-full bg-surface border border-line rounded-md px-3 py-2 text-sm outline-none
+      focus:border-primary/60 focus:ring-1 focus:ring-primary/40;
+    color: rgb(var(--fg));
+  }
+  .label {
+    @apply text-xs font-medium uppercase tracking-normal text-muted;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+}
+
+.text-canvas-fg {
+  color: rgb(var(--fg));
+}
