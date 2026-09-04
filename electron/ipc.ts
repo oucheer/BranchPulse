@@ -107,7 +107,8 @@ export function registerIpc(services: AppServices): void {
       scanRuns,
       notifications: monitoring.listNotifications(),
       settings: settings.get(),
-      monitoring: await getMonitoring()
+      monitoring: await getMonitoring(),
+      activeRepositoryId: settings.get().activeRepositoryId
     }
   })
 
@@ -153,6 +154,14 @@ export function registerIpc(services: AppServices): void {
       { authorized: false, targetType: criteria.type, repositoryId: criteria.repositoryId, branch: criteria.name, confirmationToken: '', confirmed: false },
       target
     )
+    if (settings.get().deletionDisabled) {
+      return {
+        token: '',
+        branch: branchSummary,
+        expiresAt: 0,
+        decision: { allowed: false, code: 'USER_NOT_AUTHORIZED', message: 'Branch deletion is globally disabled.', checks: [{ name: 'GLOBAL_DISABLED', passed: false, detail: 'Branch deletion is globally disabled.' }] }
+      }
+    }
     if (!branchSummary || !decision.allowed) {
       return { token: '', decision, branch: branchSummary, expiresAt: 0 }
     }
@@ -163,6 +172,17 @@ export function registerIpc(services: AppServices): void {
   async function executeDelete(request: DeleteRequest): Promise<DeleteResult> {
     const auth = request.authorization
     const criteria: BranchCriteria = { repositoryId: auth.repositoryId, name: auth.branch, type: auth.targetType }
+    if (settings.get().deletionDisabled) {
+      const message = 'Branch deletion is globally disabled.'
+      audit.record('branch_delete', { repository: auth.repositoryId, branch: auth.branch, targetType: auth.targetType, result: 'blocked', reason: 'global_deletion_disabled' }, 'failure')
+      return {
+        branch: auth.branch,
+        targetType: auth.targetType,
+        ok: false,
+        message,
+        decision: { allowed: false, code: 'USER_NOT_AUTHORIZED', message, checks: [{ name: 'GLOBAL_DISABLED', passed: false, detail: message }] }
+      }
+    }
     const failResult = (code: DeleteResult['decision']['code'], message: string, reason: string): DeleteResult => {
       const result: DeleteResult = {
         branch: auth.branch, targetType: auth.targetType, ok: false, message,
@@ -215,17 +235,33 @@ export function registerIpc(services: AppServices): void {
 
   // --- IPC handlers ---
 
-  ipcMain.handle('branchpulse:addRepository', async (_e, repoPath: string): Promise<Repository> => repository.add(repoPath))
+  ipcMain.handle('branchpulse:addRepository', async (_e, repoPath: string): Promise<Repository> => {
+    const repo = await repository.add(repoPath)
+    audit.record('repository_added', { repository: repo.name, path: repo.path })
+    return repo
+  })
   ipcMain.handle('branchpulse:addGitLabRepository', (_e, projectId: number, config?: GitLabConnectionConfig): Promise<Repository> =>
-    repository.addGitLab(projectId, config))
+    repository.addGitLab(projectId, config).then((repo) => {
+      audit.record('repository_added', { repository: repo.name, url: repo.webUrl })
+      return repo
+    }))
   ipcMain.handle('branchpulse:listGitLabProjects', (_e, config?: GitLabConnectionConfig): Promise<GitLabProject[]> =>
     gitlab.listProjects(config))
   ipcMain.handle('branchpulse:testGitLabConnection', (_e, config?: GitLabConnectionConfig): Promise<GitLabTestResult> =>
     gitlab.testConnection(config))
-  ipcMain.handle('branchpulse:removeRepository', (_e, id: string): Repository[] => repository.remove(id))
+  ipcMain.handle('branchpulse:removeRepository', (_e, id: string): Repository[] => {
+    const repo = repository.get(id)
+    const next = repository.remove(id)
+    audit.record('repository_removed', { repository: repo?.name ?? id })
+    return next
+  })
   ipcMain.handle('branchpulse:listRepositories', (): Repository[] => repository.list())
   ipcMain.handle('branchpulse:scanRepository', (_e, id: string, fetch?: boolean): Promise<ScanRun> =>
-    monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository' }))
+    monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository' }).then((run) => {
+      const repo = repository.get(id)
+      audit.record('repository_scanned', { repository: repo?.name ?? id, branches: run.branches, stale: run.stale })
+      return run
+    }))
   ipcMain.handle('branchpulse:runCheckNow', (_e, options: RunCheckOptions = {}): Promise<ScanRun> =>
     monitoring.runCheckNow(options))
   ipcMain.handle('branchpulse:listBranches', (): BranchSummary[] => branch.listBranches())

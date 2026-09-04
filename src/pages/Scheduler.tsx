@@ -26,10 +26,13 @@ export default function Scheduler(): JSX.Element {
   const jobs = useAppStore((s) => s.jobs)
   const calendarRuns = useAppStore((s) => s.calendarRuns)
   const scanRuns = useAppStore((s) => s.scanRuns)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
+
+  const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {
@@ -134,7 +137,7 @@ export default function Scheduler(): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {scanRuns.slice(0, 50).map((run) => (
+              {visibleRuns.slice(0, 50).map((run) => (
                 <tr key={run.id} className="border-b border-line/50 last:border-0 hover:bg-surface/50">
                   <td className="px-4 py-3 text-canvas-fg">{new Date(run.startedAt).toLocaleString()}</td>
                   <td className="px-4 py-3"><Badge>{run.trigger}</Badge></td>

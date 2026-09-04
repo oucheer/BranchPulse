@@ -168,7 +168,9 @@ CREATE TABLE IF NOT EXISTS app_settings (
   fetch_policy TEXT NOT NULL DEFAULT 'auto',
   gitlab_url TEXT,
   gitlab_api_key TEXT,
-  gitlab_has_key INTEGER NOT NULL DEFAULT 0
+  gitlab_has_key INTEGER NOT NULL DEFAULT 0,
+  active_repository_id TEXT,
+  deletion_disabled INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -270,6 +272,8 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_url', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
+    this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {

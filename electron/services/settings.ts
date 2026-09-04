@@ -17,7 +17,9 @@ export class SettingsService {
       gitPath: String(row?.git_path ?? ''),
       fetchPolicy: ((row?.fetch_policy as AppSettings['fetchPolicy']) ?? 'auto'),
       gitlabUrl: String(row?.gitlab_url ?? ''),
-      hasGitlabApiKey: Number(row?.gitlab_has_key ?? 0) === 1
+      hasGitlabApiKey: Number(row?.gitlab_has_key ?? 0) === 1,
+      activeRepositoryId: (row?.active_repository_id as string | null) ?? null,
+      deletionDisabled: Number(row?.deletion_disabled ?? 0) === 1
     }
   }
 
@@ -41,7 +43,9 @@ export class SettingsService {
         gitlab_url: settings.gitlabUrl || current.gitlabUrl,
         gitlab_api_key: encryptedKey,
       gitlab_has_key: encryptedKey ? 1 : 0,
-        fetch_policy: settings.fetchPolicy
+        fetch_policy: settings.fetchPolicy,
+        active_repository_id: settings.activeRepositoryId ?? null,
+        deletion_disabled: settings.deletionDisabled ? 1 : 0
       },
       'id = 1'
     )

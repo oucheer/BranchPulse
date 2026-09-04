@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Cloud, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
+import { Cloud, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, ShieldBan, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, EmptyState } from '../components/ui'
+import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import { timeAgo } from '../lib/format'
 import type { GitLabConnectionConfig, GitLabProject } from '@shared/types'
 
@@ -13,6 +13,8 @@ export default function Repositories(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
+  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [gitlabUrl, setGitlabUrl] = useState(settings.gitlabUrl)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
@@ -74,6 +76,16 @@ export default function Repositories(): JSX.Element {
     }
   }
 
+  const toggleDeletionDisabled = async (disabled: boolean): Promise<void> => {
+    try {
+      await window.branchpulse.saveSettings({ ...settings, deletionDisabled: disabled })
+      toast(tr('saved'), 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
   const addGitlabProject = async (projectId: number): Promise<void> => {
     setGitlabBusy(true)
     try {
@@ -84,18 +96,6 @@ export default function Repositories(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setGitlabBusy(false)
-    }
-  }
-
-  const addRepository = async (): Promise<void> => {
-    const dir = await window.branchpulse.pickDirectory()
-    if (!dir) return
-    try {
-      const repo = await window.branchpulse.addRepository(dir)
-      toast(`Added ${repo.name}`, 'success')
-      void refresh()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
     }
   }
 
@@ -123,28 +123,47 @@ export default function Repositories(): JSX.Element {
     }
   }
 
-  const createDemo = async (): Promise<void> => {
-    try {
-      await window.branchpulse.createDemoRepository()
-      toast('Demo repository created', 'success')
-      void refresh()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    }
-  }
 
   return (
     <div className="space-y-6">
+      <Card className="p-5">
+        <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(300px,1fr)]">
+          <div>
+            <label className="label mb-1.5" htmlFor="active-repository">当前仓库</label>
+            <select
+              id="active-repository"
+              className="input"
+              value={activeRepositoryId ?? ''}
+              onChange={(e) => void setActiveRepositoryId(e.target.value || null)}
+            >
+              <option value="">全部仓库</option>
+              {repositories.map((repo) => (
+                <option key={repo.id} value={repo.id}>{repo.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center justify-between rounded-md border border-line bg-surface px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className={`flex h-9 w-9 items-center justify-center rounded-md ${settings.deletionDisabled ? 'bg-danger/10 text-danger' : 'bg-line/20 text-muted'}`}>
+                <ShieldBan size={17} />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-canvas-fg">全局禁止删除分支</div>
+                <div className="text-xs text-muted">开启后，应用内所有删除功能将被禁用。</div>
+              </div>
+            </div>
+            <Toggle checked={settings.deletionDisabled} onChange={(v) => void toggleDeletionDisabled(v)} />
+          </div>
+        </div>
+      </Card>
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('repositories')}</h1>
           <div className="text-xs text-muted">{repositories.length} {tr('repositories').toLowerCase()} · {branches.length} branches</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn" onClick={() => void createDemo()}>
-            <Plus size={15} /> {tr('createDemo')}
-          </button>
-          <button className="btn btn-primary" onClick={() => void addRepository()}>
+          <button className="btn" disabled={gitlabBusy || !gitlabUrl} onClick={() => void loadGitlabProjects()}>
             <Plus size={15} /> {tr('addRepository')}
           </button>
         </div>
@@ -153,17 +172,7 @@ export default function Repositories(): JSX.Element {
       {repositories.length === 0 ? (
         <EmptyState
           title={tr('noRepositories')}
-          description={tr('addFirst')}
-          action={
-            <div className="flex gap-2">
-              <button className="btn btn-primary" onClick={() => void addRepository()}>
-                <FolderGit2 size={15} /> {tr('pickFolder')}
-              </button>
-              <button className="btn" onClick={() => void createDemo()}>
-                {tr('createDemo')}
-              </button>
-            </div>
-          }
+          description="请在下方完成 GitLab 连接配置，加载并添加远程项目。"
         />
       ) : (
         <div className="space-y-3">
@@ -178,8 +187,7 @@ export default function Repositories(): JSX.Element {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-canvas-fg">{repo.name}</span>
-                      <Badge tone={repo.source === 'gitlab' ? 'info' : 'secondary'}>{repo.source === 'gitlab' ? tr('gitlab') : tr('local')}</Badge>
-                      <Badge tone="secondary">{repo.currentBranch || 'HEAD'}</Badge>
+                      <Badge tone="info">{tr('gitlab')}</Badge>
                     </div>
                     <div className="truncate font-mono text-xs text-muted">{repo.source === 'gitlab' ? repo.webUrl ?? repo.path : repo.path}</div>
                   </div>
@@ -199,14 +207,21 @@ export default function Repositories(): JSX.Element {
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button
-                      className="btn px-2"
+                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
+                      onClick={() => void setActiveRepositoryId(activeRepositoryId === repo.id ? null : repo.id)}
+                      title={activeRepositoryId === repo.id ? '切换到全部仓库' : '设为当前仓库'}
+                    >
+                      <FolderGit2 size={15} />
+                    </button>
+                    <button
+                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
                       onClick={() => void scan(repo.id)}
                       disabled={scanning}
                       title={tr('scanAll')}
                     >
                       <ScanLine size={15} />
                     </button>
-                    <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={repo.source === 'gitlab' ? tr('removeGitlab') : tr('deleteLocal')}>
+                    <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={tr('removeGitlab')}>
                       <Trash2 size={15} className="text-danger" />
                     </button>
                   </div>

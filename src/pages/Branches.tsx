@@ -13,6 +13,8 @@ export default function Branches(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const settings = useAppStore((s) => s.settings)
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
@@ -31,10 +33,11 @@ export default function Branches(): JSX.Element {
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
     if (repoFilter) list = list.filter((b) => b.repositoryId === repoFilter)
+    else if (activeRepositoryId) list = list.filter((b) => b.repositoryId === activeRepositoryId)
     if (stateFilter) list = list.filter((b) => b.state === stateFilter)
     if (typeFilter) list = list.filter((b) => b.type === typeFilter)
     return list
-  }, [branches, search, repoFilter, stateFilter, typeFilter])
+  }, [branches, search, repoFilter, stateFilter, typeFilter, activeRepositoryId])
 
   const states = ['active', 'stale', 'grace_period', 'grace_expired'] as const
 
@@ -126,7 +129,6 @@ export default function Branches(): JSX.Element {
         </select>
         <select className="input w-auto" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
           <option value="">{tr('type')}</option>
-          <option value="local">Local</option>
           <option value="remote">Remote</option>
         </select>
         <Filter size={14} className="text-muted" />
@@ -187,16 +189,16 @@ export default function Branches(): JSX.Element {
                           <Bell size={13} /> {tr('notify')}
                         </button>
                         <button
-                          className="btn px-2 py-1 text-[11px]"
-                          disabled={!branch.existsLocally || isProtected}
+                          className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
+                          disabled={!branch.existsLocally || isProtected || settings.deletionDisabled}
                           onClick={() => void handleBeginDelete(branch, 'local')}
                           title={isProtected ? tr('deleteDisabled') : undefined}
                         >
                           <Trash2 size={13} className="text-danger" /> {tr('deleteLocal')}
                         </button>
                         <button
-                          className="btn px-2 py-1 text-[11px]"
-                          disabled={!branch.existsRemotely || isProtected}
+                          className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
+                          disabled={!branch.existsRemotely || isProtected || settings.deletionDisabled}
                           onClick={() => void handleBeginDelete(branch, 'remote')}
                           title={isProtected ? tr('deleteDisabled') : undefined}
                         >

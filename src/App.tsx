@@ -37,6 +37,7 @@ export default function App(): JSX.Element {
   const ready = useAppStore((s) => s.ready)
   const startupError = useAppStore((s) => s.startupError)
   const refresh = useAppStore((s) => s.refresh)
+  const settings = useAppStore((s) => s.settings)
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
@@ -53,6 +54,14 @@ export default function App(): JSX.Element {
   useEffect(() => {
   if (desktopAvailable) void refresh()
   }, [desktopAvailable, refresh])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const resolvedTheme = settings.theme === 'system'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      : settings.theme
+    root.classList.toggle('dark', resolvedTheme === 'dark')
+  }, [settings.theme])
 
   useEffect(() => {
     if (!ready || splashDone) return

@@ -31,6 +31,7 @@ interface AppState {
   branches: BranchSummary[]
   scanRuns: ScanRun[]
   notifications: NotificationRecord[]
+  activeRepositoryId: string | null
   settings: AppSettings
   monitoring: MonitoringConfig
   jobs: SchedulerJob[]
@@ -46,6 +47,7 @@ interface AppState {
   toasts: Toast[]
   refresh: () => Promise<void>
   setLanguage: (language: Language) => void
+  setActiveRepositoryId: (repositoryId: string | null) => Promise<void>
   setScanning: (scanning: boolean) => void
   setProgress: (progress: ScanProgress | null) => void
   toast: (message: string, level?: Toast['level']) => void
@@ -69,6 +71,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   branches: [],
   scanRuns: [],
   notifications: [],
+  activeRepositoryId: null,
   settings: {
     theme: 'dark',
     language: 'en',
@@ -79,7 +82,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     gitPath: '',
     fetchPolicy: 'auto',
     gitlabUrl: '',
-    hasGitlabApiKey: false
+    hasGitlabApiKey: false,
+    activeRepositoryId: null,
+    deletionDisabled: false
   },
   monitoring: {
     staleThresholdDays: 14,
@@ -126,6 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         branches: snapshot.branches,
         scanRuns: snapshot.scanRuns,
         notifications: snapshot.notifications,
+        activeRepositoryId: snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null,
         settings: snapshot.settings,
         monitoring: snapshot.monitoring,
         jobs,
@@ -137,6 +143,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         protected: protectedList,
         emailConfig
       })
+      localStorage.setItem('branchpulse:language', snapshot.settings.language)
+      set({ language: snapshot.settings.language })
     } catch (err) {
       set({ startupError: err instanceof Error ? err.message : String(err) })
     }
@@ -145,6 +153,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLanguage: (language) => {
     localStorage.setItem('branchpulse:language', language)
     set({ language })
+  },
+
+  setActiveRepositoryId: async (repositoryId) => {
+    const settings = get().settings
+    const nextSettings = { ...settings, activeRepositoryId: repositoryId }
+    set({ activeRepositoryId: repositoryId, settings: nextSettings })
+    try {
+      await window.branchpulse.saveSettings(nextSettings)
+    } catch (err) {
+      get().toast(err instanceof Error ? err.message : String(err), 'error')
+    }
   },
 
   setScanning: (scanning) => set({ scanning }),

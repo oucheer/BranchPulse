@@ -55,7 +55,8 @@ export class MonitoringService {
     const fetchEnabled = options.fetch ?? (monitoringRow?.fetch_enabled ?? 1) === 1
     const policy: EmailPolicy = options.emailPolicy ?? ((monitoringRow?.email_policy as EmailPolicy) ?? 'none')
     const notifyTarget: NotifyTarget = options.notifyTarget ?? ((monitoringRow?.notify_target as NotifyTarget) ?? 'self')
-    const autoDeleteEnabled = options.autoDelete ?? Number(monitoringRow?.auto_delete_enabled ?? 0) === 1
+    const globalDeletionDisabled = Number(this.storage.get<Record<string, unknown>>('SELECT deletion_disabled FROM app_settings WHERE id = 1')?.deletion_disabled ?? 0) === 1
+    const autoDeleteEnabled = globalDeletionDisabled ? false : (options.autoDelete ?? Number(monitoringRow?.auto_delete_enabled ?? 0) === 1)
     const notificationsEnabled = (monitoringRow?.notification_enabled ?? 1) === 1
 
     const allBranches: BranchSummary[] = []
@@ -257,7 +258,7 @@ export class MonitoringService {
           message: `${branch.displayName} does not follow the naming rules.`
         })
       }
-      if (branch.merged && !branch.protection.isDefault) {
+          if (false && branch.merged && !branch.protection.isDefault) {
         candidates.push({
           type: 'merged',
           state: 'merged',

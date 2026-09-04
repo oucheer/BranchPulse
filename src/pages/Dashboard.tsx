@@ -11,17 +11,21 @@ export default function Dashboard(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
   const notifications = useAppStore((s) => s.notifications)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const monitoring = useAppStore((s) => s.monitoring)
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
 
-  const count = (fn: (b: BranchSummary) => boolean) => branches.filter(fn).length
-  const avgHealth = branches.length ? Math.round(branches.reduce((s, b) => s + b.health.score, 0) / branches.length) : 0
+  const visibleBranches = activeRepositoryId ? branches.filter((b) => b.repositoryId === activeRepositoryId) : branches
+  const visibleNotifications = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
+  const visibleScanRuns = activeRepositoryId ? scanRuns.filter((r) => r.repositories <= 1) : scanRuns
+  const count = (fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length
+  const avgHealth = visibleBranches.length ? Math.round(visibleBranches.reduce((s, b) => s + b.health.score, 0) / visibleBranches.length) : 0
   const validBranches = count((b) => b.naming.status === 'valid')
   const excludedBranches = count((b) => b.naming.status === 'excluded')
-  const compliance = branches.length ? Math.round(((validBranches + excludedBranches) / branches.length) * 100) : 0
-  const lastRun = scanRuns.find((r) => r.status === 'completed')
-  const unread = notifications.length
+  const compliance = visibleBranches.length ? Math.round(((validBranches + excludedBranches) / visibleBranches.length) * 100) : 0
+  const lastRun = visibleScanRuns.find((r) => r.status === 'completed')
+  const unread = visibleNotifications.length
 
   return (
     <div className="space-y-6">
@@ -41,8 +45,8 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <StatCard label={tr('repositories')} value={repositories.length} icon={<FolderGit2 size={18} />} />
-        <StatCard label={tr('totalBranches')} value={branches.length} icon={<GitBranch size={18} />} />
+        <StatCard label={tr('repositories')} value={activeRepositoryId ? 1 : repositories.length} icon={<FolderGit2 size={18} />} />
+        <StatCard label={tr('totalBranches')} value={visibleBranches.length} icon={<GitBranch size={18} />} />
         <StatCard label={tr('averageHealth')} value={avgHealth} tone={avgHealth >= 70 ? 'ok' : avgHealth >= 40 ? 'warn' : 'danger'} icon={<Activity size={18} />} />
         <StatCard label={tr('namingCompliance')} value={`${compliance}%`} tone={compliance >= 90 ? 'ok' : compliance >= 70 ? 'warn' : 'danger'} icon={<Scale size={18} />} />
       </div>
@@ -62,13 +66,13 @@ export default function Dashboard(): JSX.Element {
         <Card className="p-4">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
           <div className="space-y-2">
-            {repositories.slice(0, 6).map((r) => (
+            {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).slice(0, 6).map((r) => (
               <div key={r.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
                 <span className="text-canvas-fg">{r.name}</span>
                 <span className="text-muted">{r.totalBranches} {tr('branches').toLowerCase()}</span>
               </div>
             ))}
-            {repositories.length === 0 ? (
+            {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).length === 0 ? (
               <div className="py-6 text-center text-sm text-muted">{tr('noRepositories')}</div>
             ) : null}
           </div>
@@ -76,7 +80,7 @@ export default function Dashboard(): JSX.Element {
         <Card className="p-4">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{tr('notifications')}</div>
           <div className="space-y-2">
-            {notifications.slice(0, 6).map((n) => (
+            {visibleNotifications.slice(0, 6).map((n) => (
               <div key={n.id} className="flex items-start gap-2 rounded-md border border-line px-3 py-2 text-sm">
                 <Badge tone={n.read ? 'default' : 'primary'}>{n.type}</Badge>
                 <div className="min-w-0 flex-1">
@@ -85,7 +89,7 @@ export default function Dashboard(): JSX.Element {
                 </div>
               </div>
             ))}
-            {notifications.length === 0 ? (
+            {visibleNotifications.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted">{tr('noNotifications')}</div>
             ) : null}
           </div>

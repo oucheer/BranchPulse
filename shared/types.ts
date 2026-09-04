@@ -278,6 +278,8 @@ export interface AppSettings {
   gitlabUrl: string
   gitlabApiKey?: string
   hasGitlabApiKey: boolean
+  activeRepositoryId: string | null
+  deletionDisabled: boolean
 }
 
 export interface DeleteAuthorization {
@@ -365,6 +367,7 @@ export interface DashboardSnapshot {
   notifications: NotificationRecord[]
   settings: AppSettings
   monitoring: MonitoringConfig
+  activeRepositoryId: string | null
 }
 
 export interface ScanProgress {

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
@@ -16,8 +16,9 @@ import {
   Tags,
   Command
 } from 'lucide-react'
+import LiquidLines from './components/LiquidLines'
+import ElasticMesh from './components/ElasticMesh'
 import { tr, useAppStore } from './stores/appStore'
-import CardSpread from './components/CardSpread'
 
 const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean }[] = [
   { to: '/', label: 'dashboard', icon: LayoutDashboard, end: true },
@@ -35,8 +36,6 @@ const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: bool
 
 const commands = [
   { label: 'Run Check Now', action: 'runCheck', icon: Activity },
-  { label: 'Add Repository', action: 'addRepo', icon: FolderGit2 },
-  { label: 'Create Demo Repository', action: 'demo', icon: GitBranch },
   { label: 'Generate Report', action: 'report', icon: FileBarChart },
   { label: 'Open Scheduler', action: 'nav:/scheduler', icon: CalendarClock },
   { label: 'Open Naming Rules', action: 'nav:/naming-rules', icon: Tags },
@@ -55,6 +54,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -99,25 +99,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
         setScanning(false)
         void refresh()
       }
-    } else if (action === 'addRepo') {
-      const dir = await window.branchpulse.pickDirectory()
-      if (dir) {
-        try {
-          await window.branchpulse.addRepository(dir)
-          toast(tr('addRepository') + ' OK', 'success')
-          void refresh()
-        } catch (err) {
-          toast(err instanceof Error ? err.message : String(err), 'error')
-        }
-      }
-    } else if (action === 'demo') {
-      try {
-        await window.branchpulse.createDemoRepository()
-        toast('Demo repository created', 'success')
-        void refresh()
-      } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), 'error')
-      }
     } else if (action === 'report') {
       try {
         await window.branchpulse.generateReport('on-demand', 'html')
@@ -133,7 +114,9 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
 
   return (
     <div className="flex h-screen bg-canvas text-muted">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-line bg-surface/60">
+      <LiquidLines />
+      <ElasticMesh />
+      <aside className="relative z-10 flex w-56 shrink-0 flex-col border-r border-line bg-surface/80 backdrop-blur">
         <div className="flex h-14 items-center gap-2.5 border-b border-line px-4">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary to-secondary">
             <GitBranch size={15} className="text-white" />
@@ -141,15 +124,27 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           <div className="text-sm font-bold text-canvas-fg">BranchPulse</div>
         </div>
         <nav className="flex-1 overflow-y-auto px-2 py-4">
-          <CardSpread
-            items={nav.map((item) => ({
-              to: item.to,
-              label: tr(item.label),
-              icon: item.icon,
-              end: item.end,
-              badge: item.to === '/notifications' ? unread : undefined
-            }))}
-          />
+          <div className="space-y-1">
+            {nav.map((item) => {
+              const Icon = item.icon
+              const active = item.end ? pathname === item.to : pathname.startsWith(item.to)
+              return (
+                <button
+                  key={item.to}
+                  onClick={() => navigate(item.to)}
+                  className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+                    active ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-line/30 hover:text-canvas-fg'
+                  }`}
+                >
+                  <Icon size={16} />
+                  <span className="flex-1 text-left">{tr(item.label)}</span>
+                  {item.to === '/notifications' && unread > 0 ? (
+                    <span className="rounded-full bg-danger px-1.5 text-[10px] font-bold text-white">{unread}</span>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
         </nav>
         <div className="border-t border-line p-3 text-[11px] text-muted">
           <div className="mb-1 flex items-center gap-1.5">
@@ -161,7 +156,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/40 px-5">
+        <header className="relative z-10 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/60 px-5 backdrop-blur">
           <button
             onClick={() => setPaletteOpen(true)}
             className="flex w-72 items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-muted hover:border-primary/40"
@@ -182,7 +177,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
             </button>
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto p-6">{children}</main>
+        <main className="relative z-10 min-h-0 flex-1 overflow-auto p-6">{children}</main>
       </div>
 
       <AnimatePresence>

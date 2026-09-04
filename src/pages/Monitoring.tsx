@@ -11,6 +11,9 @@ export default function Monitoring(): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const scanning = useAppStore((s) => s.scanning)
   const scanRuns = useAppStore((s) => s.scanRuns)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const repositories = useAppStore((s) => s.repositories)
+  const settings = useAppStore((s) => s.settings)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
 
@@ -44,7 +47,9 @@ export default function Monitoring(): JSX.Element {
     }
   }
 
-  const lastRuns = scanRuns.slice(0, 5)
+  const activeRepository = repositories.find((r) => r.id === activeRepositoryId)
+  const isGitLabOnly = activeRepository ? activeRepository.source === 'gitlab' : repositories.every((r) => r.source === 'gitlab')
+  const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns).slice(0, 5)
 
   return (
     <div className="space-y-6">
@@ -58,11 +63,11 @@ export default function Monitoring(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Timer size={15} className="text-warn" /> Lifecycle thresholds
+            <Timer size={15} className="text-warn" /> 生命周期阈值
           </div>
           <div className="space-y-4">
             <div>
-              <div className="label mb-1.5">Stale threshold (days)</div>
+              <div className="label mb-1.5">陈旧阈值（天）</div>
               <input
                 type="number"
                 min={1}
@@ -73,7 +78,7 @@ export default function Monitoring(): JSX.Element {
               />
             </div>
             <div>
-              <div className="label mb-1.5">Grace period (days)</div>
+              <div className="label mb-1.5">宽限天数（天）</div>
               <input
                 type="number"
                 min={0}
@@ -83,24 +88,26 @@ export default function Monitoring(): JSX.Element {
                 onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
               />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-canvas-fg">{tr('fetchEnabled')}</div>
-                <div className="text-xs text-muted">Run git fetch before analysis</div>
+            {!isGitLabOnly && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-canvas-fg">{tr('fetchEnabled')}</div>
+                  <div className="text-xs text-muted">检查前执行 git 拉取</div>
+                </div>
+                <Toggle checked={draft.fetchEnabled} onChange={(v) => setDraft({ ...draft, fetchEnabled: v })} />
               </div>
-              <Toggle checked={draft.fetchEnabled} onChange={(v) => setDraft({ ...draft, fetchEnabled: v })} />
-            </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Scale size={13} /> {tr('naming')}</div>
-                <div className="text-xs text-muted">Validate branch naming on each check</div>
+                <div className="text-xs text-muted">每次检查时校验分支命名</div>
               </div>
               <Toggle checked={draft.namingEnabled} onChange={(v) => setDraft({ ...draft, namingEnabled: v })} />
             </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Bell size={13} /> {tr('notificationsEnabled')}</div>
-                <div className="text-xs text-muted">Create desktop notifications</div>
+                <div className="text-xs text-muted">生成桌面通知</div>
               </div>
               <Toggle checked={draft.notificationEnabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
@@ -136,7 +143,7 @@ export default function Monitoring(): JSX.Element {
             <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(false)}>
               <Play size={14} /> {tr('inspectionOnly')}
             </button>
-            <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(true)}>
+            <button className="btn w-full justify-center" disabled={scanning || settings.deletionDisabled} onClick={() => void runCheck(true)}>
               <Trash2 size={14} /> {tr('checkAndDelete')}
             </button>
           </div>
@@ -152,19 +159,21 @@ export default function Monitoring(): JSX.Element {
 
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Activity size={15} className="text-secondary" /> Recent checks
+            <Activity size={15} className="text-secondary" /> 最近检查
           </div>
           <div className="space-y-2">
             {lastRuns.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted">No checks yet</div>
+              <div className="py-6 text-center text-sm text-muted">暂无检查记录</div>
             ) : (
               lastRuns.map((run) => (
                 <div key={run.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
                   <div>
                     <div className="text-canvas-fg">{new Date(run.startedAt).toLocaleString()}</div>
-                    <div className="text-xs text-muted">{run.branches} branches · {run.stale} stale · {run.namingInvalid} invalid</div>
+                <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个陈旧 · {run.namingInvalid} 个命名异常</div>
                   </div>
-                  <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>{run.status}</Badge>
+                    <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>
+                      {run.status === 'completed' ? '已完成' : run.status === 'failed' ? '失败' : '进行中'}
+                    </Badge>
                 </div>
               ))
             )}

@@ -20,6 +20,7 @@ dist/
 .electron_paths.h
 .electron_tree.json
 debug-screen.png
+.debug-screen.png
 error-screen.png
 debug-run.ps1
 debug-run-asar.ps1

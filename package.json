@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "nodemailer": "^6.9.15",
+    "ogl": "^1.0.11",
     "pdfkit": "^0.15.0",
     "sql.js": "^1.12.0"
   },
@@ -51,11 +52,11 @@
     "vitest": "^2.1.2",
     "zustand": "^4.5.5"
   },
-    "build": {
-      "appId": "com.branchpulse.app",
-      "productName": "BranchPulse",
-      "afterPack": "scripts/after-pack.cjs",
-      "asar": true,
+  "build": {
+    "appId": "com.branchpulse.app",
+    "productName": "BranchPulse",
+    "afterPack": "scripts/after-pack.cjs",
+    "asar": true,
     "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release"

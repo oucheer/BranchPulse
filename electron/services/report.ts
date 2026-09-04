@@ -212,21 +212,20 @@ export class ReportService {
     runs: ScanRun[],
     notifications: Array<Record<string, unknown>>
   ): string {
-    const cards = [
-      ['Total branches', summary.totalBranches],
-      ['Active', summary.active],
-      ['Stale', summary.stale],
-      ['Grace period', summary.gracePeriod],
-      ['Grace expired', summary.graceExpired],
-      ['Merged', summary.merged],
-      ['Naming violations', summary.namingViolations],
-      ['Cleanup candidates', summary.cleanupCandidates]
+    const cardData = [
+      ['分支总数', summary.totalBranches],
+      ['活跃分支', summary.active],
+      ['陈旧分支', summary.stale],
+      ['宽限期内', summary.gracePeriod],
+      ['宽限到期', summary.graceExpired],
+      ['命名违规', summary.namingViolations],
+      ['清理候选', summary.cleanupCandidates]
     ]
-      .map(([label, value]) => `<div class="card"><div class="value">${value}</div><div class="label">${label}</div></div>`)
-      .join('')
-    const rows = branches
+      .map(([label, value]) => ({ label: String(label), value: String(value) }))
+
       .slice()
-      .sort((a, b) => a.health.score - b.health.score)
+const rows = branches
+      .slice()
       .slice(0, 120)
       .map(
         (b) => `<tr>
@@ -254,33 +253,50 @@ export class ReportService {
         (n) => `<tr><td>${escapeHtml(String(n.branch))}</td><td>${escapeHtml(String(n.type))}</td><td>${escapeHtml(String(n.state))}</td><td>${escapeHtml(String(n.message))}</td></tr>`
       )
       .join('')
+    const metricCarousel = cardData
+      .map((card, index) => `<article class="glass ${index === 0 ? 'active' : ''}"><span>${card.label}</span><strong>${card.value}</strong></article>`)
+      .join('')
     return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"/>
+<html lang="zh-CN"><head><meta charset="utf-8"/>
 <title>${escapeHtml(title)}</title>
 <style>
-  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0b0d12;color:#e6e9f2;margin:0;padding:32px}
-  h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 12px;color:#ff7a18}
-  .muted{color:#8a90a3;font-size:13px;margin-bottom:20px}
-  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  .card{background:#12151d;border:1px solid #232838;border-radius:8px;padding:16px}
-  .value{font-size:26px;font-weight:700}.label{color:#8a90a3;font-size:12px;margin-top:4px}
-  .compliance{color:#7c5cfc}
-  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #232838}
-  th{color:#8a90a3;font-weight:600;font-size:11px;text-transform:uppercase}
-  code{font-family:Consolas,monospace}
-</style></head><body>
-<h1>BranchPulse</h1>
-<div class="muted">${escapeHtml(title)} &middot; Generated ${escapeHtml(new Date(generatedAt).toLocaleString())} &middot; Period ${escapeHtml(period)}</div>
-<div class="grid">${cards}</div>
-<div class="muted" style="margin-top:16px">Average health <b>${summary.averageHealth}</b> &middot; Naming compliance <b class="compliance">${summary.compliancePercent}%</b> &middot; Repositories ${summary.repositories}</div>
-<h2>Recent checks</h2>
-<table><thead><tr><th>Time</th><th>Trigger</th><th>Status</th><th>Branches</th><th>Stale</th><th>Naming</th><th>Notifications</th></tr></thead><tbody>${runRows}</tbody></table>
-<h2>Branch health (worst first)</h2>
-<table><thead><tr><th>Repository</th><th>Branch</th><th>Type</th><th>State</th><th>Inactive</th><th>Merged</th><th>Naming</th><th>Health</th><th>Cleanup</th></tr></thead><tbody>${rows}</tbody></table>
-<h2>Notifications</h2>
-<table><thead><tr><th>Branch</th><th>Type</th><th>State</th><th>Message</th></tr></thead><tbody>${notificationRows}</tbody></table>
-</body></html>`
+  *{box-sizing:border-box;margin:0} body{font-family:'Segoe UI','Microsoft YaHei',system-ui,sans-serif;color:#12141c;background:#f4f5f8}
+  .hero{position:relative;overflow:hidden;padding:64px 56px;background:linear-gradient(135deg,#fff 0%,#f0f1f6 46%,#e8eaf2 100%)}
+  .hero:before{content:"";position:absolute;inset:-40% -20% auto -20%;height:480px;background:radial-gradient(circle at 24% 34%,rgba(255,122,24,.16),transparent 26%),radial-gradient(circle at 68% 42%,rgba(124,92,252,.17),transparent 28%);filter:blur(34px)}
+  .hero-content{position:relative;max-width:1200px;margin:auto}.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#ff7a18;font-weight:700}
+  h1{font-size:clamp(32px,4vw,52px);line-height:1.05;margin:14px 0 16px;letter-spacing:-.02em}.sub{max-width:760px;color:#5f6679;font-size:16px;line-height:1.7}
+  .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.pill{padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.72);border:1px solid #dde0ea;color:#5f6679;font-size:12px}
+  .layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(520px,1.1fr);gap:24px;max-width:1200px;margin:-48px auto 0;padding:0 56px 56px;position:relative}
+  .glass{height:100%;border:1px solid rgba(255,255,255,.58);border-radius:16px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px);box-shadow:0 20px 60px rgba(20,24,40,.10);padding:26px}
+  .carousel{position:relative;min-height:196px}.slide{position:absolute;inset:0;opacity:0;transform:translateY(12px);transition:.55s ease;pointer-events:none}
+  .slide.active{opacity:1;transform:none}.slide span{color:#5f6679;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+  .slide strong{display:block;font-size:54px;margin:12px 0 10px;color:#12141c}.slide p{color:#5f6679;font-size:14px;line-height:1.6}
+  .section{margin-top:26px}.section h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#ff7a18;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:#69707f;font-size:11px;text-transform:uppercase;padding:8px 8px;border-bottom:1px solid #e6e8ef}
+  td{padding:9px 8px;border-bottom:1px solid #eef0f4;color:#3c4250}code{font-family:Consolas,monospace;color:#7c5cfc}
+  @media(max-width:900px){.hero,.layout{padding-left:24px;padding-right:24px}.layout{grid-template-columns:1fr}}
+  </style>
+  <script>const slides=document.querySelectorAll('.slide');let active=0;setInterval(()=>{slides[active].classList.remove('active');active=(active+1)%slides.length;slides[active].classList.add('active')},3600)</script>
+  </head><body>
+  <section class="hero"><div class="hero-content">
+    <div class="eyebrow">BranchPulse Report</div>
+    <h1>分支生命周期<br/>健康与巡检报告</h1>
+    <div class="sub">报告基于 GitLab 远程仓库实时巡检数据生成，聚焦分支陈旧趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
+    <div class="meta"><span class="pill">${escapeHtml(title)}</span><span class="pill">生成时间：${escapeHtml(new Date(generatedAt).toLocaleString('zh-CN'))}</span><span class="pill">统计范围：${escapeHtml(period)}</span></div>
+  </div></section>
+  <main class="layout">
+    <section class="glass carousel"><div class="slides">${metricCarousel}</div>
+      <div class="section"><h2>总览</h2><table><tbody>
+        <tr><td>平均健康分</td><td>${summary.averageHealth}</td></tr><tr><td>命名合规率</td><td>${summary.compliancePercent}%</td></tr><tr><td>仓库数量</td><td>${summary.repositories}</td></tr><tr><td>保护分支</td><td>${summary.protectedBranches}</td></tr>
+      </tbody></table></div>
+    </section>
+    <section class="glass">
+      <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>陈旧</th><th>命名异常</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
+      <div class="section"><h2>分支健康（低分优先）</h2><table><thead><tr><th>仓库</th><th>分支</th><th>状态</th><th>未活跃</th><th>命名</th><th>健康分</th><th>清理候选</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="section"><h2>通知投递记录</h2><table><thead><tr><th>分支</th><th>类型</th><th>状态</th><th>内容</th></tr></thead><tbody>${notificationRows}</tbody></table></div>
+    </section>
+  </main>
+  </body></html>`
   }
 
   private async writePdf(

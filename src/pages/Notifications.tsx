@@ -8,9 +8,11 @@ export default function Notifications(): JSX.Element {
   const notifications = useAppStore((s) => s.notifications)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
 
-  const list = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications
+  const scoped = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
+  const list = (filter === 'unread' ? scoped.filter((n) => !n.read) : scoped).filter((n) => n.type !== 'merged')
 
   const markRead = async (id: string): Promise<void> => {
     try {
@@ -34,7 +36,6 @@ export default function Notifications(): JSX.Element {
   const notificationTone = (type: string): 'danger' | 'warn' | 'info' | 'default' => {
     if (type === 'grace_expired' || type === 'naming_violation' || type === 'cleanup_candidate') return 'danger'
     if (type === 'stale' || type === 'grace_period') return 'warn'
-    if (type === 'merged') return 'info'
     return 'default'
   }
 
@@ -43,7 +44,7 @@ export default function Notifications(): JSX.Element {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('notifications')}</h1>
-          <div className="text-xs text-muted">{notifications.filter((n) => !n.read).length} {tr('unread')}</div>
+          <div className="text-xs text-muted">{scoped.filter((n) => !n.read && n.type !== 'merged').length} {tr('unread')}</div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 rounded-card border border-line bg-surface p-0.5">
@@ -56,7 +57,7 @@ export default function Notifications(): JSX.Element {
               onClick={() => setFilter('unread')}
             >Unread</button>
           </div>
-          {notifications.length > 0 ? (
+          {scoped.length > 0 ? (
             <button className="btn" onClick={() => void clearAll()}>
               <Trash2 size={14} /> {tr('clearAll')}
             </button>
@@ -75,7 +76,9 @@ export default function Notifications(): JSX.Element {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <Badge tone={notificationTone(n.type)}>{n.type.replace(/_/g, ' ')}</Badge>
+                  <Badge tone={notificationTone(n.type)}>
+                    {n.type === 'stale' ? '陈旧分支' : n.type === 'grace_period' ? '宽限期' : n.type === 'grace_expired' ? '宽限到期' : n.type === 'naming_violation' ? '命名违规' : n.type === 'cleanup_candidate' ? '清理候选' : n.type}
+                  </Badge>
                   {!n.read ? <span className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
                 </div>
                 <div className="mt-1 text-sm text-canvas-fg">{n.message}</div>
