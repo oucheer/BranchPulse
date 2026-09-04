@@ -105,7 +105,11 @@ export class GitLabService {
   }
 
   private pathSegments(url: string): string[] {
-    return new URL(normalizeUrl(url)).pathname.split('/').filter(Boolean)
+    const segments = new URL(normalizeUrl(url)).pathname.split('/').filter(Boolean)
+    if (segments.length > 0 && segments[segments.length - 1].endsWith('.git')) {
+      segments[segments.length - 1] = segments[segments.length - 1].slice(0, -4)
+    }
+    return segments
   }
 
   private isProjectUrl(url: string): boolean {
@@ -257,7 +261,7 @@ export class GitLabService {
 
   private async getProjectByUrl(path: string, config?: GitLabConnectionConfig): Promise<GitLabProject> {
     const { provider } = this.resolve(config)
-    const encodedPath = encodeURIComponent(path)
+    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
     const row = provider === 'github'
       ? await this.request<Record<string, unknown>>(`/repos/${encodedPath}`, config)
       : provider === 'gitee'
@@ -269,7 +273,7 @@ export class GitLabService {
   async listBranches(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabBranchDto[]> {
     const { provider } = this.resolve(config)
     const path = await this.projectPath(projectId, config)
-    const encodedPath = encodeURIComponent(path)
+    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
     if (provider === 'github') {
       const rows = await this.paginate(`/repos/${encodedPath}/branches?per_page=100`, config)
       return rows.map((row) => ({
@@ -315,7 +319,7 @@ export class GitLabService {
   async listCommits(projectId: number, refName: string, page = 1, perPage = 100, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
     const path = await this.projectPath(projectId, config)
-    const encodedPath = encodeURIComponent(path)
+    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
     if (provider === 'github' || provider === 'gitee') {
       const rows = await this.request<Array<Record<string, unknown>>>(`/repos/${encodedPath}/commits?sha=${encodeURIComponent(refName)}&per_page=${perPage}&page=${page}`, config)
       return rows.map((row) => {
@@ -344,7 +348,7 @@ export class GitLabService {
   async deleteBranch(projectId: number, branch: string, config?: GitLabConnectionConfig): Promise<void> {
     const { provider } = this.resolve(config)
     const path = await this.projectPath(projectId, config)
-    const encodedPath = encodeURIComponent(path)
+    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
     const encodedBranch = encodeURIComponent(branch)
     if (provider === 'github') {
       await this.request<void>(`/repos/${encodedPath}/git/refs/heads/${encodedBranch}`, config, { method: 'DELETE' })

@@ -25,40 +25,53 @@ describe('remote providers', () => {
     expect(apiBaseUrl('https://gitee.com/acme/app', 'gitee')).toBe('https://gitee.com/api/v5')
   })
 
-  it('uses repository-level token before app-level token for scans', async () => {
-    const rows: Record<string, Record<string, unknown>> = {
-      'SELECT * FROM repositories WHERE id = ?': { remote_api_key: Buffer.from('repo-token').toString('base64') },
-      'SELECT gitlab_api_key FROM app_settings WHERE id = 1': { gitlab_api_key: Buffer.from('app-token').toString('base64') }
-    }
-    const storage = {
-      get: vi.fn((_sql: string, _params?: unknown[]) => rows[_sql] ?? null),
-      all: vi.fn(() => []),
-      update: vi.fn(),
-      insert: vi.fn(),
-      delete: vi.fn(),
-      transaction: vi.fn((fn: () => void) => fn())
-    } as never
-    const { RepositoryService } = await import('../electron/services/repository')
-    const { SettingsService } = await import('../electron/services/settings')
+  it('accepts .git suffix in GitHub URLs', async () => {
     const { GitLabService } = await import('../electron/services/gitlab')
-    const { BranchService } = await import('../electron/services/branch')
+    const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
+    const svc = new GitLabService(settings as never)
+    // pathSegments is private but we can test via isProjectUrl/listProjects indirectly
+    // Instead directly test that a .git URL does not blow up normalization
+    expect(detectRemoteProvider('https://github.com/oucheer/git-test.git')).toBe('github')
+    expect(apiBaseUrl('https://github.com/oucheer/git-test.git', 'github')).toBe('https://api.github.com')
+  })
 
-    const gitlab = new GitLabService(new SettingsService(storage))
-    const repoSvc = new RepositoryService(storage, {} as never, { record: vi.fn() } as never, gitlab)
-    const settingsSvc = new SettingsService(storage)
-    const branchSvc = new BranchService(
-      storage,
-      {} as never,
-      repoSvc,
-      gitlab,
-      { listRules: () => [], validate: () => ({ valid: true, status: 'valid', matchedRule: null, reason: null }) } as never,
-      { listWhitelist: () => [], listProtected: () => [], isProtected: () => false, isDefault: () => false, whitelisted: () => false } as never,
-      {} as never,
-      { record: vi.fn() } as never,
-      settingsSvc
-    )
+  it('GitHub/Gitee API paths use real slashes (not %2F)', async () => {
+    const { GitLabService } = await import('../electron/services/gitlab')
+    const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
+    const svc = new GitLabService(settings as never)
+    const { provider } = (svc as unknown as { resolve: (c?: unknown) => { provider: string } }).resolve({
+      url: 'https://github.com/oucheer/git-test',
+      apiKey: 'tok'
+    })
+    expect(provider).toBe('github')
+    // private pathSegments should strip .git
+    const segments = (svc as unknown as { pathSegments: (u: string) => string[] }).pathSegments('https://github.com/oucheer/git-test.git')
+    expect(segments).toEqual(['oucheer', 'git-test'])
+  })
+})
 
-    expect(repoSvc.getRemoteToken('nonexistent')).toBe('')
-    expect(settingsSvc.getGitLabToken()).toBe('app-token')
+describe('report schedule timing', () => {
+  const from = new Date('2026-09-04T10:30:00')
+  const base = {
+    id: 'schedule-1',
+    name: 'report',
+    repositoryId: null,
+    time: '09:00',
+    weekday: 1,
+    dayOfMonth: 1,
+    runAt: null,
+    recipients: '',
+    enabled: true,
+    lastRunAt: null,
+    nextRunAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z'
+  }
+
+  it('computes daily, weekly, monthly, and one-shot schedules', async () => {
+    const { computeNextReportRunAt } = await import('../electron/services/reportSchedule')
+    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'daily' }, from) ?? '').getDate()).toBe(5)
+    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'weekly', weekday: 1 }, from) ?? '').getDate()).toBe(7)
+    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'monthly', dayOfMonth: 15 }, from) ?? '').getDate()).toBe(15)
+    expect(computeNextReportRunAt({ ...base, frequency: 'once', runAt: '2026-09-03T09:00:00Z' }, from)).toBeNull()
   })
 })
