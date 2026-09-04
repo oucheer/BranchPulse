@@ -133,6 +133,22 @@ CREATE TABLE IF NOT EXISTS reports (
   summary_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS report_schedules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  repository_id TEXT,
+  frequency TEXT NOT NULL,
+  time TEXT,
+  weekday INTEGER,
+  day_of_month INTEGER,
+  run_at TEXT,
+  recipients TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_run_at TEXT,
+  next_run_at TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   at TEXT NOT NULL,
@@ -276,6 +292,7 @@ export class StorageService {
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
     this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
+    this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {

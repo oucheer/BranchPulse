@@ -1,4 +1,6 @@
 import { app, safeStorage } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
 import nodemailer from 'nodemailer'
 import type { EmailConfig, EmailSendResult } from '@shared/types'
 import type { StorageService } from './storage'
@@ -247,6 +249,37 @@ export class EmailService {
       const message = err instanceof Error ? err.message : String(err)
       this.audit.record('email_creator_sent', { error: message }, 'failure')
       return { ok: false, message: 'Creator emails failed.', technical: message, emailsSent: sent }
+    }
+  }
+
+  async sendReportEmail(input: {
+    to: string[]
+    subject: string
+    body: string
+    attachmentPath: string
+  }): Promise<EmailSendResult> {
+    const cfg = this.getConfig()
+    if (!cfg.enabled) return { ok: false, message: '邮件发送未启用。', emailsSent: 0 }
+    try {
+      if (!fs.existsSync(input.attachmentPath)) throw new Error(`Report file not found: ${input.attachmentPath}`)
+      const transport = this.buildTransport(cfg)
+      await transport.sendMail({
+        from: cfg.from || cfg.username || 'BranchPulse',
+        to: input.to.join(', '),
+        subject: input.subject,
+        text: input.body,
+        attachments: [{
+          filename: path.basename(input.attachmentPath),
+          path: input.attachmentPath
+        }]
+      })
+      this.audit.record('email_report_sent', { recipients: input.to, report: path.basename(input.attachmentPath) }, 'success')
+      return { ok: true, message: '报告邮件发送成功。', recipients: input.to, emailsSent: input.to.length }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error('Report email failed', message)
+      this.audit.record('email_report_sent', { recipients: input.to, error: message }, 'failure')
+      return { ok: false, message: '报告邮件发送失败。', technical: message, emailsSent: 0 }
     }
   }
 }

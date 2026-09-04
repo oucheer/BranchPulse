@@ -152,6 +152,20 @@ export class ReportService {
     return this.generateReport(report.period, format, report.repositoryId)
   }
 
+  deleteReport(id: string): ReportRecord[] {
+    const report = this.listReports().find((r) => r.id === id)
+    if (report) {
+      try {
+        if (report.path && fs.existsSync(report.path)) fs.unlinkSync(report.path)
+      } catch (err) {
+        this.audit.record('report_deleted', { id, error: err instanceof Error ? err.message : String(err) }, 'failure')
+      }
+    }
+    this.storage.delete('reports', 'id = ?', [id])
+    this.audit.record('report_deleted', { id })
+    return this.listReports()
+  }
+
   async openReportFolder(): Promise<void> {
     const dir = reportsDir()
     await shell.openPath(dir)
@@ -228,24 +242,6 @@ export class ReportService {
     ]
       .map(([label, value]) => ({ label: String(label), value: String(value) }))
 
-      .slice()
-const rows = branches
-      .slice()
-      .slice(0, 120)
-      .map(
-        (b) => `<tr>
-          <td>${escapeHtml(b.repositoryName)}</td>
-          <td><code>${escapeHtml(b.name)}</code></td>
-          <td>${b.type}</td>
-          <td>${b.state}</td>
-          <td>${b.inactiveDays}</td>
-          <td>${b.merged ? 'Yes' : 'No'}</td>
-          <td>${b.naming.status}</td>
-          <td>${b.health.score}</td>
-          <td>${b.cleanupCandidate ? 'Yes' : ''}</td>
-        </tr>`
-      )
-      .join('')
     const runRows = runs
       .slice(0, 12)
       .map(
@@ -261,6 +257,49 @@ const rows = branches
     const metricCarousel = cardData
       .map((card, index) => `<article class="glass ${index === 0 ? 'active' : ''}"><span>${card.label}</span><strong>${card.value}</strong></article>`)
       .join('')
+    const chartItems = [
+      { label: '活跃', value: summary.active, color: '#16a34a' },
+      { label: '未提交超阈值', value: summary.stale, color: '#f59e0b' },
+      { label: '宽限期内', value: summary.gracePeriod, color: '#f97316' },
+      { label: '宽限到期', value: summary.graceExpired, color: '#dc2626' },
+      { label: '命名违规', value: summary.namingViolations, color: '#7c5cfc' },
+      { label: '清理候选', value: summary.cleanupCandidates, color: '#e11d48' }
+    ]
+    const maxChartValue = Math.max(1, ...chartItems.map((item) => item.value))
+    const chartRows = chartItems
+      .map((item) => `
+        <tr>
+          <td class="chart-label">${escapeHtml(item.label)}</td>
+          <td class="chart-cell"><div class="bar"><span style="width:${Math.round((item.value / maxChartValue) * 100)}%;background:${item.color}"></span></div></td>
+          <td class="chart-value">${item.value}</td>
+        </tr>`)
+      .join('')
+    const riskBranches = branches
+      .filter((b) => b.stale || b.graceExpired || b.cleanupCandidate)
+      .sort((a, b) => b.inactiveDays - a.inactiveDays)
+      .slice(0, 120)
+    const riskRows = riskBranches.length ? riskBranches.map((b) => `
+      <tr>
+        <td>${escapeHtml(b.repositoryName)}</td>
+        <td><code>${escapeHtml(b.displayName)}</code></td>
+        <td>${escapeHtml(b.creator.name)}</td>
+        <td>${b.inactiveDays} 天</td>
+        <td>${escapeHtml(new Date(b.lastCommitAt ?? b.lastScannedAt).toLocaleString('zh-CN'))}</td>
+        <td><b class="${b.cleanupCandidate ? 'danger' : 'warn'}">${escapeHtml(b.state)}</b></td>
+        <td>${b.cleanupCandidate ? '是' : '否'}</td>
+      </tr>`).join('') : '<tr><td colspan="7">当前没有超过阈值或待清理的分支。</td></tr>'
+    const detailRows = branches.slice(0, 500).map((b) => `
+      <tr>
+        <td>${escapeHtml(b.repositoryName)}</td>
+        <td><code>${escapeHtml(b.displayName)}</code></td>
+        <td>${escapeHtml(b.creator.name)}</td>
+        <td>${b.commitCount}</td>
+        <td>${b.inactiveDays} 天</td>
+        <td>${escapeHtml(b.state)}</td>
+        <td>${escapeHtml(b.naming.status)}</td>
+        <td>${b.health.score}</td>
+        <td>${b.protection.isDefault ? '默认' : b.protection.protected ? '保护' : '普通'}</td>
+      </tr>`).join('')
     return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"/>
 <title>${escapeHtml(title)}</title>
@@ -279,6 +318,9 @@ const rows = branches
   .section{margin-top:26px}.section h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#ff7a18;margin-bottom:12px}
   table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:#69707f;font-size:11px;text-transform:uppercase;padding:8px 8px;border-bottom:1px solid #e6e8ef}
   td{padding:9px 8px;border-bottom:1px solid #eef0f4;color:#3c4250}code{font-family:Consolas,monospace;color:#7c5cfc}
+  .bar{height:10px;min-width:4px;border-radius:999px;background:#edeff5;overflow:hidden}.bar span{display:block;height:100%;border-radius:999px}
+  .chart-label{width:130px;font-weight:600}.chart-cell{width:auto}.chart-value{width:54px;text-align:right;font-weight:700}
+  .danger{color:#dc2626}.warn{color:#d97706}
   @media(max-width:900px){.hero,.layout{padding-left:24px;padding-right:24px}.layout{grid-template-columns:1fr}}
   </style>
   <script>const slides=document.querySelectorAll('.slide');let active=0;setInterval(()=>{slides[active].classList.remove('active');active=(active+1)%slides.length;slides[active].classList.add('active')},3600)</script>
@@ -296,8 +338,10 @@ const rows = branches
       </tbody></table></div>
     </section>
     <section class="glass">
+      <div class="section"><h2>分支分布图</h2><table class="chart"><tbody>${chartRows}</tbody></table></div>
+      <div class="section"><h2>超过阈值 / 需要处理</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>未提交</th><th>最近提交</th><th>状态</th><th>清理候选</th></tr></thead><tbody>${riskRows}</tbody></table></div>
       <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>陈旧</th><th>命名异常</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
-      <div class="section"><h2>分支健康（低分优先）</h2><table><thead><tr><th>仓库</th><th>分支</th><th>状态</th><th>未活跃</th><th>命名</th><th>健康分</th><th>清理候选</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="section"><h2>全部分支明细</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>提交数</th><th>未提交</th><th>状态</th><th>命名</th><th>健康分</th><th>保护状态</th></tr></thead><tbody>${detailRows}</tbody></table></div>
       <div class="section"><h2>通知投递记录</h2><table><thead><tr><th>分支</th><th>类型</th><th>状态</th><th>内容</th></tr></thead><tbody>${notificationRows}</tbody></table></div>
     </section>
   </main>

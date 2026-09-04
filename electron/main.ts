@@ -13,6 +13,7 @@ import { MonitoringService } from './services/monitoring'
 import { EmailService } from './services/email'
 import { SchedulerService } from './services/scheduler'
 import { ReportService } from './services/report'
+import { ReportScheduleService } from './services/reportSchedule'
 import { AuditService } from './services/audit'
 import { SettingsService } from './services/settings'
 import { GitLabService } from './services/gitlab'
@@ -44,7 +45,7 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'BranchPulse',
     icon: iconPath(),
-    backgroundColor: '#0b0d12',
+    backgroundColor: '#f4f5f8',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -184,16 +185,18 @@ async function bootstrap(): Promise<void> {
   const monitoring = new MonitoringService(storage, branch, repository, email, audit)
   const scheduler = new SchedulerService(storage, monitoring, audit)
   const report = new ReportService(storage, branch, repository, audit)
+  const reportSchedules = new ReportScheduleService(storage, report, email, audit)
   const deletionEngine = new DeletionPolicyEngine()
   const deletionTokens = new DeletionTokenRegistry()
 
   services = {
     storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens,
-    monitoring, email, scheduler, report, audit, settings
+    monitoring, email, scheduler, report, reportSchedules, audit, settings
   }
 
   registerIpc(services)
   scheduler.start()
+  reportSchedules.start()
   createWindow()
   createTray()
 
@@ -221,6 +224,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     services?.storage.flush()
     services?.scheduler.stop()
+    services?.reportSchedules.stop()
   })
 
   app.on('activate', () => {

@@ -17,7 +17,6 @@ import {
   Command
 } from 'lucide-react'
 import LiquidLines from './components/LiquidLines'
-import ElasticMesh from './components/ElasticMesh'
 import { tr, useAppStore } from './stores/appStore'
 
 const nav: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean }[] = [
@@ -115,7 +114,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   return (
     <div className="flex h-screen bg-canvas text-muted">
       <LiquidLines />
-      <ElasticMesh />
       <aside
         className="relative z-10 flex flex-col overflow-hidden border-r border-line bg-surface"
         style={{ width: 240, minWidth: 240, maxWidth: 240, height: '100vh' }}

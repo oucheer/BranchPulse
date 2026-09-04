@@ -20,6 +20,7 @@ import type {
   ProtectionEntry,
   ReportRecord,
   Repository,
+  ReportSchedule,
   RunCheckOptions,
   ScanRun,
   SchedulerJob
@@ -36,6 +37,7 @@ import type { EmailService } from './services/email'
 import type { GitLabService } from './services/gitlab'
 import type { SchedulerService } from './services/scheduler'
 import type { ReportService } from './services/report'
+import type { ReportScheduleService } from './services/reportSchedule'
 import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
 import { createDemoRepository } from './services/demoRepo'
@@ -55,6 +57,7 @@ export interface AppServices {
   gitlab: GitLabService
   scheduler: SchedulerService
   report: ReportService
+  reportSchedules: ReportScheduleService
   audit: AuditService
   settings: SettingsService
 }
@@ -89,7 +92,7 @@ function scanRunFromRow(row: Record<string, unknown>): ScanRun {
 }
 
 export function registerIpc(services: AppServices): void {
-  const { storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, audit, settings } = services
+  const { storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings } = services
 
   services.monitoring.onProgress = (progress) => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -357,7 +360,12 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:listReports', (): ReportRecord[] => report.listReports())
   ipcMain.handle('branchpulse:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
   ipcMain.handle('branchpulse:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
+  ipcMain.handle('branchpulse:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
   ipcMain.handle('branchpulse:openReportFolder', (): Promise<void> => report.openReportFolder())
+
+  ipcMain.handle('branchpulse:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
+  ipcMain.handle('branchpulse:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))
+  ipcMain.handle('branchpulse:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
 
   ipcMain.handle('branchpulse:listAudit', (): AuditEntry[] => audit.list())
 

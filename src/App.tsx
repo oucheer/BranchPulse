@@ -64,6 +64,10 @@ export default function App(): JSX.Element {
   }, [settings.theme])
 
   useEffect(() => {
+    document.documentElement.style.colorScheme = settings.theme === 'system' ? '' : settings.theme
+  }, [settings.theme])
+
+  useEffect(() => {
     if (!ready || splashDone) return
     const elapsed = Date.now() - splashStartedAt
     const remaining = Math.max(0, 2600 - elapsed)

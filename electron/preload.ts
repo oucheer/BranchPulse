@@ -10,6 +10,7 @@ import type {
   MonitoringConfig,
   NamingRule,
   ProtectionEntry,
+  ReportSchedule,
   RunCheckOptions,
   ScanProgress,
   SchedulerJob
@@ -69,7 +70,13 @@ const api: BranchApi = {
   generateReport: (period: string, format?: string, repositoryId?: string | null) =>
     ipcRenderer.invoke('branchpulse:generateReport', period, format, repositoryId),
   exportReport: (id: string, format: string) => ipcRenderer.invoke('branchpulse:exportReport', id, format),
+  deleteReport: (id: string) => ipcRenderer.invoke('branchpulse:deleteReport', id),
   openReportFolder: () => ipcRenderer.invoke('branchpulse:openReportFolder'),
+
+  listReportSchedules: () => ipcRenderer.invoke('branchpulse:listReportSchedules'),
+  saveReportSchedule: (schedule: Partial<ReportSchedule> & { id?: string }) =>
+    ipcRenderer.invoke('branchpulse:saveReportSchedule', schedule),
+  deleteReportSchedule: (id: string) => ipcRenderer.invoke('branchpulse:deleteReportSchedule', id),
 
   listAudit: () => ipcRenderer.invoke('branchpulse:listAudit'),
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),

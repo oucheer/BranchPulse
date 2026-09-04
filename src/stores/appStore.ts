@@ -10,6 +10,7 @@ import type {
   NotificationRecord,
   ProtectionEntry,
   ReportRecord,
+  ReportSchedule,
   Repository,
   ScanProgress,
   ScanRun,
@@ -37,6 +38,7 @@ interface AppState {
   jobs: SchedulerJob[]
   calendarRuns: { date: string; status: ScanRun['status']; runs: number }[]
   reports: ReportRecord[]
+  reportSchedules: ReportSchedule[]
   audit: AuditEntry[]
   namingRules: NamingRule[]
   whitelist: ProtectionEntry[]
@@ -99,6 +101,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   jobs: [],
   calendarRuns: [],
   reports: [],
+  reportSchedules: [],
   audit: [],
   namingRules: [],
   whitelist: [],
@@ -115,10 +118,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         return
       }
       const snapshot = await window.branchpulse.init()
-      const [jobs, calendarRuns, reports, audit, namingRules, whitelist, protectedList, emailConfig] = await Promise.all([
+      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig] = await Promise.all([
         window.branchpulse.listJobs(),
         window.branchpulse.calendarRuns(),
         window.branchpulse.listReports(),
+        window.branchpulse.listReportSchedules(),
         window.branchpulse.listAudit(),
         window.branchpulse.listNamingRules(),
         window.branchpulse.listWhitelist(),
@@ -137,6 +141,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         jobs,
         calendarRuns,
         reports,
+        reportSchedules,
         audit,
         namingRules,
         whitelist,

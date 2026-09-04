@@ -63,11 +63,14 @@ export default function Monitoring(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Timer size={15} className="text-warn" /> 生命周期阈值
+            <Timer size={15} className="text-warn" /> 巡查规则
           </div>
           <div className="space-y-4">
+            <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
+              巡查会实时读取 GitLab 上的分支列表和最近提交：超过未提交天数阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
+            </div>
             <div>
-              <div className="label mb-1.5">陈旧阈值（天）</div>
+              <div className="label mb-1.5">未提交天数阈值（天）</div>
               <input
                 type="number"
                 min={1}
@@ -78,7 +81,7 @@ export default function Monitoring(): JSX.Element {
               />
             </div>
             <div>
-              <div className="label mb-1.5">宽限天数（天）</div>
+              <div className="label mb-1.5">提醒宽限天数（天）</div>
               <input
                 type="number"
                 min={0}

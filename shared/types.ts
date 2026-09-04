@@ -259,6 +259,24 @@ export interface ReportRecord {
   summary: ReportSummary
 }
 
+export type ReportScheduleFrequency = 'daily' | 'weekly' | 'monthly' | 'once'
+
+export interface ReportSchedule {
+  id: string
+  name: string
+  repositoryId: string | null
+  frequency: ReportScheduleFrequency
+  time: string
+  weekday: number
+  dayOfMonth: number
+  runAt: string | null
+  recipients: string
+  enabled: boolean
+  lastRunAt: string | null
+  nextRunAt: string | null
+  createdAt: string
+}
+
 export interface AuditEntry {
   id: string
   at: string
@@ -450,7 +468,11 @@ export interface BranchApi {
   listReports(): Promise<ReportRecord[]>
   generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
   exportReport(id: string, format: string): Promise<ReportRecord>
+  deleteReport(id: string): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
+  listReportSchedules(): Promise<ReportSchedule[]>
+  saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
+  deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
   getSettings(): Promise<AppSettings>

@@ -67,6 +67,9 @@ function normalizeUrl(url: string): string {
   if (!clean) throw new Error('GitLab URL is required.')
   if (!/^https?:\/\//i.test(clean)) clean = `https://${clean}`
   clean = clean.replace(/\/+$/, '')
+  if (/^https?:\/\/(www\.)?github\.com/i.test(clean)) {
+    throw new Error('这是 GitHub 仓库地址，不是 GitLab 服务地址。请填写 GitLab 域名，例如 https://gitlab.com。')
+  }
   return clean
 }
 
@@ -130,7 +133,15 @@ export class GitLabService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const technical = err instanceof GitLabApiErrorImpl && err.body ? err.body : undefined
-      return { ok: false, message: 'Unable to connect to GitLab. Check URL, API key and server access.', technical }
+      logger.error(`GitLab connection failed: ${message}`, technical)
+      let userMessage = '无法连接 GitLab。请检查地址、API 密钥和网络访问。'
+      if (/github\.com/i.test(message)) userMessage = '这是 GitHub 仓库地址，不是 GitLab 服务地址。'
+      else if (/required/i.test(message)) userMessage = message
+      else if (/401|Unauthorized/i.test(message)) userMessage = 'GitLab API 密钥无效或已过期。'
+      else if (/403|Forbidden/i.test(message)) userMessage = 'GitLab API 密钥没有访问权限。'
+      else if (/404|Not Found/i.test(message)) userMessage = 'GitLab 地址不正确，或该服务不支持 /api/v4。'
+      else if (/getaddrinfo|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(message)) userMessage = 'GitLab 地址无法访问。请检查域名、端口和网络。'
+      return { ok: false, message: userMessage, technical: technical ? `${message} | ${technical}` : message }
     }
   }
 
@@ -215,4 +226,3 @@ export function decryptSecret(value: string | undefined | null): string {
     return ''
   }
 }
-

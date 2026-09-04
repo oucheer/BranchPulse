@@ -16,8 +16,8 @@ function renderPng(size) {
   const png = new PNG({ width: size, height: size })
   const scale = size / 256
   const radius = 52 * scale
-  const bgFrom = [242, 243, 247]
-  const bgTo = [225, 228, 238]
+  const bgFrom = [46, 50, 62]
+  const bgTo = [22, 24, 31]
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       const nx = x / size
@@ -34,19 +34,21 @@ function renderPng(size) {
     }
   }
 
-  // Minimal branch glyph
+  // Bold minimal branch glyph
   drawPolyline(png, size, [
-    [94, 190], [94, 118], [162, 86]
-  ], 10 * scale, [28, 30, 36, 255])
+    [88, 190], [88, 122], [164, 82]
+  ], 18 * scale, [245, 246, 250, 255])
   drawPolyline(png, size, [
-    [94, 118], [94, 86]
-  ], 10 * scale, [28, 30, 36, 255])
+    [88, 122], [88, 78]
+  ], 18 * scale, [245, 246, 250, 255])
   drawPolyline(png, size, [
-    [94, 190], [162, 190]
-  ], 10 * scale, [28, 30, 36, 255])
-  fillCircle(png, size, 94, 76, 10 * scale, [255, 122, 24, 255])
-  fillCircle(png, size, 166, 82, 10 * scale, [124, 92, 252, 255])
-  fillCircle(png, size, 166, 190, 10 * scale, [28, 30, 36, 255])
+    [88, 190], [164, 190]
+  ], 18 * scale, [245, 246, 250, 255])
+  fillCircle(png, size, 88, 68, 17 * scale, [255, 122, 24, 255])
+  fillCircle(png, size, 88, 68, 7 * scale, [245, 246, 250, 255])
+  fillCircle(png, size, 168, 76, 17 * scale, [124, 92, 252, 255])
+  fillCircle(png, size, 168, 76, 7 * scale, [245, 246, 250, 255])
+  fillCircle(png, size, 168, 190, 15 * scale, [245, 246, 250, 255])
 
   return PNG.sync.write(png)
 }
