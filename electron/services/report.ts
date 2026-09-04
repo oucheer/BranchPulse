@@ -32,6 +32,7 @@ export class ReportService {
     return rows.map((r) => ({
       id: String(r.id),
       title: String(r.title ?? 'BranchPulse Report'),
+      repositoryId: (r.repository_id as string | null) ?? null,
       generatedAt: String(r.generated_at),
       period: String(r.period ?? ''),
       format: String(r.format ?? 'html'),
@@ -69,7 +70,8 @@ export class ReportService {
     }
   }
 
-  private recentRuns(): ScanRun[] {
+  private recentRuns(repositoryId?: string | null): ScanRun[] {
+    void repositoryId
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 30')
     return rows.map((r) => ({
       id: String(r.id),
@@ -93,7 +95,7 @@ export class ReportService {
     }))
   }
 
-  private notifications(): Array<Record<string, unknown>> {
+  private notifications(repositoryId?: string | null): Array<Record<string, unknown>> {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 200')
     return rows.map((r) => ({
       repository: String(r.repository_name ?? ''),
@@ -105,12 +107,13 @@ export class ReportService {
     }))
   }
 
-  async generateReport(period: string, format = 'html'): Promise<ReportRecord> {
-    const repos = this.repositoryService.list()
-    const branches = this.branchService.listBranches()
+  async generateReport(period: string, format = 'html', repositoryId?: string | null): Promise<ReportRecord> {
+    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
+    const repos = this.repositoryService.list().filter((repo) => !resolvedRepositoryId || repo.id === resolvedRepositoryId)
+    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
     const summary = this.buildSummary(branches, repos.length)
-    const runs = this.recentRuns()
-    const notifications = this.notifications()
+    const runs = this.recentRuns(resolvedRepositoryId)
+    const notifications = this.notifications(resolvedRepositoryId)
     const title = `Git Branch Health Report (${period})`
     const generatedAt = new Date().toISOString()
     const filename = `branchpulse-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format === 'pdf' ? 'pdf' : format}`
@@ -122,6 +125,7 @@ export class ReportService {
     const record: ReportRecord = {
       id: newId(),
       title,
+      repositoryId: resolvedRepositoryId,
       generatedAt,
       period,
       format: safeFormat,
@@ -131,6 +135,7 @@ export class ReportService {
     this.storage.insert('reports', {
       id: record.id,
       title,
+      repository_id: resolvedRepositoryId,
       generated_at: generatedAt,
       period,
       format: safeFormat,
@@ -144,7 +149,7 @@ export class ReportService {
   async exportReport(id: string, format: string): Promise<ReportRecord> {
     const report = this.listReports().find((r) => r.id === id)
     if (!report) throw new Error('Report not found.')
-    return this.generateReport(report.period, format)
+    return this.generateReport(report.period, format, report.repositoryId)
   }
 
   async openReportFolder(): Promise<void> {

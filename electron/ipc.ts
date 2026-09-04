@@ -355,7 +355,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:sendTestEmail', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.sendTestEmail(config))
 
   ipcMain.handle('branchpulse:listReports', (): ReportRecord[] => report.listReports())
-  ipcMain.handle('branchpulse:generateReport', (_e, period: string, format?: string): Promise<ReportRecord> => report.generateReport(period, format))
+  ipcMain.handle('branchpulse:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
   ipcMain.handle('branchpulse:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
   ipcMain.handle('branchpulse:openReportFolder', (): Promise<void> => report.openReportFolder())
 

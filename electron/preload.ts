@@ -66,7 +66,8 @@ const api: BranchApi = {
   sendTestEmail: (config?: EmailConfig) => ipcRenderer.invoke('branchpulse:sendTestEmail', config),
 
   listReports: () => ipcRenderer.invoke('branchpulse:listReports'),
-  generateReport: (period: string, format?: string) => ipcRenderer.invoke('branchpulse:generateReport', period, format),
+  generateReport: (period: string, format?: string, repositoryId?: string | null) =>
+    ipcRenderer.invoke('branchpulse:generateReport', period, format, repositoryId),
   exportReport: (id: string, format: string) => ipcRenderer.invoke('branchpulse:exportReport', id, format),
   openReportFolder: () => ipcRenderer.invoke('branchpulse:openReportFolder'),
 

@@ -8,7 +8,9 @@ const periods = ['on-demand', 'daily', 'weekly', 'monthly', 'quarterly']
 const formats = ['html', 'csv', 'json', 'pdf', 'png']
 
 export default function Reports(): JSX.Element {
-  const reports = useAppStore((s) => s.reports)
+  const allReports = useAppStore((s) => s.reports)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const reports = activeRepositoryId ? allReports.filter((report) => report.repositoryId === activeRepositoryId) : allReports
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [period, setPeriod] = useState('weekly')
@@ -18,7 +20,7 @@ export default function Reports(): JSX.Element {
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const report = await window.branchpulse.generateReport(period, format)
+      const report = await window.branchpulse.generateReport(period, format, activeRepositoryId)
       toast(`Report generated: ${report.title}`, 'success')
       void refresh()
     } catch (err) {

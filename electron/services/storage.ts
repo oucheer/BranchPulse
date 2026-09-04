@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS email_templates (
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   title TEXT,
+  repository_id TEXT,
   generated_at TEXT NOT NULL,
   period TEXT,
   format TEXT,
@@ -274,6 +275,7 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
     this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('reports', 'repository_id', 'TEXT')
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {

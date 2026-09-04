@@ -251,6 +251,7 @@ export interface ReportSummary {
 export interface ReportRecord {
   id: string
   title: string
+  repositoryId: string | null
   generatedAt: string
   period: string
   format: string
@@ -447,7 +448,7 @@ export interface BranchApi {
   sendTestEmail(): Promise<EmailSendResult>
 
   listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string): Promise<ReportRecord>
+  generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
   exportReport(id: string, format: string): Promise<ReportRecord>
   openReportFolder(): Promise<void>
 
