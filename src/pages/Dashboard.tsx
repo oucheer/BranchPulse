@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, FolderGit2, GitBranch, GitMerge, Hourglass, Sc
 import { useAppStore } from '../stores/appStore'
 import { Card, StatCard, Ring, Badge } from '../components/ui'
 import { tr } from '../stores/appStore'
+import FlowingMenu from '../components/FlowingMenu'
 import { timeAgo, stateLabel, stateTone, healthTone } from '../lib/format'
 import type { BranchSummary } from '@shared/types'
 
@@ -28,7 +29,8 @@ export default function Dashboard(): JSX.Element {
   const unread = visibleNotifications.length
 
   return (
-    <div className="space-y-6">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('dashboard')}</h1>
         <div className="flex items-center gap-3 text-xs text-muted">
@@ -95,6 +97,10 @@ export default function Dashboard(): JSX.Element {
           </div>
         </Card>
       </div>
+      </div>
+      <aside className="hidden h-[calc(100vh-7.5rem)] xl:block">
+        <FlowingMenu />
+      </aside>
     </div>
   )
 }

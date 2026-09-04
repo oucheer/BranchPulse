@@ -16,8 +16,8 @@ function renderPng(size) {
   const png = new PNG({ width: size, height: size })
   const scale = size / 256
   const radius = 52 * scale
-  const bgFrom = [46, 50, 62]
-  const bgTo = [22, 24, 31]
+  const bgFrom = [255, 170, 72]
+  const bgTo = [101, 78, 246]
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
       const nx = x / size

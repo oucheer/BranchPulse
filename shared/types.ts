@@ -5,7 +5,7 @@ export type HealthLevel = 'healthy' | 'good' | 'warning' | 'critical'
 export type ScanStatus = 'idle' | 'running' | 'completed' | 'failed'
 export type EmailPolicy = 'none' | 'summary' | 'creators'
 export type NotifyTarget = 'none' | 'self' | 'creator' | 'both'
-export type RepositorySource = 'local' | 'gitlab'
+export type RepositorySource = 'local' | 'gitlab' | 'github' | 'gitee'
 export type ThemeMode = 'dark' | 'light' | 'system'
 export type LanguageCode = 'en' | 'zh'
 
@@ -98,6 +98,7 @@ export interface Repository {
   id: string
   name: string
   path: string
+  remoteProjectPath?: string
   source: RepositorySource
   gitlabUrl?: string
   gitlabProjectId?: number
@@ -360,6 +361,8 @@ export interface RunCheckOptions {
 export interface GitLabConnectionConfig {
   url?: string
   apiKey?: string
+  projectPath?: string
+  provider?: Exclude<RepositorySource, 'local'>
 }
 
 export interface GitLabProject {

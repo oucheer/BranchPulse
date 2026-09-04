@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, Notification, Tray, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Notification, Tray, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { StorageService } from './services/storage'
@@ -45,7 +45,7 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'BranchPulse',
     icon: iconPath(),
-    backgroundColor: '#f4f5f8',
+    backgroundColor: services?.settings.get().theme === 'dark' || (services?.settings.get().theme === 'system' && nativeTheme.shouldUseDarkColors) ? '#0b0d12' : '#f4f5f8',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

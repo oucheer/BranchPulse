@@ -27,37 +27,7 @@ export default function Repositories(): JSX.Element {
     ...(gitlabApiKey ? { apiKey: gitlabApiKey } : {})
   })
 
-  const saveGitlabConfig = async (): Promise<void> => {
-    setGitlabBusy(true)
-    try {
-      await window.branchpulse.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
-      toast(tr('saved'), 'success')
-      setGitlabApiKey('')
-      void refresh()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    } finally {
-      setGitlabBusy(false)
-    }
-  }
-
-  const testGitlab = async (): Promise<void> => {
-    setGitlabBusy(true)
-    setGitlabMessage(null)
-    try {
-      const result = await window.branchpulse.testGitLabConnection(gitlabConfig())
-      setGitlabMessage(result.message)
-      toast(result.ok ? tr('success') : tr('error'), result.ok ? 'success' : 'error')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setGitlabMessage(message)
-      toast(message, 'error')
-    } finally {
-      setGitlabBusy(false)
-    }
-  }
-
-  const loadGitlabProjects = async (): Promise<void> => {
+  const connect = async (): Promise<void> => {
     setGitlabBusy(true)
     setGitlabMessage(null)
     try {
@@ -65,7 +35,8 @@ export default function Repositories(): JSX.Element {
       const projects = await window.branchpulse.listGitLabProjects(gitlabConfig())
       setGitlabProjects(projects)
       setGitlabApiKey('')
-      setGitlabMessage(`${projects.length} ${tr('projects').toLowerCase()}`)
+      setGitlabMessage(`已连接，发现 ${projects.length} 个仓库`)
+      toast('已连接远程仓库', 'success')
       void refresh()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -90,7 +61,8 @@ export default function Repositories(): JSX.Element {
     setGitlabBusy(true)
     try {
       const repo = await window.branchpulse.addGitLabRepository(projectId, gitlabConfig())
-      toast(`Added ${repo.name}`, 'success')
+      const run = await window.branchpulse.scanRepository(repo.id, true)
+      toast(`${repo.name} 已添加，扫描到 ${run.branches} 个分支`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -160,11 +132,11 @@ export default function Repositories(): JSX.Element {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('repositories')}</h1>
-          <div className="text-xs text-muted">{repositories.length} {tr('repositories').toLowerCase()} · {branches.length} branches</div>
+          <div className="text-xs text-muted">{repositories.length} {tr('repositories').toLowerCase()} · {branches.length} 分支</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn" disabled={gitlabBusy || !gitlabUrl} onClick={() => void loadGitlabProjects()}>
-            <Plus size={15} /> {tr('addRepository')}
+          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
+            <Plus size={15} /> 连接仓库
           </button>
         </div>
       </div>
@@ -172,7 +144,7 @@ export default function Repositories(): JSX.Element {
       {repositories.length === 0 ? (
         <EmptyState
           title={tr('noRepositories')}
-          description="请在下方完成 GitLab 连接配置，加载并添加远程项目。"
+          description="请在下方完成远程仓库连接配置，加载并添加 GitLab、GitHub 或 Gitee 项目。"
         />
       ) : (
         <div className="space-y-3">
@@ -187,22 +159,22 @@ export default function Repositories(): JSX.Element {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-canvas-fg">{repo.name}</span>
-                      <Badge tone="info">{tr('gitlab')}</Badge>
+                      <Badge tone="info">{repo.source === 'gitlab' ? 'GitLab' : repo.source === 'github' ? 'GitHub' : repo.source === 'gitee' ? 'Gitee' : 'Local'}</Badge>
                     </div>
-                    <div className="truncate font-mono text-xs text-muted">{repo.source === 'gitlab' ? repo.webUrl ?? repo.path : repo.path}</div>
+                    <div className="truncate font-mono text-xs text-muted">{repo.webUrl ?? repo.path}</div>
                   </div>
                   <div className="hidden items-center gap-4 text-right text-xs text-muted md:flex">
                     <div>
                       <div className="font-semibold text-canvas-fg">{repo.totalBranches}</div>
-                      branches
+                      分支
                     </div>
                     <div>
                       <div className="font-semibold text-canvas-fg">{repoBranches.filter((b) => b.stale).length}</div>
-                      stale
+                      过期
                     </div>
                     <div>
                       <div className="font-semibold text-canvas-fg">{timeAgo(repo.lastScanAt)}</div>
-                      scanned
+                      扫描
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -234,15 +206,20 @@ export default function Repositories(): JSX.Element {
 
       <Card className="p-5">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-          <Cloud size={15} className="text-primary" /> {tr('gitlabConnection')}
+          <Cloud size={15} className="text-primary" /> 远程仓库连接
         </div>
-        <div className="grid gap-3 lg:grid-cols-[2fr_2fr_auto_auto]">
+        <div className="grid gap-3 lg:grid-cols-[2fr_2fr_auto]">
           <div>
-            <div className="label mb-1">{tr('gitlabUrl')}</div>
-            <input className="input" value={gitlabUrl} onChange={(e) => setGitlabUrl(e.target.value)} placeholder="https://gitlab.com" />
+            <div className="label mb-1">远程仓库地址</div>
+            <input
+              className="input"
+              value={gitlabUrl}
+              onChange={(e) => setGitlabUrl(e.target.value)}
+              placeholder="https://gitlab.com 或 https://github.com/owner/repo"
+            />
           </div>
           <div>
-            <div className="label mb-1">{tr('gitlabApiKey')}</div>
+            <div className="label mb-1">API Token</div>
             <input
               className="input"
               type="password"
@@ -251,19 +228,18 @@ export default function Repositories(): JSX.Element {
               placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('gitlabApiKey')}
             />
           </div>
-          <button className="btn" disabled={gitlabBusy || !gitlabUrl} onClick={() => void testGitlab()}>{tr('testConnection')}</button>
-          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void saveGitlabConfig()}>{tr('save')}</button>
+          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
+            <RefreshCw size={14} /> 连接
+          </button>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="min-h-5 text-xs text-muted">{gitlabMessage}</div>
-          <button className="btn" disabled={gitlabBusy || !gitlabUrl} onClick={() => void loadGitlabProjects()}>
-            <RefreshCw size={14} /> {tr('loadProjects')}
-          </button>
+          <span className="text-xs text-muted">支持 GitLab / GitHub / Gitee，自动识别平台</span>
         </div>
         {gitlabProjects.length > 0 ? (
           <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1">
             {gitlabProjects.map((project) => {
-              const added = repositories.some((repo) => repo.gitlabProjectId === project.id)
+              const added = repositories.some((repo) => repo.gitlabProjectId === project.id && repo.source !== 'local')
               return (
                 <div key={project.id} className="flex items-center gap-3 rounded-md border border-line px-3 py-2">
                   <GitBranch size={15} className="shrink-0 text-muted" />

@@ -9,6 +9,7 @@ import type {
   ProtectionInfo,
   Repository
 } from '@shared/types'
+import type { GitLabConnectionConfig } from '@shared/types'
 import type { GitRefInfo, GitService } from './git'
 import type { RepositoryService } from './repository'
 import type { NamingService } from './naming'
@@ -40,6 +41,13 @@ interface AnalysisFacts {
   mergedInto: string | null
   baseBranch: string
   gracePeriodDays: number
+}
+
+function remoteBranchConfig(repo: Repository, apiKey?: string): GitLabConnectionConfig {
+  if (repo.source === 'github' || repo.source === 'gitee' || repo.source === 'gitlab') {
+    return { provider: repo.source, url: repo.gitlabUrl ?? '', projectPath: repo.remoteProjectPath, ...(apiKey ? { apiKey } : {}) }
+  }
+  return { provider: 'gitlab' }
 }
 
 function normRef(ref: string): string {
@@ -99,81 +107,10 @@ export class BranchService {
   async scanRepository(repositoryId: string, options: RepositoryScanOptions = {}): Promise<BranchSummary[]> {
     const repo = this.repositoryService.get(repositoryId)
     if (!repo) throw new Error('Repository not found.')
-    if (repo.source === 'gitlab') {
+    if (repo.source === 'gitlab' || repo.source === 'github' || repo.source === 'gitee') {
       return this.scanGitLabRepository(repo, options)
     }
-    const progress = options.progress ?? ((): void => undefined)
-    const monitoring = this.monitoring()
-    const fp = fingerprint(monitoring, this.naming, this.protection)
-
-    if (options.fetch && repo.remotes.length > 0) {
-      progress('Fetching latest refs...')
-      await this.git.fetch(repo.path)
-      this.repositoryService.update(repositoryId, { lastFetchAt: new Date().toISOString() })
-    }
-
-    progress('Discovering branches...')
-    const [localRefs, remoteRefs] = await Promise.all([
-      this.git.listRefs(repo.path, 'heads'),
-      this.git.listRefs(repo.path, 'remotes')
-    ])
-    const currentBranch = await this.git.currentBranch(repo.path)
-    const defaultBranch = repo.defaultBranch
-    const defaultRef = this.refExistsLocally(localRefs, defaultBranch)
-      ? refForLocal(repo.path, defaultBranch)
-      : refForRemote(repo.remotes[0] ?? 'origin', defaultBranch)
-
-    const allRefs: GitRefInfo[] = [
-      ...localRefs.map((r) => ({ ...r })),
-      ...remoteRefs.map((r) => ({ ...r }))
-    ]
-
-    progress(`Analyzing ${allRefs.length} branches...`)
-    const analyzed: BranchSummary[] = []
-    const batchSize = 6
-    for (let i = 0; i < allRefs.length; i += batchSize) {
-      const batch = allRefs.slice(i, i + batchSize)
-      const results = await Promise.all(
-        batch.map((ref) => this.analyzeRef(repo.id, repo.path, ref, currentBranch, defaultBranch, defaultRef, monitoring, fp))
-      )
-      analyzed.push(...results.flat())
-      progress(`Analyzed ${Math.min(i + batchSize, allRefs.length)} of ${allRefs.length} branches...`)
-    }
-
-    this.storage.transaction(() => {
-      for (const branch of analyzed) {
-        const key = `${repositoryId}|${branch.type}|${branch.name}`
-        this.storage.delete('branches', 'key = ?', [key])
-        this.storage.insert('branches', {
-          id: newId(),
-          key,
-          repository_id: repositoryId,
-          name: branch.name,
-          type: branch.type,
-          data_json: JSON.stringify(branch),
-          last_scanned_at: new Date().toISOString()
-        })
-        this.storage.update('branch_snapshots', { sha: branch.lastCommitSha, updated_at: new Date().toISOString() }, 'key = ?', [key])
-        if (this.storage.get('SELECT 1 AS x FROM branch_snapshots WHERE key = ?', [key]) === undefined) {
-          this.storage.insert('branch_snapshots', { key, sha: branch.lastCommitSha, updated_at: new Date().toISOString() })
-        }
-      }
-    })
-
-    this.repositoryService.update(repositoryId, {
-      currentBranch,
-      defaultBranch,
-      totalBranches: analyzed.length,
-      lastScanAt: new Date().toISOString()
-    })
-    this.audit.record('repository_scanned', {
-      repository: repo.name,
-      branches: analyzed.length,
-      stale: analyzed.filter((b) => b.stale).length,
-      namingInvalid: analyzed.filter((b) => b.naming.status === 'invalid').length,
-      merged: analyzed.filter((b) => b.merged).length
-    })
-    return analyzed
+    throw new Error('BranchPulse 现在只通过远程仓库 API 扫描，请添加远程仓库。')
   }
 
   private async scanGitLabRepository(repo: Repository, options: RepositoryScanOptions = {}): Promise<BranchSummary[]> {
@@ -184,16 +121,17 @@ export class BranchService {
     if (!projectId) throw new Error('GitLab project id is missing for this repository.')
 
     progress('Fetching GitLab branches...')
-    const branches = await this.gitlab.listBranches(projectId)
+    const remoteConfig = remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id))
+    const branches = await this.gitlab.listBranches(projectId, remoteConfig)
     const defaultBranch = repo.defaultBranch || branches.find((b) => b.default)?.name || 'main'
     progress(`Analyzing ${branches.length} GitLab branches...`)
-    const defaultShas = new Set(await this.gitlabCommitShas(projectId, defaultBranch, 5))
+    const defaultShas = new Set(await this.gitlabCommitShas(projectId, defaultBranch, 5, remoteConfig))
     const analyzed: BranchSummary[] = []
     const batchSize = 6
     for (let i = 0; i < branches.length; i += batchSize) {
       const batch = branches.slice(i, i + batchSize)
       const results = await Promise.all(
-        batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, defaultShas, monitoring, fp))
+        batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, defaultShas, monitoring, fp, remoteConfig))
       )
       analyzed.push(...results)
       progress(`Analyzed ${Math.min(i + batchSize, branches.length)} of ${branches.length} branches...`)
@@ -228,7 +166,7 @@ export class BranchService {
     })
     this.audit.record('repository_scanned', {
       repository: repo.name,
-      source: 'gitlab',
+      source: repo.source,
       branches: analyzed.length,
       stale: analyzed.filter((b) => b.stale).length,
       namingInvalid: analyzed.filter((b) => b.naming.status === 'invalid').length,
@@ -237,10 +175,10 @@ export class BranchService {
     return analyzed
   }
 
-  private async gitlabCommitShas(projectId: number, refName: string, maxPages = 5): Promise<string[]> {
+  private async gitlabCommitShas(projectId: number, refName: string, maxPages = 5, config?: GitLabConnectionConfig): Promise<string[]> {
     const shas: string[] = []
     for (let page = 1; page <= maxPages; page += 1) {
-      const pageCommits = await this.gitlab.listCommits(projectId, refName, page, 100)
+      const pageCommits = await this.gitlab.listCommits(projectId, refName, page, 100, config)
       shas.push(...pageCommits.map((c) => c.id))
       if (pageCommits.length < 100) break
     }
@@ -254,7 +192,8 @@ export class BranchService {
     defaultBranch: string,
     defaultShas: Set<string>,
     monitoring: MonitoringConfig,
-    fp: string
+    fp: string,
+    config?: GitLabConnectionConfig
   ): Promise<BranchSummary> {
     const cacheKey = `${repo.id}|remote|${branch.name}`
     const latestCommit = branch.commit
@@ -270,7 +209,7 @@ export class BranchService {
       }
     }
 
-    const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100)
+    const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100, config)
     const commitSet = new Set(commits.map((c) => c.id))
     const unique = commits.filter((c) => !defaultShas.has(c.id))
     const firstUnique = unique.length > 0 ? unique[unique.length - 1] : null
@@ -557,9 +496,9 @@ export class BranchService {
     const repo = this.repositoryService.get(criteria.repositoryId)
     const parsed = JSON.parse(String(row.data_json)) as BranchSummary
     parsed.repositoryName = repo?.name ?? ''
-    if (repo && repo.source === 'gitlab' && repo.gitlabProjectId) {
+    if (repo && repo.source !== 'local' && repo.gitlabProjectId) {
       try {
-        const commits = await this.gitlab.listCommits(repo.gitlabProjectId, criteria.name, 1, 20)
+        const commits = await this.gitlab.listCommits(repo.gitlabProjectId, criteria.name, 1, 20, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id)))
         parsed.recentCommits = commits.map((c) => this.gitLabCommitToInfo(c))
         parsed.existsLocally = false
         parsed.existsRemotely = true
@@ -567,12 +506,9 @@ export class BranchService {
         parsed.recentCommits = []
       }
     } else if (repo) {
-      const fullRef = criteria.type === 'local' ? refForLocal(repo.path, criteria.name) : refForRemote(criteria.remote ?? 'origin', criteria.name)
-      parsed.recentCommits = await this.git.lastCommits(repo.path, fullRef, 12)
-      const presence = await this.git.branchPresence(repo.path, criteria.name, criteria.remote)
-      parsed.existsLocally = presence.existsLocally
-      parsed.existsRemotely = presence.existsRemotely
-      parsed.remote = criteria.remote ?? parsed.remote
+      parsed.recentCommits = []
+      parsed.existsLocally = false
+      parsed.existsRemotely = repo.source !== 'local'
     }
     const monitoring = this.monitoring()
     return this.refreshComputed(parsed, monitoring, { name: criteria.name } as GitRefInfo, '')
@@ -596,15 +532,11 @@ export class BranchService {
       const repo = this.repositoryService.get(branch.repositoryId)
       if (!repo) continue
       try {
-        if (repo.source === 'gitlab' && repo.gitlabProjectId) {
-          await this.gitlab.deleteBranch(repo.gitlabProjectId, branch.name)
-          this.deleteRemoteRecord({ repositoryId: branch.repositoryId, name: branch.name, type: 'remote' })
-        } else if (branch.type === 'remote') {
-          await this.git.deleteRemoteBranch(repo.path, branch.remote ?? 'origin', branch.name)
+        if (repo.source !== 'local' && repo.gitlabProjectId) {
+          await this.gitlab.deleteBranch(repo.gitlabProjectId, branch.name, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id)))
           this.deleteRemoteRecord({ repositoryId: branch.repositoryId, name: branch.name, type: 'remote' })
         } else {
-          await this.git.deleteLocalBranch(repo.path, branch.name)
-          this.deleteLocalRecord({ repositoryId: branch.repositoryId, name: branch.name, type: 'local' })
+          throw new Error('远程仓库配置不完整，无法通过 API 删除分支。')
         }
         this.audit.record('branch_auto_deleted', {
           repository: repo.name,

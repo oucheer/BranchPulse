@@ -4,6 +4,7 @@ import type { StorageService } from './storage'
 import type { GitService } from './git'
 import type { AuditService } from './audit'
 import type { GitLabService } from './gitlab'
+import { decryptSecret, detectRemoteProvider, encryptSecret } from './gitlab'
 import { newId, nowIso } from '../utils/ids'
 
 function rowToRepository(row: Record<string, unknown>): Repository {
@@ -11,7 +12,8 @@ function rowToRepository(row: Record<string, unknown>): Repository {
     id: String(row.id),
     name: String(row.name),
     path: String(row.path),
-    source: (row.source === 'gitlab' ? 'gitlab' : 'local'),
+    source: (row.source === 'gitlab' || row.source === 'github' || row.source === 'gitee' ? row.source : 'local'),
+    remoteProjectPath: (row.remote_project_path as string | null) ?? undefined,
     gitlabUrl: (row.gitlab_url as string | null) ?? undefined,
     gitlabProjectId: row.gitlab_project_id != null ? Number(row.gitlab_project_id) : undefined,
     webUrl: (row.web_url as string | null) ?? undefined,
@@ -100,15 +102,20 @@ export class RepositoryService {
 
   async addGitLab(projectId: number, config?: GitLabConnectionConfig): Promise<Repository> {
     const project = await this.gitlab.getProject(projectId, config)
-    const existing = this.storage.get<Record<string, unknown>>('SELECT id FROM repositories WHERE gitlab_project_id = ?', [project.id])
+    const provider = detectRemoteProvider(project.webUrl, config?.provider)
+    const existing = this.storage.get<Record<string, unknown>>('SELECT id FROM repositories WHERE gitlab_project_id = ? AND source = ?', [project.id, provider])
     if (existing) {
+      if (config?.apiKey) {
+        this.storage.update('repositories', { remote_api_key: encryptSecret(config.apiKey) }, 'id = ?', [String(existing.id)])
+      }
       return this.get(String(existing.id))!
     }
     const repo: Repository = {
       id: newId(),
       name: project.pathWithNamespace || project.name,
-      path: `gitlab://${project.id}`,
-      source: 'gitlab',
+      path: `${provider}://${project.id}`,
+      source: provider,
+      remoteProjectPath: project.pathWithNamespace,
       gitlabUrl: project.webUrl,
       gitlabProjectId: project.id,
       webUrl: project.webUrl,
@@ -124,9 +131,11 @@ export class RepositoryService {
       id: repo.id,
       name: repo.name,
       path: repo.path,
-      source: 'gitlab',
+      source: provider,
       gitlab_url: repo.gitlabUrl,
       gitlab_project_id: repo.gitlabProjectId,
+      remote_project_path: repo.remoteProjectPath,
+      remote_api_key: config?.apiKey ? encryptSecret(config.apiKey) : null,
       web_url: repo.webUrl,
       current_branch: repo.currentBranch,
       default_branch: repo.defaultBranch,
@@ -138,6 +147,11 @@ export class RepositoryService {
     })
     this.audit.record('repository_added', { repository: repo.name, gitlabProjectId: project.id })
     return repo
+  }
+
+  getRemoteToken(id: string): string {
+    const row = this.storage.get<Record<string, unknown>>('SELECT remote_api_key FROM repositories WHERE id = ?', [id])
+    return decryptSecret((row?.remote_api_key as string | null) ?? '')
   }
 
   remove(id: string): Repository[] {

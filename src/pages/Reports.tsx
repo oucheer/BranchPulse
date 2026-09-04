@@ -8,6 +8,15 @@ import type { ReportScheduleFrequency } from '@shared/types'
 const formats = ['html', 'csv', 'json', 'pdf', 'png']
 const frequencies: ReportScheduleFrequency[] = ['daily', 'weekly', 'monthly', 'once']
 
+const frequencyHint = (frequency: ReportScheduleFrequency): string =>
+  frequency === 'daily'
+    ? '按天巡检和汇总，适合每天观察新增过期分支。'
+    : frequency === 'weekly'
+      ? '按周聚合趋势，适合复盘一周清理效果。'
+      : frequency === 'monthly'
+        ? '按月汇总长期变化，适合月度治理回顾。'
+        : '只在指定时间生成一次。'
+
 const emptySchedule = () => ({
   name: '每日分支报告',
   frequency: 'daily' as ReportScheduleFrequency,
@@ -194,6 +203,7 @@ export default function Reports(): JSX.Element {
         <button className="btn btn-primary mt-4" onClick={() => void saveSchedule()}>
           <Plus size={14} /> 保存定时任务
         </button>
+        <div className="mt-2 text-xs text-muted">{frequencyHint(draft.frequency)}</div>
 
         {reportSchedules.length > 0 ? (
           <div className="mt-4 space-y-2">

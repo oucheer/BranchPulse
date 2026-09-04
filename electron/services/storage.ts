@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS repositories (
   gitlab_url TEXT,
   gitlab_project_id INTEGER,
   web_url TEXT,
+  remote_project_path TEXT,
+  remote_api_key TEXT,
   current_branch TEXT,
   default_branch TEXT,
   remotes_json TEXT,
@@ -282,6 +284,8 @@ export class StorageService {
     this.ensureColumn('repositories', 'gitlab_url', 'TEXT')
     this.ensureColumn('repositories', 'gitlab_project_id', 'INTEGER')
     this.ensureColumn('repositories', 'web_url', 'TEXT')
+    this.ensureColumn('repositories', 'remote_project_path', 'TEXT')
+    this.ensureColumn('repositories', 'remote_api_key', 'TEXT')
     this.ensureColumn('monitoring_rules', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')

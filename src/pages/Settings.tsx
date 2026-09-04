@@ -91,22 +91,7 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const testGitLab = async (): Promise<void> => {
-    setGitlabBusy(true)
-    try {
-      const result = await window.branchpulse.testGitLabConnection({
-        url: draft.gitlabUrl,
-        ...(gitlabApiKey ? { apiKey: gitlabApiKey } : {})
-      })
-      toast(result.message, result.ok ? 'success' : 'error')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    } finally {
-      setGitlabBusy(false)
-    }
-  }
-
-  const saveGitLab = async (): Promise<void> => {
+  const connectGitLab = async (): Promise<void> => {
     setGitlabBusy(true)
     try {
       const saved = await window.branchpulse.saveSettings({
@@ -116,7 +101,10 @@ export default function Settings(): JSX.Element {
       })
       setDraft(saved)
       setGitlabApiKey('')
-      toast(tr('saved'), 'success')
+      const result = await window.branchpulse.testGitLabConnection({
+        url: saved.gitlabUrl
+      })
+      toast(result.message, result.ok ? 'success' : 'error')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -230,15 +218,15 @@ export default function Settings(): JSX.Element {
 
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Cloud size={15} className="text-primary" /> {tr('gitlabConnection')}
+            <Cloud size={15} className="text-primary" /> 远程仓库连接
           </div>
           <div className="space-y-4">
             <div>
-              <div className="label mb-1.5">{tr('gitlabUrl')}</div>
-              <input className="input" value={draft.gitlabUrl} onChange={(e) => setDraft({ ...draft, gitlabUrl: e.target.value })} placeholder="https://gitlab.com" />
+              <div className="label mb-1.5">远程仓库地址</div>
+              <input className="input" value={draft.gitlabUrl} onChange={(e) => setDraft({ ...draft, gitlabUrl: e.target.value })} placeholder="https://gitlab.com 或 https://github.com/owner/repo" />
             </div>
             <div>
-              <div className="label mb-1.5">{tr('gitlabApiKey')}</div>
+              <div className="label mb-1.5">API Token</div>
               <input
                 className="input"
                 type="password"
@@ -248,13 +236,10 @@ export default function Settings(): JSX.Element {
               />
             </div>
             <div className="flex items-center gap-2 border-t border-line pt-4">
-              <button className="btn btn-primary" disabled={gitlabBusy} onClick={() => void saveGitLab()}>
-                <Save size={14} /> {tr('save')}
+              <button className="btn btn-primary" disabled={gitlabBusy || !draft.gitlabUrl} onClick={() => void connectGitLab()}>
+                <Cloud size={14} /> 连接
               </button>
-              <button className="btn" disabled={gitlabBusy || !draft.gitlabUrl} onClick={() => void testGitLab()}>
-                <Wrench size={14} /> {tr('testConnection')}
-              </button>
-              <Badge tone={draft.hasGitlabApiKey ? 'ok' : 'default'}>{draft.hasGitlabApiKey ? 'connected' : 'not configured'}</Badge>
+              <Badge tone={draft.hasGitlabApiKey ? 'ok' : 'default'}>{draft.hasGitlabApiKey ? '已保存' : '未配置'}</Badge>
             </div>
           </div>
         </Card>

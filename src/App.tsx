@@ -61,6 +61,7 @@ export default function App(): JSX.Element {
       ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
       : settings.theme
     root.classList.toggle('dark', resolvedTheme === 'dark')
+    root.classList.toggle('light', resolvedTheme === 'light')
   }, [settings.theme])
 
   useEffect(() => {

@@ -274,6 +274,29 @@ export class ReportService {
           <td class="chart-value">${item.value}</td>
         </tr>`)
       .join('')
+    const ring = (value: number, color: string, label: string): string => {
+      const circumference = 2 * Math.PI * 52
+      const offset = circumference * (1 - Math.min(100, Math.max(0, value)) / 100)
+      return `
+        <div class="ring">
+          <svg viewBox="0 0 130 130" role="img" aria-label="${escapeHtml(label)}">
+            <circle cx="65" cy="65" r="52" stroke="#edeff5" stroke-width="12" fill="none"></circle>
+            <circle cx="65" cy="65" r="52" stroke="${color}" stroke-width="12" fill="none"
+              stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" transform="rotate(-90 65 65)"></circle>
+            <text x="65" y="60" text-anchor="middle" class="ring-value">${value}</text>
+            <text x="65" y="80" text-anchor="middle" class="ring-label">${escapeHtml(label)}</text>
+          </svg>
+        </div>`
+    }
+    const rings = [
+      ring(summary.averageHealth, '#16a34a', '平均健康分'),
+      ring(summary.compliancePercent, '#7c5cfc', '命名合规率')
+    ].join('')
+    const trendData = runs.slice(0, 12).reverse()
+    const trendMax = Math.max(1, ...trendData.map((run) => run.branches))
+    const trendPoints = trendData
+      .map((run, index) => `${24 + index * Math.max(1, 512 / Math.max(1, trendData.length - 1))},${164 - (run.branches / trendMax) * 136}`)
+      .join(' ')
     const riskBranches = branches
       .filter((b) => b.stale || b.graceExpired || b.cleanupCandidate)
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
@@ -321,6 +344,9 @@ export class ReportService {
   .bar{height:10px;min-width:4px;border-radius:999px;background:#edeff5;overflow:hidden}.bar span{display:block;height:100%;border-radius:999px}
   .chart-label{width:130px;font-weight:600}.chart-cell{width:auto}.chart-value{width:54px;text-align:right;font-weight:700}
   .danger{color:#dc2626}.warn{color:#d97706}
+  .ring-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:6px}
+  .ring svg{display:block;width:100%;height:auto}.ring-value{fill:#12141c;font-size:24px;font-weight:800}.ring-label{fill:#69707f;font-size:10px;font-weight:650}
+  .trend{width:100%;height:auto;border:1px solid #e6e8ef;border-radius:12px;background:#fff}
   @media(max-width:900px){.hero,.layout{padding-left:24px;padding-right:24px}.layout{grid-template-columns:1fr}}
   </style>
   <script>const slides=document.querySelectorAll('.slide');let active=0;setInterval(()=>{slides[active].classList.remove('active');active=(active+1)%slides.length;slides[active].classList.add('active')},3600)</script>
@@ -328,7 +354,7 @@ export class ReportService {
   <section class="hero"><div class="hero-content">
     <div class="eyebrow">BranchPulse Report</div>
     <h1>分支生命周期<br/>健康与巡检报告</h1>
-    <div class="sub">报告基于 GitLab 远程仓库实时巡检数据生成，聚焦分支陈旧趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
+    <div class="sub">报告基于远程仓库平台实时巡检数据生成，聚焦分支陈旧趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
     <div class="meta"><span class="pill">${escapeHtml(title)}</span><span class="pill">生成时间：${escapeHtml(new Date(generatedAt).toLocaleString('zh-CN'))}</span><span class="pill">统计范围：${escapeHtml(period)}</span></div>
   </div></section>
   <main class="layout">
@@ -338,7 +364,12 @@ export class ReportService {
       </tbody></table></div>
     </section>
     <section class="glass">
+      <div class="section"><h2>数据一览</h2><div class="ring-grid">${rings}</div></div>
       <div class="section"><h2>分支分布图</h2><table class="chart"><tbody>${chartRows}</tbody></table></div>
+      <div class="section"><h2>巡检趋势</h2><svg class="trend" viewBox="0 0 560 180" role="img" aria-label="巡检分支数量趋势">
+        <line x1="24" y1="164" x2="536" y2="164" stroke="#e6e8ef"></line>
+        <polyline points="${trendPoints}" fill="none" stroke="#ff7a18" stroke-width="3" stroke-linecap="round"></polyline>
+      </svg></div>
       <div class="section"><h2>超过阈值 / 需要处理</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>未提交</th><th>最近提交</th><th>状态</th><th>清理候选</th></tr></thead><tbody>${riskRows}</tbody></table></div>
       <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>陈旧</th><th>命名异常</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
       <div class="section"><h2>全部分支明细</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>提交数</th><th>未提交</th><th>状态</th><th>命名</th><th>健康分</th><th>保护状态</th></tr></thead><tbody>${detailRows}</tbody></table></div>

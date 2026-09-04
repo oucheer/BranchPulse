@@ -27,6 +27,7 @@ export default function Scheduler(): JSX.Element {
   const calendarRuns = useAppStore((s) => s.calendarRuns)
   const scanRuns = useAppStore((s) => s.scanRuns)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const settings = useAppStore((s) => s.settings)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
@@ -248,9 +249,15 @@ export default function Scheduler(): JSX.Element {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-canvas-fg">{tr('autoDeleteEnabled')}</div>
-              <div className="text-xs text-muted">{tr('autoDeleteHint')}</div>
+              <div className="text-xs text-muted">
+                {settings.deletionDisabled ? '全局禁止删除分支已开启，自动删除被禁用。' : tr('autoDeleteHint')}
+              </div>
             </div>
-            <Toggle checked={editJob?.autoDeleteEnabled ?? false} onChange={(v) => setEditJob({ ...editJob, autoDeleteEnabled: v })} />
+            <Toggle
+              checked={settings.deletionDisabled ? false : editJob?.autoDeleteEnabled ?? false}
+              disabled={settings.deletionDisabled}
+              onChange={(v) => setEditJob({ ...editJob, autoDeleteEnabled: v })}
+            />
           </div>
           <div>
             <div className="label mb-1">{tr('notifyTarget')}</div>

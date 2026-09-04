@@ -216,13 +216,18 @@ export function registerIpc(services: AppServices): void {
       if (auth.targetType === 'local') {
         await git.deleteLocalBranch(repo?.path ?? '', auth.branch)
         branch.deleteLocalRecord(criteria)
-      } else if (repo?.source === 'gitlab' && repo.gitlabProjectId) {
-        await gitlab.deleteBranch(repo.gitlabProjectId, auth.branch)
+      } else if (repo && repo.source !== 'local' && repo.gitlabProjectId) {
+        await gitlab.deleteBranch(repo.gitlabProjectId, auth.branch, {
+          provider: repo.source,
+          url: repo.gitlabUrl,
+          projectPath: repo.remoteProjectPath,
+          ...(repository.getRemoteToken(repo.id) ? { apiKey: repository.getRemoteToken(repo.id) } : {})
+        })
         branch.deleteRemoteRecord(criteria)
+      } else if (repo && auth.targetType === 'remote') {
+        throw new Error('远程仓库配置不完整，无法通过 API 删除分支。')
       } else {
-        const remote = branchSummary.remote ?? repo?.remotes[0] ?? 'origin'
-        await git.deleteRemoteBranch(repo?.path ?? '', remote, auth.branch)
-        branch.deleteRemoteRecord(criteria)
+        throw new Error('当前仅支持通过远程仓库 API 管理分支。')
       }
       audit.record('branch_delete', {
         repository: branchSummary.repositoryName, branch: auth.branch, targetType: auth.targetType, remote: branchSummary.remote,

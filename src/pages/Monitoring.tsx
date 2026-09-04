@@ -48,7 +48,7 @@ export default function Monitoring(): JSX.Element {
   }
 
   const activeRepository = repositories.find((r) => r.id === activeRepositoryId)
-  const isGitLabOnly = activeRepository ? activeRepository.source === 'gitlab' : repositories.every((r) => r.source === 'gitlab')
+  const isRemoteOnly = activeRepository ? activeRepository.source !== 'local' : repositories.length > 0 && repositories.every((r) => r.source !== 'local')
   const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns).slice(0, 5)
 
   return (
@@ -67,7 +67,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取 GitLab 上的分支列表和最近提交：超过未提交天数阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交天数阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
             </div>
             <div>
               <div className="label mb-1.5">未提交天数阈值（天）</div>
@@ -91,7 +91,7 @@ export default function Monitoring(): JSX.Element {
                 onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
               />
             </div>
-            {!isGitLabOnly && (
+            {!isRemoteOnly && (
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">{tr('fetchEnabled')}</div>
@@ -130,9 +130,15 @@ export default function Monitoring(): JSX.Element {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm text-canvas-fg">{tr('autoDeleteEnabled')}</div>
-                <div className="text-xs text-muted">{tr('autoDeleteHint')}</div>
+                <div className="text-xs text-muted">
+                  {settings.deletionDisabled ? '全局禁止删除分支已开启，自动删除被禁用。' : tr('autoDeleteHint')}
+                </div>
               </div>
-              <Toggle checked={draft.autoDeleteEnabled} onChange={(v) => setDraft({ ...draft, autoDeleteEnabled: v })} />
+              <Toggle
+                checked={settings.deletionDisabled ? false : draft.autoDeleteEnabled}
+                disabled={settings.deletionDisabled}
+                onChange={(v) => setDraft({ ...draft, autoDeleteEnabled: v })}
+              />
             </div>
           </div>
         </Card>
