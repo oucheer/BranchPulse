@@ -116,7 +116,10 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     <div className="flex h-screen bg-canvas text-muted">
       <LiquidLines />
       <ElasticMesh />
-      <aside className="relative z-10 flex w-56 shrink-0 flex-col border-r border-line bg-surface/80 backdrop-blur">
+      <aside
+        className="relative z-10 flex flex-col overflow-hidden border-r border-line bg-surface"
+        style={{ width: 240, minWidth: 240, maxWidth: 240, height: '100vh' }}
+      >
         <div className="flex h-14 items-center gap-2.5 border-b border-line px-4">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary to-secondary">
             <GitBranch size={15} className="text-white" />
@@ -132,8 +135,8 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
                 <button
                   key={item.to}
                   onClick={() => navigate(item.to)}
-                  className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
-                    active ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-line/30 hover:text-canvas-fg'
+                  className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
+                    active ? 'bg-primary/10 text-primary' : 'text-muted'
                   }`}
                 >
                   <Icon size={16} />
