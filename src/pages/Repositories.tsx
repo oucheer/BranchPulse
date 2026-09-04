@@ -193,7 +193,7 @@ export default function Repositories(): JSX.Element {
                     >
                       <ScanLine size={15} />
                     </button>
-                    <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={tr('removeGitlab')}>
+                    <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={tr('removeRemote')}>
                       <Trash2 size={15} className="text-danger" />
                     </button>
                   </div>
@@ -225,7 +225,7 @@ export default function Repositories(): JSX.Element {
               type="password"
               value={gitlabApiKey}
               onChange={(e) => setGitlabApiKey(e.target.value)}
-              placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('gitlabApiKey')}
+              placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
             />
           </div>
           <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>

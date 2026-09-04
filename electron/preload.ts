@@ -18,7 +18,6 @@ import type {
 
 const api: BranchApi = {
   init: () => ipcRenderer.invoke('branchpulse:init'),
-  addRepository: (path: string) => ipcRenderer.invoke('branchpulse:addRepository', path),
   addGitLabRepository: (projectId: number, config?: GitLabConnectionConfig) =>
     ipcRenderer.invoke('branchpulse:addGitLabRepository', projectId, config),
   listGitLabProjects: (config?: GitLabConnectionConfig) => ipcRenderer.invoke('branchpulse:listGitLabProjects', config),
@@ -81,8 +80,6 @@ const api: BranchApi = {
   listAudit: () => ipcRenderer.invoke('branchpulse:listAudit'),
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('branchpulse:saveSettings', settings),
-  createDemoRepository: () => ipcRenderer.invoke('branchpulse:createDemoRepository'),
-  pickDirectory: () => ipcRenderer.invoke('branchpulse:pickDirectory'),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on('branchpulse:scan-progress', listener)

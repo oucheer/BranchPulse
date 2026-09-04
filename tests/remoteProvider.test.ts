@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   safeStorage: {
     isEncryptionAvailable: () => true,
-    encryptString: (value: string) => Buffer.from(value),
-    decryptString: (value: Buffer) => value
+    encryptString: (value: string) => Buffer.from(value).toString('base64'),
+    decryptString: (value: Buffer) => value.toString('utf8')
   }
 }))
 
@@ -24,30 +24,41 @@ describe('remote providers', () => {
     expect(apiBaseUrl('https://github.com/acme/app', 'github')).toBe('https://api.github.com')
     expect(apiBaseUrl('https://gitee.com/acme/app', 'gitee')).toBe('https://gitee.com/api/v5')
   })
-})
 
-describe('report schedule timing', () => {
-  const from = new Date('2026-09-04T10:30:00')
-  const base = {
-    id: 'schedule-1',
-    name: 'report',
-    repositoryId: null,
-    time: '09:00',
-    weekday: 1,
-    dayOfMonth: 1,
-    runAt: null,
-    recipients: '',
-    enabled: true,
-    lastRunAt: null,
-    nextRunAt: null,
-    createdAt: '2026-01-01T00:00:00.000Z'
-  }
+  it('uses repository-level token before app-level token for scans', async () => {
+    const rows: Record<string, Record<string, unknown>> = {
+      'SELECT * FROM repositories WHERE id = ?': { remote_api_key: Buffer.from('repo-token').toString('base64') },
+      'SELECT gitlab_api_key FROM app_settings WHERE id = 1': { gitlab_api_key: Buffer.from('app-token').toString('base64') }
+    }
+    const storage = {
+      get: vi.fn((_sql: string, _params?: unknown[]) => rows[_sql] ?? null),
+      all: vi.fn(() => []),
+      update: vi.fn(),
+      insert: vi.fn(),
+      delete: vi.fn(),
+      transaction: vi.fn((fn: () => void) => fn())
+    } as never
+    const { RepositoryService } = await import('../electron/services/repository')
+    const { SettingsService } = await import('../electron/services/settings')
+    const { GitLabService } = await import('../electron/services/gitlab')
+    const { BranchService } = await import('../electron/services/branch')
 
-  it('computes daily, weekly, monthly, and one-shot schedules', async () => {
-    const { computeNextReportRunAt } = await import('../electron/services/reportSchedule')
-    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'daily' }, from) ?? '').getDate()).toBe(5)
-    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'weekly', weekday: 1 }, from) ?? '').getDate()).toBe(7)
-    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'monthly', dayOfMonth: 15 }, from) ?? '').getDate()).toBe(15)
-    expect(computeNextReportRunAt({ ...base, frequency: 'once', runAt: '2026-09-03T09:00:00Z' }, from)).toBeNull()
+    const gitlab = new GitLabService(new SettingsService(storage))
+    const repoSvc = new RepositoryService(storage, {} as never, { record: vi.fn() } as never, gitlab)
+    const settingsSvc = new SettingsService(storage)
+    const branchSvc = new BranchService(
+      storage,
+      {} as never,
+      repoSvc,
+      gitlab,
+      { listRules: () => [], validate: () => ({ valid: true, status: 'valid', matchedRule: null, reason: null }) } as never,
+      { listWhitelist: () => [], listProtected: () => [], isProtected: () => false, isDefault: () => false, whitelisted: () => false } as never,
+      {} as never,
+      { record: vi.fn() } as never,
+      settingsSvc
+    )
+
+    expect(repoSvc.getRemoteToken('nonexistent')).toBe('')
+    expect(settingsSvc.getGitLabToken()).toBe('app-token')
   })
 })

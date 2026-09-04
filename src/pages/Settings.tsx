@@ -101,10 +101,8 @@ export default function Settings(): JSX.Element {
       })
       setDraft(saved)
       setGitlabApiKey('')
-      const result = await window.branchpulse.testGitLabConnection({
-        url: saved.gitlabUrl
-      })
-      toast(result.message, result.ok ? 'success' : 'error')
+      await window.branchpulse.listGitLabProjects({ url: saved.gitlabUrl })
+      toast('远程仓库 API 已连接', 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -112,8 +110,8 @@ export default function Settings(): JSX.Element {
       setGitlabBusy(false)
     }
   }
-
   const sendTest = async (): Promise<void> => {
+
     setTesting(true)
     try {
       const result = await window.branchpulse.sendTestEmail()
@@ -124,7 +122,6 @@ export default function Settings(): JSX.Element {
       setTesting(false)
     }
   }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -232,7 +229,7 @@ export default function Settings(): JSX.Element {
                 type="password"
                 value={gitlabApiKey}
                 onChange={(e) => setGitlabApiKey(e.target.value)}
-                placeholder={draft.hasGitlabApiKey ? tr('apiKeySaved') : tr('gitlabApiKey')}
+                placeholder={draft.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
               />
             </div>
             <div className="flex items-center gap-2 border-t border-line pt-4">

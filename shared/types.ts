@@ -421,7 +421,6 @@ export const DeleteBlockLabels: Record<DeleteBlockCode, string> = {
 
 export interface BranchApi {
   init(): Promise<DashboardSnapshot>
-  addRepository(path: string): Promise<Repository>
   addGitLabRepository(projectId: number, config?: GitLabConnectionConfig): Promise<Repository>
   listGitLabProjects(config?: GitLabConnectionConfig): Promise<GitLabProject[]>
   testGitLabConnection(config?: GitLabConnectionConfig): Promise<GitLabTestResult>
@@ -480,8 +479,6 @@ export interface BranchApi {
   listAudit(): Promise<AuditEntry[]>
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
-  createDemoRepository(): Promise<Repository>
-  pickDirectory(): Promise<string | null>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
 }
 

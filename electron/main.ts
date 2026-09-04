@@ -180,7 +180,7 @@ async function bootstrap(): Promise<void> {
   const naming = new NamingService(storage)
   const protection = new ProtectionService(storage)
   const health = new HealthService()
-  const branch = new BranchService(storage, git, repository, gitlab, naming, protection, health, audit)
+  const branch = new BranchService(storage, git, repository, gitlab, naming, protection, health, audit, settings)
   const email = new EmailService(storage, audit)
   const monitoring = new MonitoringService(storage, branch, repository, email, audit)
   const scheduler = new SchedulerService(storage, monitoring, audit)

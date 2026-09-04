@@ -190,14 +190,6 @@ export default function Branches(): JSX.Element {
                         </button>
                         <button
                           className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
-                          disabled={!branch.existsLocally || isProtected || settings.deletionDisabled}
-                          onClick={() => void handleBeginDelete(branch, 'local')}
-                          title={isProtected ? tr('deleteDisabled') : undefined}
-                        >
-                          <Trash2 size={13} className="text-danger" /> {tr('deleteLocal')}
-                        </button>
-                        <button
-                          className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
                           disabled={!branch.existsRemotely || isProtected || settings.deletionDisabled}
                           onClick={() => void handleBeginDelete(branch, 'remote')}
                           title={isProtected ? tr('deleteDisabled') : undefined}

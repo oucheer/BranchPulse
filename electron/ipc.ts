@@ -40,8 +40,6 @@ import type { ReportService } from './services/report'
 import type { ReportScheduleService } from './services/reportSchedule'
 import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
-import { createDemoRepository } from './services/demoRepo'
-import { demoRepoPath } from './utils/paths'
 
 export interface AppServices {
   storage: StorageService
@@ -92,7 +90,7 @@ function scanRunFromRow(row: Record<string, unknown>): ScanRun {
 }
 
 export function registerIpc(services: AppServices): void {
-  const { storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings } = services
+  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings } = services
 
   services.monitoring.onProgress = (progress) => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -214,8 +212,7 @@ export function registerIpc(services: AppServices): void {
     try {
       const repo = repository.get(auth.repositoryId)
       if (auth.targetType === 'local') {
-        await git.deleteLocalBranch(repo?.path ?? '', auth.branch)
-        branch.deleteLocalRecord(criteria)
+        throw new Error('当前仅支持通过远程仓库 API 删除远程分支。')
       } else if (repo && repo.source !== 'local' && repo.gitlabProjectId) {
         await gitlab.deleteBranch(repo.gitlabProjectId, auth.branch, {
           provider: repo.source,
@@ -243,11 +240,6 @@ export function registerIpc(services: AppServices): void {
 
   // --- IPC handlers ---
 
-  ipcMain.handle('branchpulse:addRepository', async (_e, repoPath: string): Promise<Repository> => {
-    const repo = await repository.add(repoPath)
-    audit.record('repository_added', { repository: repo.name, path: repo.path })
-    return repo
-  })
   ipcMain.handle('branchpulse:addGitLabRepository', (_e, projectId: number, config?: GitLabConnectionConfig): Promise<Repository> =>
     repository.addGitLab(projectId, config).then((repo) => {
       audit.record('repository_added', { repository: repo.name, url: repo.webUrl })
@@ -377,14 +369,4 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:getSettings', (): AppSettings => settings.get())
   ipcMain.handle('branchpulse:saveSettings', (_e, s: AppSettings): AppSettings => settings.save(s))
 
-  ipcMain.handle('branchpulse:createDemoRepository', async (): Promise<Repository> => {
-    const demoPath = demoRepoPath()
-    await createDemoRepository(demoPath)
-    return repository.add(demoPath)
-  })
-
-  ipcMain.handle('branchpulse:pickDirectory', async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
-    return result.canceled ? null : result.filePaths[0] ?? null
-  })
 }

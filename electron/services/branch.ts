@@ -17,6 +17,7 @@ import type { ProtectionService } from './protection'
 import type { HealthService } from './health'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
+import type { SettingsService } from './settings'
 import type { GitLabBranchDto, GitLabCommitDto, GitLabService } from './gitlab'
 import { newId } from '../utils/ids'
 
@@ -87,7 +88,8 @@ export class BranchService {
     private readonly naming: NamingService,
     private readonly protection: ProtectionService,
     private readonly health: HealthService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly settingsService: SettingsService
   ) {}
 
   private monitoring(): MonitoringConfig {
@@ -121,7 +123,7 @@ export class BranchService {
     if (!projectId) throw new Error('GitLab project id is missing for this repository.')
 
     progress('Fetching GitLab branches...')
-    const remoteConfig = remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id))
+    const remoteConfig = remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken())
     const branches = await this.gitlab.listBranches(projectId, remoteConfig)
     const defaultBranch = repo.defaultBranch || branches.find((b) => b.default)?.name || 'main'
     progress(`Analyzing ${branches.length} GitLab branches...`)
@@ -498,7 +500,7 @@ export class BranchService {
     parsed.repositoryName = repo?.name ?? ''
     if (repo && repo.source !== 'local' && repo.gitlabProjectId) {
       try {
-        const commits = await this.gitlab.listCommits(repo.gitlabProjectId, criteria.name, 1, 20, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id)))
+        const commits = await this.gitlab.listCommits(repo.gitlabProjectId, criteria.name, 1, 20, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken()))
         parsed.recentCommits = commits.map((c) => this.gitLabCommitToInfo(c))
         parsed.existsLocally = false
         parsed.existsRemotely = true
@@ -533,7 +535,7 @@ export class BranchService {
       if (!repo) continue
       try {
         if (repo.source !== 'local' && repo.gitlabProjectId) {
-          await this.gitlab.deleteBranch(repo.gitlabProjectId, branch.name, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id)))
+          await this.gitlab.deleteBranch(repo.gitlabProjectId, branch.name, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken()))
           this.deleteRemoteRecord({ repositoryId: branch.repositoryId, name: branch.name, type: 'remote' })
         } else {
           throw new Error('远程仓库配置不完整，无法通过 API 删除分支。')
