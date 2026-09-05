@@ -43,17 +43,17 @@ export default function BranchDetail(): JSX.Element {
 
   const metrics = [
     { label: tr('lastCommit'), value: timeAgo(branch.lastCommitAt), sub: branch.lastAuthor },
-    { label: tr('inactiveDays'), value: `${branch.inactiveDays}d` },
-    { label: 'Age', value: `${branch.ageDays}d` },
-    { label: 'Commits', value: branch.commitCount },
-    { label: 'Ahead / behind', value: `${branch.ahead} / ${branch.behind}` },
-    { label: 'Created', value: timeAgo(branch.createdAt), sub: branch.creator.name }
+    { label: tr('inactiveDays'), value: `${branch.inactiveDays} 天` },
+    { label: '分支年龄', value: `${branch.ageDays} 天` },
+    { label: '提交数量', value: branch.commitCount },
+    { label: '领先/落后', value: `${branch.ahead} / ${branch.behind}` },
+    { label: '创建时间', value: timeAgo(branch.createdAt), sub: branch.creator.name }
   ]
 
   const protectionFacts = [
-    { label: 'Whitelisted', value: branch.protection.whitelisted },
-    { label: 'Default branch', value: branch.protection.isDefault },
-    { label: 'Protected', value: branch.protection.protected }
+    { label: '已加白名单', value: branch.protection.whitelisted },
+    { label: '默认分支', value: branch.protection.isDefault },
+    { label: '已保护', value: branch.protection.protected }
   ]
 
   return (
@@ -84,38 +84,38 @@ export default function BranchDetail(): JSX.Element {
               <span className="flex items-center gap-1.5 text-canvas-fg"><User size={13} /> {branch.creator.name}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted">Creator email</span>
-              <span className="font-mono text-xs text-canvas-fg">{branch.creator.email || 'unknown'}</span>
+              <span className="text-muted">创建者邮箱</span>
+              <span className="font-mono text-xs text-canvas-fg">{branch.creator.email || '未知'}</span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('firstCommit')}</span>
               <span className="text-xs text-canvas-fg">
-                {branch.createdAt ? new Date(branch.createdAt).toLocaleString() : 'unknown'}
+                {branch.createdAt ? new Date(branch.createdAt).toLocaleString() : '未知'}
               </span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('lastCommit')}</span>
               <span className="text-xs text-canvas-fg">
-                {branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : 'unknown'}
+                {branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : '未知'}
               </span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('inactiveDays')}</span>
-              <span className="text-xs text-canvas-fg">{branch.inactiveDays}d</span>
+              <span className="text-xs text-canvas-fg">{branch.inactiveDays} 天</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted">Confidence</span>
+              <span className="text-muted">可信度</span>
               <Badge tone={branch.creator.confidence === 'high' ? 'ok' : branch.creator.confidence === 'medium' ? 'warn' : 'default'}>
-                {branch.creator.confidence}
+                {branch.creator.confidence === 'high' ? '高' : branch.creator.confidence === 'medium' ? '中' : branch.creator.confidence === 'low' ? '低' : '未知'}
               </Badge>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted">Base branch</span>
+              <span className="text-muted">基准分支</span>
               <span className="font-mono text-xs text-canvas-fg">{branch.baseBranch}</span>
             </div>
             {branch.mergedInto ? (
               <div className="flex justify-between gap-3">
-                <span className="text-muted">{tr('merged')} into</span>
+                <span className="text-muted">{tr('merged')}到</span>
                 <span className="font-mono text-xs text-ok">{branch.mergedInto}</span>
               </div>
             ) : null}
@@ -143,23 +143,23 @@ export default function BranchDetail(): JSX.Element {
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-muted">Stale threshold</span>
-              <span className="font-mono text-sm text-canvas-fg">{monitoring.staleThresholdDays}d</span>
+              <span className="text-muted">停更阈值</span>
+              <span className="font-mono text-sm text-canvas-fg">{monitoring.staleThresholdDays} 天</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">Grace period</span>
-              <span className="font-mono text-sm text-canvas-fg">{branch.gracePeriodDays}d</span>
+              <span className="text-muted">提醒宽限期</span>
+              <span className="font-mono text-sm text-canvas-fg">{branch.gracePeriodDays} 天</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">Grace expired</span>
-              <Badge tone={branch.graceExpired ? 'danger' : 'ok'}>{branch.graceExpired ? 'yes' : 'no'}</Badge>
+              <span className="text-muted">宽限期已结束</span>
+              <Badge tone={branch.graceExpired ? 'danger' : 'ok'}>{branch.graceExpired ? '是' : '否'}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">Cleanup candidate</span>
-              <Badge tone={branch.cleanupCandidate ? 'danger' : 'default'}>{branch.cleanupCandidate ? 'yes' : 'no'}</Badge>
+              <span className="text-muted">可清理候选</span>
+              <Badge tone={branch.cleanupCandidate ? 'danger' : 'default'}>{branch.cleanupCandidate ? '是' : '否'}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">First commit</span>
+              <span className="text-muted">首次提交</span>
               <span className="flex items-center gap-1 text-xs text-canvas-fg"><CalendarDays size={12} /> {timeAgo(branch.createdAt)}</span>
             </div>
           </div>
@@ -171,14 +171,14 @@ export default function BranchDetail(): JSX.Element {
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-muted">Status</span>
+              <span className="text-muted">状态</span>
               <Badge tone={branch.naming.status === 'valid' ? 'ok' : branch.naming.status === 'excluded' ? 'default' : 'danger'}>
-                {branch.naming.status}
+                {branch.naming.status === 'valid' ? '有效' : branch.naming.status === 'excluded' ? '不校验' : '无效'}
               </Badge>
             </div>
             {branch.naming.ruleName ? (
               <div className="flex items-center justify-between">
-                <span className="text-muted">Rule</span>
+                <span className="text-muted">规则</span>
                 <span className="text-sm text-canvas-fg">{branch.naming.ruleName}</span>
               </div>
             ) : null}
@@ -195,7 +195,7 @@ export default function BranchDetail(): JSX.Element {
           <div className="grid grid-cols-3 gap-2">
             {protectionFacts.map((f) => (
               <div key={f.label} className="rounded-md border border-line bg-elevated px-3 py-2.5 text-center">
-                <div className={`text-lg font-bold ${f.value ? 'text-ok' : 'text-muted'}`}>{f.value ? 'ON' : 'OFF'}</div>
+                <div className={`text-lg font-bold ${f.value ? 'text-ok' : 'text-muted'}`}>{f.value ? '开' : '关'}</div>
                 <div className="mt-0.5 text-[10px] uppercase tracking-normal text-muted">{f.label}</div>
               </div>
             ))}
@@ -211,6 +211,24 @@ export default function BranchDetail(): JSX.Element {
 
         <Card className="p-5 xl:col-span-2">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
+            <Tag size={15} className="text-warn" /> 健康度扣分原因
+          </div>
+          <div className="space-y-3">
+            {branch.health.factors.map((factor) => (
+              <div key={factor.label} className="flex items-center justify-between rounded-md border border-line bg-elevated px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-canvas-fg">{factor.label}（{factor.score}/{factor.weight}）</div>
+                  <div className="mt-0.5 text-xs text-muted">{factor.detail}</div>
+                </div>
+                <div className={`ml-3 shrink-0 text-sm font-semibold ${factor.score >= factor.weight ? 'text-ok' : factor.score > 0 ? 'text-warn' : 'text-danger'}`}>
+                  {factor.score >= factor.weight ? '满分' : factor.score > 0 ? `-${factor.weight - factor.score}` : `-${factor.weight}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card className="p-5 xl:col-span-2">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
             <GitMerge size={15} className="text-primary" /> {tr('recentCommits')}
           </div>
           <div className="space-y-1">
@@ -224,7 +242,7 @@ export default function BranchDetail(): JSX.Element {
                 </div>
               ))
             ) : (
-              <div className="py-6 text-center text-sm text-muted">No commits loaded</div>
+              <div className="py-6 text-center text-sm text-muted">暂未加载提交记录</div>
             )}
           </div>
         </Card>

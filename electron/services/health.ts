@@ -25,41 +25,41 @@ export class HealthService {
     const activityWindow = Math.max(1, input.staleThresholdDays * 2)
     const activity = clamp(Math.round(30 * (1 - Math.min(1, input.inactiveDays / activityWindow))), 0, 30)
     factors.push({
-      label: 'Activity',
+      label: '活跃度',
       score: activity,
       weight: 30,
-      detail: `Last commit ${input.inactiveDays} days ago`
+      detail: `最后提交距今 ${input.inactiveDays} 天`
     })
 
     const staleScore = input.state === 'active' ? 25 : input.state === 'stale' ? 8 : input.state === 'grace_period' ? 12 : 0
     factors.push({
-      label: 'Stale risk',
+      label: '停更风险',
       score: staleScore,
       weight: 25,
       detail:
         input.state === 'active'
-          ? 'Within stale threshold'
+          ? '未超过停更阈值'
           : input.state === 'grace_period'
-            ? `In grace period (${input.gracePeriodDays} days)`
+            ? `已停更，处于 ${input.gracePeriodDays} 天提醒宽限期`
             : input.state === 'grace_expired'
-              ? 'Grace period expired'
-              : 'Stale branch'
+              ? '提醒宽限期已结束'
+              : '分支已停更'
     })
 
     const namingScore = input.namingStatus === 'valid' ? 20 : input.namingStatus === 'excluded' ? 16 : 0
     factors.push({
-      label: 'Naming',
+      label: '命名规范',
       score: namingScore,
       weight: 20,
-      detail: input.namingStatus === 'valid' ? 'Naming compliant' : input.namingStatus === 'excluded' ? 'Excluded from naming' : 'Naming violation'
+      detail: input.namingStatus === 'valid' ? '命名符合规则' : input.namingStatus === 'excluded' ? '未启用命名校验' : '命名不符合规则'
     })
 
     const mergeScore = input.merged ? 0 : 15
     factors.push({
-      label: 'Merge status',
+      label: '合并状态',
       score: mergeScore,
       weight: 15,
-      detail: input.merged ? 'Merged into base branch' : 'Not merged'
+      detail: input.merged ? '已合并到基准分支' : '尚未合并到基准分支'
     })
 
     let divergence = 10
@@ -69,10 +69,10 @@ export class HealthService {
     else if (input.behind > 5) divergence = 7
     if (input.ahead > 200) divergence = Math.max(0, divergence - 2)
     factors.push({
-      label: 'Divergence',
+      label: '分支差异',
       score: divergence,
       weight: 10,
-      detail: `${input.ahead} ahead, ${input.behind} behind base`
+      detail: `领先基准分支 ${input.ahead} 个提交，落后 ${input.behind} 个提交`
     })
 
     const score = clamp(Math.round(factors.reduce((sum, f) => sum + f.score, 0)), 0, 100)

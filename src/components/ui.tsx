@@ -49,7 +49,7 @@ export function Ring({ score, size = 56, stroke = 5, label }: { score: number; s
         />
       </svg>
       <div className="absolute text-center">
-        <div className="font-bold" style={{ color, fontSize: size / 3.2 }}>{score}</div>
+        <div className="font-bold" style={{ color, fontSize: size / 3.2 }}>{Number.isFinite(score) ? `${score}%` : '--'}</div>
         {label ? <div className="text-[9px] text-muted leading-none">{label}</div> : null}
       </div>
     </div>

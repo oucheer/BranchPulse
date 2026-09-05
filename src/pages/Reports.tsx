@@ -174,11 +174,12 @@ export default function Reports(): JSX.Element {
               onChange={(e) => setDraft(draft.frequency === 'once' ? { ...draft, runAt: e.target.value } : { ...draft, time: e.target.value })}
             />
           </div>
-          <div>
+          <div className="lg:col-span-4">
             <div className="label mb-1.5">收件邮箱</div>
-            <input
-              className="input"
-              placeholder="多个邮箱用逗号分隔"
+            <textarea
+              className="input min-h-[96px] font-mono text-sm"
+              rows={4}
+              placeholder="多个邮箱用逗号或换行分隔"
               value={draft.recipients}
               onChange={(e) => setDraft({ ...draft, recipients: e.target.value })}
             />

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import { Plus, ShieldCheck, ShieldOff, Trash2, Upload } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal } from '../components/ui'
 import type { ProtectionEntry } from '@shared/types'
@@ -13,6 +13,33 @@ export default function Whitelist(): JSX.Element {
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<'whitelist' | 'protected'>('whitelist')
   const [form, setForm] = useState({ pattern: '', type: 'glob' as 'exact' | 'glob' | 'regex', note: '' })
+  const [importFile, setImportFile] = useState<HTMLInputElement | null>(null)
+
+  const handleImportTxt = async (file: File): Promise<void> => {
+    try {
+      const content = await file.text()
+      const branches = content
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'))
+      if (branches.length === 0) {
+        toast('文件中没有找到分支名称', 'warn')
+        return
+      }
+      const kind = tab === 'whitelist' ? 'whitelist' : 'protected'
+      for (const branch of branches) {
+        if (kind === 'whitelist') {
+          await window.branchpulse.addWhitelist({ pattern: branch, type: 'exact', note: '从 TXT 导入' })
+        } else {
+          await window.branchpulse.addProtected({ pattern: branch, type: 'exact', note: '从 TXT 导入' })
+        }
+      }
+      toast(`已导入 ${branches.length} 个分支到${kind === 'whitelist' ? '白名单' : '保护列表'}`, 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
 
   const list = tab === 'whitelist' ? whitelist : protectedList
 
@@ -53,11 +80,22 @@ export default function Whitelist(): JSX.Element {
         <h1 className="text-lg font-bold text-canvas-fg">{tr('whitelist')}</h1>
         <div className="flex gap-2">
           <button className="btn" onClick={() => { setAddMode('whitelist'); setAddOpen(true) }}>
-            <Plus size={15} /> {tr('addWhitelist')}
+            <Plus size={15} /> 手动添加
           </button>
-          <button className="btn" onClick={() => { setAddMode('protected'); setAddOpen(true) }}>
-            <Plus size={15} /> {tr('addProtected')}
+          <button className="btn" onClick={() => importFile?.click()}>
+            <Upload size={15} /> 导入TXT
           </button>
+          <input
+            ref={(el) => setImportFile(el)}
+            type="file"
+            accept=".txt"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleImportTxt(file)
+              e.target.value = ''
+            }}
+          />
         </div>
       </div>
 

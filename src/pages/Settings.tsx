@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Cloud, Mail, Save, Settings as SettingsIcon, Wrench } from 'lucide-react'
+import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import type { AppSettings, EmailConfig, LanguageCode, ThemeMode } from '@shared/types'
@@ -29,6 +29,7 @@ export default function Settings(): JSX.Element {
   const [testing, setTesting] = useState(false)
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
+  const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
 
   useEffect(() => {
     setDraft(settings)
@@ -76,18 +77,6 @@ export default function Settings(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setSavingEmail(false)
-    }
-  }
-
-  const testConnection = async (): Promise<void> => {
-    setTesting(true)
-    try {
-      const result = await window.branchpulse.testEmailConnection()
-      toast(result.message, result.ok ? 'success' : 'error')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    } finally {
-      setTesting(false)
     }
   }
 
@@ -169,25 +158,7 @@ export default function Settings(): JSX.Element {
                 ))}
               </div>
             </div>
-            <div>
-              <div className="label mb-1.5">{tr('gitPath')}</div>
-              <input className="input font-mono" value={draft.gitPath} onChange={(e) => setDraft({ ...draft, gitPath: e.target.value })} placeholder="git" />
-            </div>
-            <div>
-              <div className="label mb-1.5">Fetch policy</div>
-              <select className="input" value={draft.fetchPolicy} onChange={(e) => setDraft({ ...draft, fetchPolicy: e.target.value as 'auto' | 'manual' })}>
-                <option value="auto">Auto</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
             <div className="space-y-3 border-t border-line pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm text-canvas-fg">{tr('notificationsEnabled')}</div>
-                  <div className="text-xs text-muted">Allow desktop notifications</div>
-                </div>
-                <Toggle checked={draft.notificationsEnabled} onChange={(v) => setDraft({ ...draft, notificationsEnabled: v })} />
-              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">{tr('trayEnabled')}</div>
@@ -224,13 +195,23 @@ export default function Settings(): JSX.Element {
             </div>
             <div>
               <div className="label mb-1.5">API Token</div>
-              <input
-                className="input"
-                type="password"
-                value={gitlabApiKey}
-                onChange={(e) => setGitlabApiKey(e.target.value)}
-                placeholder={draft.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  type={showGitlabApiKey ? 'text' : 'password'}
+                  value={gitlabApiKey}
+                  onChange={(e) => setGitlabApiKey(e.target.value)}
+                  placeholder={draft.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
+                />
+                <button
+                  className="btn px-2"
+                  type="button"
+                  onClick={() => setShowGitlabApiKey(!showGitlabApiKey)}
+                  title={showGitlabApiKey ? '隐藏 API Token' : '显示 API Token'}
+                >
+                  {showGitlabApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
             <div className="flex items-center gap-2 border-t border-line pt-4">
               <button className="btn btn-primary" disabled={gitlabBusy || !draft.gitlabUrl} onClick={() => void connectGitLab()}>
@@ -244,61 +225,26 @@ export default function Settings(): JSX.Element {
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-              <Mail size={15} className="text-secondary" /> SMTP
+              <Mail size={15} className="text-secondary" /> 通知邮箱
             </div>
-            <Badge tone={emailDraft.enabled ? 'ok' : 'default'}>{emailDraft.enabled ? 'enabled' : 'disabled'}</Badge>
+            <Badge tone={emailDraft.enabled ? 'ok' : 'default'}>{emailDraft.enabled ? '已启用' : '未启用'}</Badge>
           </div>
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
-                <div className="label mb-1.5">{tr('smtpServer')}</div>
-                <input className="input font-mono" value={emailDraft.server} onChange={(e) => setEmailDraft({ ...emailDraft, server: e.target.value })} placeholder="smtp.example.com" />
-              </div>
-              <div>
-                <div className="label mb-1.5">{tr('smtpPort')}</div>
-                <input type="number" className="input" value={emailDraft.port} onChange={(e) => setEmailDraft({ ...emailDraft, port: Number(e.target.value) || 0 })} />
-              </div>
-            </div>
             <div>
-              <div className="label mb-1.5">{tr('username')}</div>
-              <input className="input" value={emailDraft.username} onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })} />
-            </div>
-            <div>
-              <div className="label mb-1.5">{tr('password')}</div>
+              <div className="label mb-1.5">通知邮箱</div>
               <input
-                type="password"
                 className="input"
-                placeholder={emailDraft.hasPassword ? '•••••••• (saved)' : ''}
-                value={emailDraft.password ?? ''}
-                onChange={(e) => setEmailDraft({ ...emailDraft, password: e.target.value })}
+                type="email"
+                value={emailDraft.username}
+                onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value, testRecipient: e.target.value })}
+                placeholder="you@example.com"
               />
-            </div>
-            <div>
-              <div className="label mb-1.5">{tr('from')}</div>
-              <input className="input" value={emailDraft.from} onChange={(e) => setEmailDraft({ ...emailDraft, from: e.target.value })} placeholder="BranchPulse <no-reply@example.com>" />
-            </div>
-            <div>
-              <div className="label mb-1.5">{tr('testRecipient')}</div>
-              <input className="input" value={emailDraft.testRecipient} onChange={(e) => setEmailDraft({ ...emailDraft, testRecipient: e.target.value })} placeholder="you@example.com" />
+              <p className="mt-1 text-xs text-muted">用于接收分支巡检提醒和测试邮件；请确保已在邮箱服务中授权应用发送。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-canvas-fg">Secure (SSL/TLS)</div>
-                <div className="text-xs text-muted">Use secure connection on connect</div>
-              </div>
-              <Toggle checked={emailDraft.secure} onChange={(v) => setEmailDraft({ ...emailDraft, secure: v })} />
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-canvas-fg">{tr('tls')}</div>
-                <div className="text-xs text-muted">STARTTLS upgrade on plain connection</div>
-              </div>
-              <Toggle checked={emailDraft.tls} onChange={(v) => setEmailDraft({ ...emailDraft, tls: v })} />
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-canvas-fg">Enabled</div>
-                <div className="text-xs text-muted">Allow BranchPulse to send emails</div>
+                <div className="text-sm text-canvas-fg">启用邮件通知</div>
+                <div className="text-xs text-muted">关闭后不再发送邮件提醒</div>
               </div>
               <Toggle checked={emailDraft.enabled} onChange={(v) => setEmailDraft({ ...emailDraft, enabled: v })} />
             </div>
@@ -306,10 +252,7 @@ export default function Settings(): JSX.Element {
               <button className="btn btn-primary" disabled={savingEmail} onClick={() => void saveEmail()}>
                 <Save size={14} /> {tr('saveConfig')}
               </button>
-              <button className="btn" disabled={testing} onClick={() => void testConnection()}>
-                <Wrench size={14} /> {tr('testConnection')}
-              </button>
-              <button className="btn" disabled={testing} onClick={() => void sendTest()}>
+              <button className="btn" disabled={testing || !emailDraft.username} onClick={() => void sendTest()}>
                 <CheckCircle2 size={14} /> {tr('testEmail')}
               </button>
             </div>

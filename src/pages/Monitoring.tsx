@@ -91,15 +91,6 @@ export default function Monitoring(): JSX.Element {
                 onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
               />
             </div>
-            {!isRemoteOnly && (
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm text-canvas-fg">{tr('fetchEnabled')}</div>
-                  <div className="text-xs text-muted">检查前执行 git 拉取</div>
-                </div>
-                <Toggle checked={draft.fetchEnabled} onChange={(v) => setDraft({ ...draft, fetchEnabled: v })} />
-              </div>
-            )}
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Scale size={13} /> {tr('naming')}</div>
@@ -110,22 +101,20 @@ export default function Monitoring(): JSX.Element {
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Bell size={13} /> {tr('notificationsEnabled')}</div>
-                <div className="text-xs text-muted">生成桌面通知</div>
+                <div className="text-xs text-muted">生成巡检提醒记录，并按通知方式发送邮件</div>
               </div>
               <Toggle checked={draft.notificationEnabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
             <div>
-              <div className="label mb-1.5">{tr('notifyTarget')}</div>
-              <select
+              <div className="label mb-1.5">通知填写收件人</div>
+              <input
                 className="input"
-                value={draft.notifyTarget}
-                onChange={(e) => setDraft({ ...draft, notifyTarget: e.target.value as NotifyTarget })}
-              >
-                <option value="none">{tr('noNotify')}</option>
-                <option value="self">{tr('notifySelf')}</option>
-                <option value="creator">{tr('notifyCreators')}</option>
-                <option value="both">{tr('notifyBoth')}</option>
-              </select>
+                type="email"
+                placeholder="you@example.com"
+                value={typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : ''}
+                onChange={(e) => setDraft({ ...draft, notifyTarget: (e.target.value.trim() || 'self') as NotifyTarget })}
+              />
+              <p className="mt-1 text-xs text-muted">巡检提醒将发送到该邮箱；留空则不发送。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>

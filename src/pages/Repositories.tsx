@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Cloud, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, ShieldBan, Trash2 } from 'lucide-react'
+import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, ShieldBan, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import { timeAgo } from '../lib/format'
@@ -21,6 +21,7 @@ export default function Repositories(): JSX.Element {
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabProjects, setGitlabProjects] = useState<GitLabProject[]>([])
   const [gitlabMessage, setGitlabMessage] = useState<string | null>(null)
+  const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
 
   const gitlabConfig = (): GitLabConnectionConfig => ({
     url: gitlabUrl,
@@ -219,14 +220,24 @@ export default function Repositories(): JSX.Element {
             />
           </div>
           <div>
-            <div className="label mb-1">API Token</div>
-            <input
-              className="input"
-              type="password"
-              value={gitlabApiKey}
-              onChange={(e) => setGitlabApiKey(e.target.value)}
-              placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
-            />
+<div className="label mb-1">API Token</div>
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                type={showGitlabApiKey ? 'text' : 'password'}
+                value={gitlabApiKey}
+                onChange={(e) => setGitlabApiKey(e.target.value)}
+                placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
+              />
+              <button
+                className="btn px-2"
+                type="button"
+                onClick={() => setShowGitlabApiKey(!showGitlabApiKey)}
+                title={showGitlabApiKey ? '隐藏 API Token' : '显示 API Token'}
+              >
+                {showGitlabApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
           </div>
           <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
             <RefreshCw size={14} /> 连接
@@ -260,9 +271,9 @@ export default function Repositories(): JSX.Element {
       {confirmId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-[420px] rounded-card border border-line bg-surface p-5 shadow-panel">
-            <div className="mb-2 text-sm font-semibold text-canvas-fg">Remove repository?</div>
+            <div className="mb-2 text-sm font-semibold text-canvas-fg">移除仓库？</div>
             <div className="mb-4 text-sm text-muted">
-              The local clone and its analyzed branch data in BranchPulse will be removed. The repository on disk is not affected.
+              将移除该仓库在 BranchPulse 中的连接和分析数据，不会影响远程仓库本身。
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn" onClick={() => setConfirmId(null)}>{tr('cancel')}</button>

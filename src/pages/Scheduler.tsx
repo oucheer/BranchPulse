@@ -3,9 +3,12 @@ import { CalendarClock, Play, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import { timeAgo } from '../lib/format'
-import type { SchedulerJob, EmailPolicy, NotifyTarget } from '@shared/types'
+import type { SchedulerJob, NotifyTarget } from '@shared/types'
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function notifyLabel(target: string): string {
+  return target.includes('@') ? `通知 ${target}` : '不通知'
+}
 
 const emptyJob = (): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
   name: '',
@@ -17,6 +20,7 @@ const emptyJob = (): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'next
   startDate: null,
   endDate: null,
   emailPolicy: 'none',
+
   fetchEnabled: true,
   autoDeleteEnabled: false,
   notifyTarget: 'self'
@@ -111,7 +115,7 @@ export default function Scheduler(): JSX.Element {
                     )}
                     {job.nextRunAt ? <span>· Next: {new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {job.autoDeleteEnabled ? tr('checkAndDelete') : tr('inspectionOnly')}</span>
-                    <span>· {job.notifyTarget === 'creator' ? tr('notifyCreators') : job.notifyTarget === 'both' ? tr('notifyBoth') : job.notifyTarget === 'none' ? tr('noNotify') : tr('notifySelf')}</span>
+                    <span>· {notifyLabel(job.notifyTarget)}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -234,14 +238,6 @@ export default function Scheduler(): JSX.Element {
               </div>
             </>
           ) : null}
-          <div>
-            <div className="label mb-1">{tr('emailPolicy')}</div>
-            <select className="input" value={editJob?.emailPolicy ?? 'none'} onChange={(e) => setEditJob({ ...editJob, emailPolicy: e.target.value as EmailPolicy })}>
-              <option value="none">{tr('noEmail')}</option>
-              <option value="summary">{tr('sendSummaryToMe')}</option>
-              <option value="creators">{tr('notifyCreators')}</option>
-            </select>
-          </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-canvas-fg">{tr('fetchEnabled')}</span>
             <Toggle checked={editJob?.fetchEnabled ?? true} onChange={(v) => setEditJob({ ...editJob, fetchEnabled: v })} />
@@ -260,13 +256,15 @@ export default function Scheduler(): JSX.Element {
             />
           </div>
           <div>
-            <div className="label mb-1">{tr('notifyTarget')}</div>
-            <select className="input" value={editJob?.notifyTarget ?? 'self'} onChange={(e) => setEditJob({ ...editJob, notifyTarget: e.target.value as NotifyTarget })}>
-              <option value="none">{tr('noNotify')}</option>
-              <option value="self">{tr('notifySelf')}</option>
-              <option value="creator">{tr('notifyCreators')}</option>
-              <option value="both">{tr('notifyBoth')}</option>
-            </select>
+            <div className="label mb-1">通知填写收件人</div>
+            <input
+              className="input"
+              type="email"
+              placeholder="you@example.com"
+              value={typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@') ? editJob.notifyTarget : ''}
+              onChange={(e) => setEditJob({ ...editJob, notifyTarget: (e.target.value.trim() || 'self') as NotifyTarget })}
+            />
+            <p className="mt-1 text-xs text-muted">巡检结果将发送到该邮箱；留空则不发送。</p>
           </div>
         </div>
       </Modal>

@@ -63,6 +63,11 @@ function refForRemote(remote: string, name: string): string {
   return `refs/remotes/${remote}/${name}`
 }
 
+function safeTimestamp(value: string | null | undefined): number {
+  if (!value) return Date.now()
+  const parsed = new Date(value).getTime()
+  return Number.isFinite(parsed) ? parsed : Date.now()
+}
 function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protection: ProtectionService): string {
   const rules = naming
     .listRules()
@@ -376,8 +381,8 @@ export class BranchService {
     monitoring: MonitoringConfig
   ): BranchSummary {
     const now = Date.now()
-    const inactiveDays = Math.floor(Math.max(0, now - new Date(facts.lastCommitAt ?? now).getTime()) / DAY_MS)
-    const ageDays = Math.floor(Math.max(0, now - new Date(facts.createdAt ?? now).getTime()) / DAY_MS)
+    const inactiveDays = Math.floor(Math.max(0, now - safeTimestamp(facts.lastCommitAt)) / DAY_MS)
+    const ageDays = Math.floor(Math.max(0, now - safeTimestamp(facts.createdAt)) / DAY_MS)
     const stale = inactiveDays > monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
@@ -437,8 +442,8 @@ export class BranchService {
 
   private refreshComputed(cached: BranchSummary, monitoring: MonitoringConfig, ref: GitRefInfo, currentBranch: string): BranchSummary {
     const now = Date.now()
-    const inactiveDays = Math.floor(Math.max(0, now - new Date(cached.lastCommitAt ?? now).getTime()) / DAY_MS)
-    const ageDays = Math.floor(Math.max(0, now - new Date(cached.createdAt ?? now).getTime()) / DAY_MS)
+    const inactiveDays = Math.floor(Math.max(0, now - safeTimestamp(cached.lastCommitAt)) / DAY_MS)
+    const ageDays = Math.floor(Math.max(0, now - safeTimestamp(cached.createdAt)) / DAY_MS)
     const stale = inactiveDays > monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'

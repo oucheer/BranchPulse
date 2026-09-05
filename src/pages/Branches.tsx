@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, Eye, Filter, Search, Trash2 } from 'lucide-react'
+import { Bell, Eye, Filter, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, ConfirmCheckbox, EmptyState, Modal, Ring } from '../components/ui'
 import { stateLabel, stateTone, timeAgo } from '../lib/format'
@@ -25,6 +25,7 @@ export default function Branches(): JSX.Element {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [refreshingAll, setRefreshingAll] = useState(false)
 
   const filtered = useMemo(() => {
     let list = branches
@@ -41,6 +42,20 @@ export default function Branches(): JSX.Element {
 
   const states = ['active', 'stale', 'grace_period', 'grace_expired'] as const
 
+  const handleRefreshAll = async (): Promise<void> => {
+    setRefreshingAll(true)
+    try {
+      for (const repo of repositories) {
+        await window.branchpulse.scanRepository(repo.id, true)
+      }
+      toast('已从远程仓库刷新所有分支', 'success')
+      await refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setRefreshingAll(false)
+    }
+  }
   const handleNotify = async (branch: BranchSummary): Promise<void> => {
     try {
       const results = await window.branchpulse.notifyBranch(branch)
@@ -106,7 +121,12 @@ export default function Branches(): JSX.Element {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('branches')}</h1>
-        <div className="text-xs text-muted">{filtered.length} / {branches.length} branches</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-muted">{filtered.length} / {branches.length} 个分支</div>
+          <button className="btn px-2" onClick={() => void handleRefreshAll()} disabled={refreshingAll} title="从远程仓库刷新分支信息">
+            <RefreshCw size={14} className={refreshingAll ? 'animate-spin' : ''} /> {refreshingAll ? '刷新中' : '刷新'}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -170,9 +190,9 @@ export default function Branches(): JSX.Element {
                     <td className="px-4 py-3">
                       <Badge tone={stateTone(branch.state)}>{stateLabel(branch.state, 'en')}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted">{branch.inactiveDays}d</td>
+                    <td className="px-4 py-3 text-muted">{branch.inactiveDays} 天</td>
                     <td className="px-4 py-3">
-                      <Ring score={branch.health.score} size={32} stroke={3} />
+                      <span className="font-mono text-xs text-canvas-fg">{branch.health.score}%</span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">

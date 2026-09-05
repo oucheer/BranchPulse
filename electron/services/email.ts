@@ -51,7 +51,7 @@ export class EmailService {
       from: String(row?.from_address ?? ''),
       secure: Number(row?.secure ?? 1) === 1,
       tls: Number(row?.tls ?? 0) === 1,
-      testRecipient: String(row?.test_recipient ?? ''),
+      testRecipient: String(row?.test_recipient ?? row?.username ?? ''),
       enabled: Number(row?.enabled ?? 0) === 1
     }
   }
@@ -74,7 +74,7 @@ export class EmailService {
         from_address: config.from,
         secure: config.secure ? 1 : 0,
         tls: config.tls ? 1 : 0,
-        test_recipient: config.testRecipient,
+        test_recipient: config.testRecipient || config.username,
         enabled: config.enabled ? 1 : 0
       },
       'id = 1'
@@ -121,6 +121,12 @@ export class EmailService {
 
   private buildTransport(config?: EmailConfig) {
     const cfg = config ?? this.getConfig()
+    if (!cfg.server && cfg.username.includes('@gmail.com')) {
+      cfg.server = 'smtp.gmail.com'
+      cfg.port = 465
+      cfg.secure = true
+      cfg.tls = false
+    }
     return nodemailer.createTransport({
       host: cfg.server,
       port: cfg.port,

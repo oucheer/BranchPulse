@@ -1,4 +1,3 @@
-import { Notification } from 'electron'
 import type {
   ActivityItem,
   BranchSummary,
@@ -286,7 +285,7 @@ export class MonitoringService {
           message: candidate.message,
           createdAt: new Date().toISOString(),
           deliveredToDesktop: false,
-          deliveredViaEmail: false,
+          deliveredViaEmail: true,
           read: false
         }
         this.storage.insert('notification_history', {
@@ -299,34 +298,16 @@ export class MonitoringService {
           state: candidate.state,
           message: record.message,
           created_at: record.createdAt,
-          desktop: 0,
-          email: 0,
+          email: 1,
           read: 0
         })
         created.push(record)
-        this.showDesktopNotification(record)
+        void record
       }
     }
     return created
   }
 
-  private showDesktopNotification(record: NotificationRecord): void {
-    try {
-      if (!Notification.isSupported()) return
-      const notification = new Notification({
-        title: `BranchPulse: ${record.branch}`,
-        body: record.message,
-        silent: false
-      })
-      notification.on('click', () => {
-        /* focused window is surfaced by main process */
-      })
-      notification.show()
-      this.storage.update('notification_history', { desktop: 1 }, 'id = ?', [record.id])
-    } catch {
-      /* desktop notifications are best-effort */
-    }
-  }
 
   private toIssueRow(branch: BranchSummary): EmailIssueRow {
     return {
