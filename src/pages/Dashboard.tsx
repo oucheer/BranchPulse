@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, FolderGit2, GitBranch, GitMerge, Hourglass, Scale, ShieldCheck, Trash2, Network } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Card, StatCard, Badge } from '../components/ui'
-import FlowingMenu from '../components/FlowingMenu'
 import { timeAgo, stateLabel, stateTone, healthTone } from '../lib/format'
 import type { BranchSummary } from '@shared/types'
 
@@ -239,9 +238,6 @@ export default function Dashboard(): JSX.Element {
           </Card>
         </div>
       </div>
-      <aside className="hidden h-[calc(100vh-7.5rem)] xl:block">
-        <FlowingMenu />
-      </aside>
     </div>
   )
 }
