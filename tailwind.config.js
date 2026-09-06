@@ -29,7 +29,12 @@ module.exports = {
         mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace']
       },
       borderRadius: {
-        card: '8px'
+        button: '8px',
+        input: '8px',
+        card: '12px',
+        dialog: '16px',
+        floating: '18px',
+        badge: '9999px'
       },
       boxShadow: {
         glow: '0 0 0 1px rgb(var(--primary) / 0.25), 0 8px 40px -12px rgb(var(--primary) / 0.35)',

@@ -99,3 +99,57 @@ body {
 .text-canvas-fg {
   color: rgb(var(--fg));
 }
+
+/* ─── Motion tokens (CSS mirror) ──────────────────────────────────────────── */
+:root {
+  --motion-fast: 140ms;
+  --motion-normal: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 8px 24px -6px rgb(0 0 0 / 0.10), 0 4px 12px -4px rgb(0 0 0 / 0.06);
+  --shadow-xl: 0 16px 48px -12px rgb(0 0 0 / 0.14), 0 8px 20px -8px rgb(0 0 0 / 0.08);
+}
+
+/* ─── Button refinements ─────────────────────────────────────────────────── */
+.btn {
+  border-radius: 8px;
+  transition: color var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out),
+              background-color var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgb(var(--primary) / 0.20), 0 4px 14px -4px rgb(var(--primary) / 0.25);
+}
+
+/* ─── Input refinements ──────────────────────────────────────────────────── */
+.input {
+  border-radius: 8px;
+  transition: border-color var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-fast) var(--ease-out);
+}
+.input:hover:not(:focus) {
+  border-color: rgb(var(--primary) / 0.35);
+}
+
+/* ─── Card refinements ───────────────────────────────────────────────────── */
+.card {
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--motion-normal) var(--ease-out);
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
