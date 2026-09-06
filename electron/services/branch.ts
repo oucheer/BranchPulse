@@ -210,10 +210,10 @@ export class BranchService {
   ): Promise<BranchSummary> {
     const cacheKey = `${repo.id}|remote|${branch.name}`
     const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100, config)
-    const latestCommit = branch.commit?.committed_date || branch.commit?.created_at
-      ? branch.commit
-      : commits[0]
-    const cacheContentKey = `${latestCommit?.id ?? ''}|${fp}`
+    // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
+    const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
+    const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
+    const cacheContentKey = `v2|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -245,7 +245,7 @@ export class BranchService {
         : { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' }
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
-    const createdAt = firstUnique?.committed_date ?? latestCommit?.created_at ?? null
+    const createdAt = firstUnique?.committed_date ?? firstUnique?.authored_date ?? (commits.length > 0 ? (commits[commits.length - 1]?.committed_date ?? commits[commits.length - 1]?.authored_date ?? commits[commits.length - 1]?.created_at ?? null) : latestCommit?.created_at ?? null)
     const ref: GitRefInfo = {
       fullRef: `refs/remotes/origin/${branch.name}`,
       refType: 'remotes',

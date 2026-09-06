@@ -19,7 +19,16 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   const setProgress = useAppStore((s) => s.setProgress)
   const refresh = useAppStore((s) => s.refresh)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [isDark, setIsDark] = useState(true)
   const { pathname } = useLocation()
+
+  useEffect(() => {
+    const checkDark = (): void => setIsDark(document.documentElement.classList.contains('dark'))
+    checkDark()
+    const observer = new MutationObserver(checkDark)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -61,13 +70,14 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           swirl={1}
           fold={-0.2}
           blackPoint={0.05}
-          brightness={1.3}
+          brightness={isDark ? 1.3 : 0.7}
           colorMode="molten"
           grain={true}
           grainIntensity={0.05}
           mouseInteraction={false}
-          opacity={0.16}
-          backgroundColor="#07090e"
+          opacity={isDark ? 0.16 : 0.1}
+          backgroundColor={isDark ? '#07090e' : '#f5f4f9'}
+          lightMode={!isDark}
         />
       </div>
 

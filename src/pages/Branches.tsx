@@ -38,161 +38,6 @@ function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString()
 }
 
-// ─── Branch Graph (SVG) ──────────────────────────────────────────────────────
-
-interface GraphProps {
-  branches: BranchSummary[]
-  filtered: BranchSummary[]
-  selected: BranchSummary | null
-  search: string
-  onSelect: (b: BranchSummary) => void
-  onHover: (b: BranchSummary | null) => void
-}
-
-function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }: GraphProps): JSX.Element {
-  const language = useAppStore((s) => s.language)
-  const zh = language === 'zh'
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
-
-  const ROW_H = 34
-  const GRAPH_BRANCHES = filtered
-  const base = filtered.find((b) => b.protection.isDefault) ?? filtered.find((b) => branchCategory(b.name).label === 'Main') ?? filtered[0]
-  const height = Math.max(140, GRAPH_BRANCHES.length * ROW_H + 48)
-  const W = 760
-
-  const isDimmed = useCallback((id: string): boolean => {
-    if (hoveredId) return hoveredId !== id
-    if (search) {
-      const q = search.toLowerCase()
-      return !id.toLowerCase().includes(q)
-    }
-    if (selected) return selected.id !== id
-    return false
-  }, [hoveredId, search, selected])
-
-  const activeId = hoveredId ?? selected?.id ?? null
-
-  const onMouseDown = (e: React.MouseEvent): void => {
-    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y }
-  }
-  const onMouseMove = (e: React.MouseEvent): void => {
-    if (!dragRef.current) return
-    setPan({ x: dragRef.current.panX + (e.clientX - dragRef.current.startX), y: dragRef.current.panY + (e.clientY - dragRef.current.startY) })
-  }
-  const onMouseUp = (): void => { dragRef.current = null }
-
-  return (
-    <Card className="overflow-hidden p-0" >
-      <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <GitBranch size={14} className="text-primary" />
-          <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支图谱' : 'Branch Graph'}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => setZoom((z) => Math.min(z + 0.15, 2))} title={zh ? '放大' : 'Zoom In'}><Plus size={13} /></button>
-          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => setZoom((z) => Math.max(z - 0.15, 0.5))} title={zh ? '缩小' : 'Zoom Out'}><Minus size={13} /></button>
-          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} title={zh ? '重置' : 'Reset'}><Maximize2 size={13} /></button>
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="flex items-center justify-center py-12 text-sm text-muted">{zh ? '没有匹配的分支' : 'No matching branches'}</div>
-      ) : (
-        <div
-          ref={containerRef}
-          className="relative max-h-[430px] cursor-grab overflow-auto active:cursor-grabbing"
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={() => { onMouseUp(); onHover(null); setHoveredId(null) }}
-        >
-          <svg
-            width={W}
-            height={height}
-            viewBox={`0 0 ${W} ${height}`}
-            preserveAspectRatio="xMinYMin meet"
-            className="block select-none"
-            style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: dragRef.current ? 'none' : 'transform 200ms ease-out' }}
-          >
-            {/* Trunk */}
-            <line x1="20" y1="24" x2="20" y2={height - 18} stroke="rgb(var(--line))" strokeWidth="2" strokeLinecap="round" opacity={0.5} />
-            {base ? (
-              <circle cx="20" cy="24" r="5" fill="rgb(var(--primary))" />
-            ) : null}
-            {base ? (
-              <text x="30" y="28" fontSize="11" fontWeight="600" fill="rgb(var(--primary))" fontFamily="JetBrains Mono, monospace">{base.displayName}</text>
-            ) : null}
-
-            {GRAPH_BRANCHES.map((b, i) => {
-              if (b.id === base?.id) return null
-              const y = 28 + i * ROW_H
-              const midX = 20 + (200 - 20) * 0.5
-              const path = `M 20 24 C ${midX} 24, ${midX} ${y}, 190 ${y}`
-              const dim = isDimmed(b.id)
-              const isActive = activeId === b.id
-              const cat = branchCategory(b.name)
-              const sc = stateColor(b.state)
-              return (
-                <g
-                  key={b.id}
-                  opacity={dim ? 0.18 : 1}
-                  style={{ transition: 'opacity 160ms ease' }}
-                  onMouseEnter={() => { setHoveredId(b.id); onHover(b) }}
-                  onClick={(e) => { e.stopPropagation(); onSelect(b) }}
-                  className="cursor-pointer"
-                >
-                  <path d={path} fill="none" stroke={sc} strokeWidth={isActive ? 2 : 1.2} strokeLinecap="round" strokeDasharray="4 3" opacity={isActive ? 1 : 0.55} style={{ transition: 'stroke-width 140ms ease, opacity 140ms ease' }} />
-                  <circle cx={190} cy={y} r={isActive ? 4.5 : 3} fill={sc} style={{ transition: 'r 140ms ease' }} />
-                  {selected?.id === b.id ? (
-                    <circle cx={190} cy={y} r="7" fill="none" stroke={sc} strokeWidth="1.5" opacity={0.6} />
-                  ) : null}
-                  <text x={204} y={y + 4} fontSize="11" fill={isActive ? 'rgb(var(--fg))' : 'rgb(var(--muted))'} fontFamily="JetBrains Mono, monospace" style={{ transition: 'fill 140ms ease' }}>
-                    {b.displayName}
-                  </text>
-                  <text x={520} y={y + 4} fontSize="9.5" fill={cat.color} opacity={0.7}>
-                    {cat.label}
-                  </text>
-                  <text x={590} y={y + 4} fontSize="9.5" fill="rgb(var(--muted))" className="tabular-nums">
-                    {b.inactiveDays}d
-                  </text>
-                  <rect x={650} y={y - 9} width="26" height="15" rx="7.5" fill={sc} opacity={0.12} />
-                  <text x={663} y={y + 3} fontSize="9" fontWeight="600" textAnchor="middle" fill={sc} className="tabular-nums">
-                    {b.health.score}
-                  </text>
-                  <text x={688} y={y + 3} fontSize="9" fontWeight="500" fill={sc}>
-                    {stateLabel(b.state, language)}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        </div>
-      )}
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[10px] text-muted">
-        {[
-          { label: zh ? '主干' : 'Main', color: 'rgb(var(--primary))' },
-          { label: 'Feature', color: 'rgb(var(--secondary))' },
-          { label: zh ? '修复' : 'Fix', color: 'rgb(var(--danger))' },
-          { label: 'Release', color: 'rgb(var(--info))' },
-          { label: zh ? '活跃' : 'Active', color: 'rgb(var(--ok))' },
-          { label: zh ? '宽限' : 'Grace', color: 'rgb(var(--warn))' },
-          { label: zh ? '到期' : 'Expired', color: 'rgb(var(--danger))' }
-        ].map((l) => (
-          <span key={l.label} className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: l.color }} />
-            {l.label}
-          </span>
-        ))}
-      </div>
-    </Card>
-  )
-}
-
 // ─── Branch Explorer Row ─────────────────────────────────────────────────────
 
 function ExplorerRow({ b, selected, onSelect, onHover, onView, onNotify, onDelete, protected_, deletionDisabled }: {
@@ -628,16 +473,6 @@ export default function Branches(): JSX.Element {
         </div>
       </div>
 
-      {/* Graph */}
-      <BranchGraph
-        branches={branches}
-        filtered={filtered}
-        selected={selectedBranch}
-        search={search}
-        onSelect={(b) => void loadBranchDetails(b)}
-        onHover={setHoveredBranch}
-      />
-
       {/* Workspace: Explorer + Details */}
       <div className="flex gap-4">
         <Card className="min-w-0 flex-1 overflow-hidden p-0">
@@ -663,9 +498,9 @@ export default function Branches(): JSX.Element {
                   key={`${b.id}-${b.type}`}
                   b={b}
                   selected={selectedBranch?.id === b.id}
-                  onSelect={() => void loadBranchDetails(b)}
+                  onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                   onHover={(v) => setHoveredBranch(v ? b : null)}
-                  onView={() => void loadBranchDetails(b)}
+                  onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                   onNotify={() => void handleNotify(b)}
                   onDelete={() => void handleBeginDelete(b, 'remote')}
                   protected_={isProtected(b)}
