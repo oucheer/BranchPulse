@@ -265,7 +265,7 @@ export default function Monitoring(): JSX.Element {
               />
             </div>
             <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(false)}>
-              <Play size={14} /> {tr('inspectionOnly')}
+              <Play size={14} /> {tr('triggerCheckNotify')}
             </button>
             <button className="btn w-full justify-center" disabled={scanning || settings.deletionDisabled} onClick={() => void runCheck(true)}>
               <Trash2 size={14} /> {tr('checkAndDelete')}

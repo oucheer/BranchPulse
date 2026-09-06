@@ -289,7 +289,7 @@ export class EmailService {
 
   async sendCreatorEmails(rows: EmailIssueRow[], config?: EmailConfig): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    if (!cfg.enabled) return { ok: false, message: 'Email is disabled.', emailsSent: 0 }
+    if (!cfg.enabled) return { ok: false, message: '邮件发送未启用。', emailsSent: 0 }
     const groups = new Map<string, EmailIssueRow[]>()
     for (const row of rows) {
       const key = (row.creatorEmail || row.creator || 'unknown').trim().toLowerCase()
@@ -298,23 +298,30 @@ export class EmailService {
       groups.set(key, list)
     }
     const recipients: string[] = []
+    const skipped: string[] = []
     let sent = 0
-    try {
-      const transport = this.buildTransport(cfg)
-      for (const [key, branchRows] of groups) {
-        const first = branchRows[0]
-        const to = first.creatorEmail || first.creator
-        if (!to) continue
-        const body = branchRows
-          .map((r) => {
-            const rendered = this.renderTemplate('stale', {
-              ...r,
-              creator: first.creator,
-              creator_email: first.creatorEmail
-            })
-            return `${rendered.subject}\n\n${rendered.body}`
+    let failed = 0
+    const failures: string[] = []
+    const transport = this.buildTransport(cfg)
+    for (const [key, branchRows] of groups) {
+      const first = branchRows[0]
+      const to = String(first.creatorEmail || first.creator || '').trim()
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
+        void key
+        continue
+      }
+      const body = branchRows
+        .map((r) => {
+          const rendered = this.renderTemplate('stale', {
+            ...r,
+            creator: first.creator,
+            creator_email: first.creatorEmail
           })
-          .join('\n\n---\n\n')
+          return `${rendered.subject}\n\n${rendered.body}`
+        })
+        .join('\n\n---\n\n')
+      try {
         await transport.sendMail({
           from: cfg.from || cfg.username || 'BranchPulse',
           to,
@@ -323,14 +330,34 @@ export class EmailService {
         })
         recipients.push(to)
         sent += 1
-        void key
+      } catch (err) {
+        failed += 1
+        const message = err instanceof Error ? err.message : String(err)
+        failures.push(`${to}: ${message}`)
+        logger.warn(`creator email send failed: ${to} ${message}`)
       }
-      this.audit.record('email_creator_sent', { recipients, count: sent }, 'success')
-      return { ok: true, message: `Sent ${sent} creator email${sent === 1 ? '' : 's'}.`, recipients, emailsSent: sent }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.audit.record('email_creator_sent', { error: message }, 'failure')
-      return { ok: false, message: 'Creator emails failed.', technical: message, emailsSent: sent }
+      void key
+    }
+    const details = failures.slice(0, 3).join('; ')
+    if (failed > 0) {
+      this.audit.record('email_creator_sent', { recipients, count: sent, failed, errors: failures }, sent > 0 ? 'success' : 'failure')
+      const suffix = details ? ` 失败原因：${details}` : ''
+      return {
+        ok: sent > 0,
+        message: sent > 0
+          ? `已发送 ${sent} 封创始人邮件，${failed} 封失败。${suffix}`
+          : `创始人邮件发送失败（共 ${failed} 封）。${suffix}` ,
+        technical: failures.join('\n'),
+        emailsSent: sent
+      }
+    }
+    this.audit.record('email_creator_sent', { recipients, count: sent, skipped }, 'success')
+    const skipText = skipped.length > 0 ? `；${skipped.length} 个创始人缺少有效邮箱已跳过：${skipped.slice(0, 3).join('、')}` : ''
+    return {
+      ok: sent > 0,
+      message: sent > 0 ? `已发送 ${sent} 封创始人邮件。${skipText}` : `没有可发送的创始人邮件。${skipText}`,
+      recipients,
+      emailsSent: sent
     }
   }
 
@@ -367,3 +394,4 @@ export class EmailService {
 }
 
 void app
+

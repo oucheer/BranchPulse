@@ -68,8 +68,10 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
     >
       <input
         type="checkbox"
-        className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--danger))]"
+        className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30 accent-[rgb(var(--danger))]"
         checked={checked}
+        disabled={protected_}
+        title={protected_ ? (zh ? '白名单/受保护分支不可勾选' : 'Protected branches cannot be selected') : undefined}
         onClick={(e) => e.stopPropagation()}
         onChange={onToggle}
       />
@@ -344,7 +346,7 @@ export default function Branches(): JSX.Element {
   const selectAllVisible = (): void => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
-      filtered.forEach((b) => next.add(branchKey(b)))
+        filtered.filter((b) => !isProtected(b)).forEach((b) => next.add(branchKey(b)))
       return next
     })
   }
@@ -352,7 +354,7 @@ export default function Branches(): JSX.Element {
   const selectByFilter = (pred: (b: BranchSummary) => boolean): void => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
-      filtered.filter(pred).forEach((b) => next.add(branchKey(b)))
+        filtered.filter((b) => !isProtected(b) && pred(b)).forEach((b) => next.add(branchKey(b)))
       return next
     })
   }
@@ -573,14 +575,6 @@ export default function Branches(): JSX.Element {
           <option value="local">{zh ? '本地' : 'Local'}</option>
           <option value="remote">{zh ? '远程' : 'Remote'}</option>
         </select>
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted">
-          <span className="tabular-nums">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
-          <button className="no-specular text-primary hover:underline" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
-          <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
-          <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
-          <button className="no-specular text-danger hover:underline" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
-          <button className="no-specular text-muted hover:underline" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
-        </div>
         <div className="text-xs tabular-nums text-muted">
           {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
         </div>
@@ -633,8 +627,16 @@ export default function Branches(): JSX.Element {
       {/* Workspace: Explorer + Details */}
       <div className="flex gap-4">
         <Card className="min-w-0 flex-1 overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
+            <div className="flex flex-wrap items-center justify-end gap-1.5 text-[10px] text-muted">
+              <span className="tabular-nums">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
+              <button className="no-specular text-primary hover:underline" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
+              <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
+              <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
+              <button className="no-specular text-danger hover:underline" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+              <button className="no-specular text-muted hover:underline" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
+          </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
 </div>
           <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
@@ -784,3 +786,4 @@ export default function Branches(): JSX.Element {
     </div>
   )
 }
+

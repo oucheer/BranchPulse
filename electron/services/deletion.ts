@@ -23,9 +23,7 @@ export class DeletionPolicyEngine {
     if (auth.confirmed === true) {
       addCheck('Explicit user authorization', auth.authorized === true, auth.authorized === true ? 'User authorized deletion.' : 'User authorization required.')
     }
-    if (auth.confirmed === true) {
-      addCheck('Confirmation', true, 'Confirmation accepted.')
-    }
+    addCheck('Confirmation', auth.confirmed === true, auth.confirmed === true ? 'Confirmation accepted.' : 'Deletion confirmation is required.')
 
     const failed = checks.find((c) => !c.passed)
     if (failed) {
@@ -91,3 +89,8 @@ export class DeletionTokenRegistry {
     }
   }
 }
+
+
+
+
+
