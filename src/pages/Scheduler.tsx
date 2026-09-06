@@ -7,10 +7,15 @@ import type { SchedulerJob, NotifyTarget } from '@shared/types'
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 function notifyLabel(target: string): string {
-  return target.includes('@') ? `通知 ${target}` : '不通知'
+  if (target === 'both') return '通知自己和分支创始人'
+  if (target === 'creator') return '通知分支创始人'
+  if (target === 'self') return '通知自己'
+  if (target === 'none') return '不通知'
+  return `通知 ${target}`
 }
 
-const emptyJob = (): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
+const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
+  repositoryId,
   name: '',
   kind: 'interval',
   enabled: true,
@@ -29,13 +34,17 @@ const emptyJob = (): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'next
 export default function Scheduler(): JSX.Element {
   const jobs = useAppStore((s) => s.jobs)
   const calendarRuns = useAppStore((s) => s.calendarRuns)
+  const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
+  const emailGroups = useAppStore((s) => s.emailGroups)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
+
+  const visibleJobs = activeRepositoryId ? jobs.filter((job) => job.repositoryId === activeRepositoryId || job.repositoryId === null) : jobs
 
   const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns
 
@@ -74,7 +83,7 @@ export default function Scheduler(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('scheduler')}</h1>
-        <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob() })}>
+        <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
           <Plus size={15} /> {tr('schedule')}
         </button>
       </div>
@@ -92,11 +101,11 @@ export default function Scheduler(): JSX.Element {
       </div>
 
       {tab === 'schedule' ? (
-        jobs.length === 0 ? (
-          <EmptyState title="No scheduled jobs" />
+        visibleJobs.length === 0 ? (
+          <EmptyState title="暂无定时任务" />
         ) : (
           <div className="space-y-2">
-            {jobs.map((job) => (
+            {visibleJobs.map((job) => (
               <Card key={job.id} className="flex items-center gap-3 p-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <CalendarClock size={16} />
@@ -109,18 +118,18 @@ export default function Scheduler(): JSX.Element {
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
                     {job.kind === 'interval' ? (
-                      <span>Every {job.intervalHours}h</span>
+                      <span>每 {job.intervalHours} 小时</span>
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
-                    {job.nextRunAt ? <span>· Next: {new Date(job.nextRunAt).toLocaleString()}</span> : null}
+                    {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {job.autoDeleteEnabled ? tr('checkAndDelete') : tr('inspectionOnly')}</span>
                     <span>· {notifyLabel(job.notifyTarget)}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   <button className="btn px-2" onClick={() => void run(job.id)}><Play size={13} /></button>
-                  <button className="btn px-2" onClick={() => setEditJob({ ...job })}>Edit</button>
+                  <button className="btn px-2" onClick={() => setEditJob({ ...job })}>编辑</button>
                   <button className="btn px-2" onClick={() => void remove(job.id)}><Trash2 size={13} className="text-danger" /></button>
                 </div>
               </Card>
@@ -133,12 +142,12 @@ export default function Scheduler(): JSX.Element {
             <thead>
               <tr className="border-b border-line text-xs uppercase tracking-normal text-muted">
                 <th className="px-4 py-3 font-medium">{tr('time')}</th>
-                <th className="px-4 py-3 font-medium">Trigger</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Branches</th>
-                <th className="px-4 py-3 font-medium">Stale</th>
-                <th className="px-4 py-3 font-medium">Invalid</th>
-                <th className="px-4 py-3 font-medium">Notifications</th>
+                <th className="px-4 py-3 font-medium">触发方式</th>
+                <th className="px-4 py-3 font-medium">状态</th>
+                <th className="px-4 py-3 font-medium">分支数</th>
+                <th className="px-4 py-3 font-medium">已停更</th>
+                <th className="px-4 py-3 font-medium">命名异常</th>
+                <th className="px-4 py-3 font-medium">通知</th>
               </tr>
             </thead>
             <tbody>
@@ -182,7 +191,7 @@ export default function Scheduler(): JSX.Element {
 
       <Modal
         open={editJob !== null}
-        title={editJob?.id ? 'Edit job' : 'New job'}
+        title={editJob?.id ? '编辑定时任务' : '新建定时任务'}
         onClose={() => setEditJob(null)}
         footer={
           <div className="flex gap-2">
@@ -192,6 +201,19 @@ export default function Scheduler(): JSX.Element {
         }
       >
         <div className="space-y-4">
+          <div>
+            <div className="label mb-1">仓库范围</div>
+            <select
+              className="input"
+              value={editJob?.repositoryId ?? ''}
+              onChange={(e) => setEditJob({ ...editJob, repositoryId: e.target.value || null })}
+            >
+              <option value="">全部仓库</option>
+              {repositories.map((repo) => (
+                <option key={repo.id} value={repo.id}>{repo.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <div className="label mb-1">{tr('name')}</div>
             <input className="input" value={editJob?.name ?? ''} onChange={(e) => setEditJob({ ...editJob, name: e.target.value })} />
@@ -256,15 +278,42 @@ export default function Scheduler(): JSX.Element {
             />
           </div>
           <div>
-            <div className="label mb-1">通知填写收件人</div>
+            <div className="label mb-1">收件人</div>
             <input
               className="input"
               type="email"
-              placeholder="you@example.com"
+              placeholder="you@example.com 或分组名"
               value={typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@') ? editJob.notifyTarget : ''}
               onChange={(e) => setEditJob({ ...editJob, notifyTarget: (e.target.value.trim() || 'self') as NotifyTarget })}
             />
-            <p className="mt-1 text-xs text-muted">巡检结果将发送到该邮箱；留空则不发送。</p>
+            <div className="mt-2 flex items-center gap-2">
+              <select
+                className="input max-w-[12rem]"
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return
+                  const current = typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@') ? editJob.notifyTarget : ''
+                  const next = current ? `${current}, ${e.target.value}` : e.target.value
+                  setEditJob({ ...editJob, notifyTarget: next as NotifyTarget })
+                }}
+              >
+                <option value="">选择邮箱分组</option>
+                {emailGroups.map((group) => (
+                  <option key={group.id} value={group.name}>{group.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+                <span className="text-sm text-canvas-fg">通知自己</span>
+                <Toggle checked={editJob?.notifyTarget === 'self' || editJob?.notifyTarget === 'both' || (typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@'))} onChange={(v) => setEditJob({ ...editJob, notifyTarget: (v ? 'self' : 'none') as NotifyTarget })} />
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+                <span className="text-sm text-canvas-fg">通知分支创始人</span>
+                <Toggle checked={editJob?.notifyTarget === 'creator' || editJob?.notifyTarget === 'both'} onChange={(v) => setEditJob({ ...editJob, notifyTarget: (v ? 'creator' : 'none') as NotifyTarget })} />
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted">支持填写邮箱或全局邮箱分组，多个用逗号分隔。</p>
           </div>
         </div>
       </Modal>

@@ -2,10 +2,11 @@ import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodemailer from 'nodemailer'
-import type { EmailConfig, EmailSendResult } from '@shared/types'
+import type { EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import { logger } from '../utils/logger'
+import { newId, nowIso } from '../utils/ids'
 
 const PLAIN_PREFIX = 'plain:'
 
@@ -33,6 +34,25 @@ export interface EmailSummaryData {
   cleanupCandidates: number
   repositories: number
   generatedAt: string
+}
+
+export function resolveRecipients(input: string, groups: EmailGroup[] = []): string[] {
+  const tokens = input
+    .split(/[,;\s]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean)
+  const resolved: string[] = []
+  for (const token of tokens) {
+    const group = groups.find((item) => item.name.trim().toLowerCase() === token)
+    if (group) {
+      for (const recipient of resolveRecipients(group.recipients, [])) {
+        if (!resolved.includes(recipient)) resolved.push(recipient)
+      }
+    } else if (!resolved.includes(token)) {
+      resolved.push(token)
+    }
+  }
+  return resolved
 }
 
 export class EmailService {
@@ -101,6 +121,38 @@ export class EmailService {
     } catch {
       return ''
     }
+  }
+
+  listGroups(): EmailGroup[] {
+    return this.storage.all<Record<string, unknown>>('SELECT * FROM email_groups ORDER BY created_at ASC').map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      recipients: String(r.recipients),
+      createdAt: String(r.created_at)
+    }))
+  }
+
+  saveGroup(group: Partial<EmailGroup> & { id?: string }): EmailGroup[] {
+    const now = nowIso()
+    const existing = group.id ? this.storage.get<Record<string, unknown>>('SELECT * FROM email_groups WHERE id = ?', [group.id]) : undefined
+    const id = existing ? String(existing.id) : newId()
+    const name = String(group.name ?? existing?.name ?? '').trim()
+    const recipients = String(group.recipients ?? existing?.recipients ?? '').trim()
+    if (!name || !recipients) throw new Error('Group name and recipients are required.')
+    this.storage.upsert('email_groups', {
+      id,
+      name,
+      recipients,
+      created_at: existing ? String(existing.created_at) : now
+    })
+    this.audit.record(existing ? 'email_group_updated' : 'email_group_saved', { id, name, recipients })
+    return this.listGroups()
+  }
+
+  deleteGroup(id: string): EmailGroup[] {
+    this.storage.delete('email_groups', 'id = ?', [id])
+    this.audit.record('email_group_deleted', { id })
+    return this.listGroups()
   }
 
   getTemplate(kind: string): { subject: string; body: string } {
@@ -187,9 +239,10 @@ export class EmailService {
     }
   }
 
-  async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig): Promise<EmailSendResult> {
+  async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig, recipients?: string[]): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    const recipient = cfg.testRecipient || cfg.username
+    const recipientList = recipients?.length ? recipients : resolveRecipients(cfg.testRecipient || cfg.username)
+    const recipient = recipientList.join(', ')
     if (!cfg.enabled || !recipient) {
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }
     }

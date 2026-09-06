@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon } from 'lucide-react'
+import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
-import type { AppSettings, EmailConfig, LanguageCode, ThemeMode } from '@shared/types'
+import type { AppSettings, EmailConfig, EmailGroup, LanguageCode, ThemeMode } from '@shared/types'
 
 export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
+  const emailGroups = useAppStore((s) => s.emailGroups)
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const toast = useAppStore((s) => s.toast)
@@ -30,6 +31,7 @@ export default function Settings(): JSX.Element {
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
+  const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
 
   useEffect(() => {
     setDraft(settings)
@@ -99,6 +101,27 @@ export default function Settings(): JSX.Element {
       setGitlabBusy(false)
     }
   }
+  const saveGroup = async (): Promise<void> => {
+    try {
+      await window.branchpulse.saveEmailGroup(groupDraft)
+      setGroupDraft({ name: '', recipients: '' })
+      toast('邮箱分组已保存', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  const deleteGroup = async (id: string): Promise<void> => {
+    try {
+      await window.branchpulse.deleteEmailGroup(id)
+      toast('邮箱分组已删除', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
   const sendTest = async (): Promise<void> => {
 
     setTesting(true)
@@ -231,7 +254,7 @@ export default function Settings(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div>
-              <div className="label mb-1.5">通知邮箱</div>
+              <div className="label mb-1.5">通知邮箱（发件账号）</div>
               <input
                 className="input"
                 type="email"
@@ -239,7 +262,7 @@ export default function Settings(): JSX.Element {
                 onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value, testRecipient: e.target.value })}
                 placeholder="you@example.com"
               />
-              <p className="mt-1 text-xs text-muted">用于接收分支巡检提醒和测试邮件；请确保已在邮箱服务中授权应用发送。</p>
+              <p className="mt-1 text-xs text-muted">这是统一发件账号。用于登录邮箱服务发送邮件，不会自动同步为所有收件人。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -257,6 +280,58 @@ export default function Settings(): JSX.Element {
               </button>
             </div>
           </div>
+        </Card>
+
+        <Card className="p-5 xl:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-canvas-fg">
+              <Mail size={15} className="text-secondary" /> 全局邮箱分组
+            </div>
+            <Badge tone="default">{emailGroups.length} 个分组</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[12rem_1fr_auto]">
+            <input
+              className="input"
+              placeholder="分组名称，如 aaa"
+              value={groupDraft.name}
+              onChange={(e) => setGroupDraft({ ...groupDraft, name: e.target.value })}
+            />
+            <textarea
+              className="input min-h-[72px] font-mono text-sm"
+              rows={3}
+              placeholder="111@qq.com, 222@qq.com（多个邮箱用逗号、分号或换行分隔）"
+              value={groupDraft.recipients}
+              onChange={(e) => setGroupDraft({ ...groupDraft, recipients: e.target.value })}
+            />
+            <button className="btn btn-primary h-fit" disabled={!groupDraft.name || !groupDraft.recipients} onClick={() => void saveGroup()}>
+              <Save size={14} /> 保存分组
+            </button>
+          </div>
+          <div className="mt-4 space-y-2">
+            {emailGroups.length === 0 ? (
+              <div className="rounded-md bg-surface-elevated p-4 text-center text-sm text-muted">暂无邮箱分组</div>
+            ) : (
+              emailGroups.map((group) => (
+                <div key={group.id} className="flex items-start gap-3 rounded-md border border-line p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-canvas-fg">{group.name}</div>
+                    <div className="mt-0.5 break-all text-xs text-muted">{group.recipients}</div>
+                  </div>
+                  <button
+                    className="btn px-2"
+                    onClick={() => setGroupDraft({ id: group.id, name: group.name, recipients: group.recipients })}
+                    title="编辑分组"
+                  >
+                    <SettingsIcon size={13} />
+                  </button>
+                  <button className="btn px-2" onClick={() => void deleteGroup(group.id)} title="删除分组">
+                    <TrashIcon size={13} className="text-danger" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <p className="mt-3 text-xs text-muted">邮箱分组为全局配置，可在监控、定时调度、报告收件人处直接选择分组名。</p>
         </Card>
       </div>
     </div>

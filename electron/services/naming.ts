@@ -55,10 +55,14 @@ export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', 
 export class NamingService {
   constructor(private readonly storage: StorageService) {}
 
-  listRules(): NamingRule[] {
-    const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules ORDER BY priority ASC')
+  listRules(repositoryId?: string | null): NamingRule[] {
+    const scoped = repositoryId !== undefined
+    const rows = scoped && repositoryId
+      ? this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE repository_id = ? OR repository_id IS NULL ORDER BY priority ASC', [repositoryId])
+      : this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules ORDER BY priority ASC')
     return rows.map((r) => ({
       id: String(r.id),
+      repositoryId: (r.repository_id as string | null) ?? null,
       name: String(r.name),
       pattern: String(r.pattern),
       type: (r.type === 'regex' ? 'regex' : 'glob') as 'glob' | 'regex',

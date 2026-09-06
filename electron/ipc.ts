@@ -9,6 +9,7 @@ import type {
   DeleteRequest,
   DeleteResult,
   EmailConfig,
+  EmailGroup,
   EmailSendResult,
   GitLabConnectionConfig,
   GitLabProject,
@@ -113,8 +114,11 @@ export function registerIpc(services: AppServices): void {
     }
   })
 
-  async function getMonitoring(): Promise<MonitoringConfig> {
-    const row = storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+  async function getMonitoring(repositoryId?: string | null): Promise<MonitoringConfig> {
+    const row = repositoryId
+      ? (storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+        ?? storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
+      : storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
     return {
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
@@ -129,8 +133,8 @@ export function registerIpc(services: AppServices): void {
     }
   }
 
-  async function saveMonitoring(config: MonitoringConfig): Promise<MonitoringConfig> {
-    storage.update('monitoring_rules', {
+  async function saveMonitoring(config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> {
+    const values = {
       stale_threshold_days: config.staleThresholdDays,
       grace_period_days: config.gracePeriodDays,
       stale_threshold_unit: config.staleThresholdUnit,
@@ -141,9 +145,19 @@ export function registerIpc(services: AppServices): void {
       notification_enabled: config.notificationEnabled ? 1 : 0,
       auto_delete_enabled: config.autoDeleteEnabled ? 1 : 0,
       notify_target: config.notifyTarget
-    }, 'id = 1')
-    audit.record('monitoring_rules_updated', { staleThresholdDays: config.staleThresholdDays, gracePeriodDays: config.gracePeriodDays, staleThresholdUnit: config.staleThresholdUnit, gracePeriodUnit: config.gracePeriodUnit })
-    return config
+    }
+    if (repositoryId) {
+      const existing = storage.get<Record<string, unknown>>('SELECT repository_id FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+      if (existing) {
+        storage.update('monitoring_rules_repo', values, 'repository_id = ?', [repositoryId])
+      } else {
+        storage.insert('monitoring_rules_repo', { repository_id: repositoryId, ...values })
+      }
+    } else {
+      storage.update('monitoring_rules', values, 'id = 1')
+    }
+    audit.record('monitoring_rules_updated', { repositoryId: repositoryId ?? null, staleThresholdDays: config.staleThresholdDays, gracePeriodDays: config.gracePeriodDays, staleThresholdUnit: config.staleThresholdUnit, gracePeriodUnit: config.gracePeriodUnit })
+    return getMonitoring(repositoryId)
   }
 
   // --- beginDelete / deleteBranch local helpers (shared by single and batch) ---
@@ -277,34 +291,36 @@ export function registerIpc(services: AppServices): void {
     return Promise.all(requests.map((r) => executeDelete(r)))
   })
 
-  ipcMain.handle('branchpulse:listNamingRules', (): NamingRule[] => naming.listRules())
+  ipcMain.handle('branchpulse:listNamingRules', (_e, repositoryId?: string | null): NamingRule[] => naming.listRules(repositoryId))
   ipcMain.handle('branchpulse:saveNamingRule', (_e, rule: Partial<NamingRule> & { id?: string }): NamingRule[] => {
-    const list = naming.listRules()
+    const list = naming.listRules(rule.repositoryId ?? null)
     if (rule.id) {
       const idx = list.findIndex((r) => r.id === rule.id)
       if (idx >= 0) {
         const merged = { ...list[idx], ...rule }
         storage.update('branch_naming_rules', {
           name: merged.name, pattern: merged.pattern, type: merged.type, mode: merged.mode,
-          description: merged.description, enabled: merged.enabled ? 1 : 0, priority: merged.priority
+          description: merged.description, enabled: merged.enabled ? 1 : 0, priority: merged.priority,
+          repository_id: merged.repositoryId ?? null
         }, 'id = ?', [rule.id])
       }
     } else {
       storage.insert('branch_naming_rules', {
+        repository_id: rule.repositoryId ?? null,
         name: rule.name ?? 'Rule', pattern: rule.pattern ?? '', type: rule.type ?? 'glob', mode: rule.mode ?? 'allow',
         description: rule.description ?? '', enabled: rule.enabled !== false ? 1 : 0, priority: rule.priority ?? 50
       })
     }
     audit.record('naming_rule_saved', { id: rule.id })
-    return naming.listRules()
+    return naming.listRules(rule.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:deleteNamingRule', (_e, id: string): NamingRule[] => {
+  ipcMain.handle('branchpulse:deleteNamingRule', (_e, id: string, repositoryId?: string | null): NamingRule[] => {
     storage.delete('branch_naming_rules', 'id = ?', [id])
     audit.record('naming_rule_deleted', { id })
-    return naming.listRules()
+    return naming.listRules(repositoryId)
   })
-  ipcMain.handle('branchpulse:reorderNamingRule', (_e, id: string, direction: -1 | 1): NamingRule[] => {
-    const list = naming.listRules()
+  ipcMain.handle('branchpulse:reorderNamingRule', (_e, id: string, direction: -1 | 1, repositoryId?: string | null): NamingRule[] => {
+    const list = naming.listRules(repositoryId)
     const idx = list.findIndex((r) => r.id === id)
     if (idx < 0 || (direction === -1 && idx === 0) || (direction === 1 && idx === list.length - 1)) return list
     const swap = list[idx + direction]
@@ -314,31 +330,35 @@ export function registerIpc(services: AppServices): void {
     swap.priority = tmp
     storage.update('branch_naming_rules', { priority: list[idx].priority }, 'id = ?', [list[idx].id])
     storage.update('branch_naming_rules', { priority: swap.priority }, 'id = ?', [swap.id])
-    return naming.listRules()
+    return naming.listRules(repositoryId)
   })
-  ipcMain.handle('branchpulse:validateBranchName', (_e, name: string): NamingResult => naming.validate(name))
+  ipcMain.handle('branchpulse:validateBranchName', (_e, name: string, repositoryId?: string | null): NamingResult => naming.validate(name, naming.listRules(repositoryId)))
 
-  ipcMain.handle('branchpulse:listWhitelist', (): ProtectionEntry[] => protection.listWhitelist())
+  ipcMain.handle('branchpulse:listWhitelist', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listWhitelist(repositoryId))
   ipcMain.handle('branchpulse:addWhitelist', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
     audit.record('whitelist_added', { pattern: entry.pattern })
-    return protection.addWhitelist(entry)
+    return protection.addWhitelist(entry, entry.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:removeWhitelist', (_e, id: string): ProtectionEntry[] => {
+  ipcMain.handle('branchpulse:removeWhitelist', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
     audit.record('whitelist_removed', { id })
-    return protection.removeWhitelist(id)
+    return protection.removeWhitelist(id, repositoryId)
   })
-  ipcMain.handle('branchpulse:listProtected', (): ProtectionEntry[] => protection.listProtected())
+  ipcMain.handle('branchpulse:listProtected', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listProtected(repositoryId))
   ipcMain.handle('branchpulse:addProtected', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
     audit.record('protected_added', { pattern: entry.pattern })
-    return protection.addProtected(entry)
+    return protection.addProtected(entry, entry.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:removeProtected', (_e, id: string): ProtectionEntry[] => {
+  ipcMain.handle('branchpulse:removeProtected', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
     audit.record('protected_removed', { id })
-    return protection.removeProtected(id)
+    return protection.removeProtected(id, repositoryId)
   })
 
-  ipcMain.handle('branchpulse:getMonitoring', getMonitoring)
-  ipcMain.handle('branchpulse:saveMonitoring', async (_e, config: MonitoringConfig): Promise<MonitoringConfig> => saveMonitoring(config))
+  ipcMain.handle('branchpulse:listEmailGroups', (): EmailGroup[] => email.listGroups())
+  ipcMain.handle('branchpulse:saveEmailGroup', (_e, group: Partial<EmailGroup> & { id?: string }): EmailGroup[] => email.saveGroup(group))
+  ipcMain.handle('branchpulse:deleteEmailGroup', (_e, id: string): EmailGroup[] => email.deleteGroup(id))
+
+  ipcMain.handle('branchpulse:getMonitoring', (_e, repositoryId?: string | null) => getMonitoring(repositoryId))
+  ipcMain.handle('branchpulse:saveMonitoring', async (_e, config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> => saveMonitoring(config, repositoryId))
 
   ipcMain.handle('branchpulse:listJobs', (): SchedulerJob[] => scheduler.listJobs())
   ipcMain.handle('branchpulse:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] => scheduler.saveJob(job))

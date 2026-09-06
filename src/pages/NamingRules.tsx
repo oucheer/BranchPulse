@@ -4,7 +4,8 @@ import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import type { NamingRule } from '@shared/types'
 
-const emptyRule = (): Omit<NamingRule, 'id' | 'enabled'> => ({
+const emptyRule = (repositoryId: string | null): Omit<NamingRule, 'id' | 'enabled'> => ({
+  repositoryId,
   name: '',
   pattern: '',
   type: 'glob',
@@ -15,6 +16,7 @@ const emptyRule = (): Omit<NamingRule, 'id' | 'enabled'> => ({
 
 export default function NamingRules(): JSX.Element {
   const namingRules = useAppStore((s) => s.namingRules)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [editRule, setEditRule] = useState<Partial<NamingRule> & { id?: string } | null>(null)
@@ -23,7 +25,7 @@ export default function NamingRules(): JSX.Element {
 
   const save = async (rule: Partial<NamingRule> & { id?: string }): Promise<void> => {
     try {
-      await window.branchpulse.saveNamingRule(rule)
+      await window.branchpulse.saveNamingRule({ ...rule, repositoryId: activeRepositoryId })
       toast(tr('saved'), 'success')
       setEditRule(null)
       void refresh()
@@ -34,7 +36,7 @@ export default function NamingRules(): JSX.Element {
 
   const remove = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteNamingRule(id)
+      await window.branchpulse.deleteNamingRule(id, activeRepositoryId)
       toast('Rule deleted', 'success')
       void refresh()
     } catch (err) {
@@ -44,7 +46,7 @@ export default function NamingRules(): JSX.Element {
 
   const reorder = async (id: string, direction: -1 | 1): Promise<void> => {
     try {
-      await window.branchpulse.reorderNamingRule(id, direction)
+      await window.branchpulse.reorderNamingRule(id, direction, activeRepositoryId)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -54,7 +56,7 @@ export default function NamingRules(): JSX.Element {
   const validate = async (): Promise<void> => {
     if (!validateName) return
     try {
-      const result = await window.branchpulse.validateBranchName(validateName)
+      const result = await window.branchpulse.validateBranchName(validateName, activeRepositoryId)
       setValidationResult(result)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -64,8 +66,11 @@ export default function NamingRules(): JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-canvas-fg">{tr('namingRules')}</h1>
-        <button className="btn btn-primary" onClick={() => setEditRule({ ...emptyRule() })}>
+        <h1 className="text-lg font-bold text-canvas-fg">
+          {tr('namingRules')}
+          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库隔离</span> : <span className="ml-2 text-sm font-medium text-muted">全部仓库</span>}
+        </h1>
+        <button className="btn btn-primary" onClick={() => setEditRule({ ...emptyRule(activeRepositoryId) })}>
           <Plus size={15} /> {tr('addRule')}
         </button>
       </div>

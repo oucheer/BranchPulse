@@ -47,7 +47,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
       { id: 'act-report', group: zh ? '操作' : 'Actions', label: zh ? '生成报告' : 'Generate Report', icon: FileBarChart, action: 'report' },
       { id: 'nav-naming', group: zh ? '操作' : 'Actions', label: zh ? '打开命名规则' : 'Open Naming Rules', icon: Tags, action: 'nav:/naming-rules' },
       { id: 'nav-whitelist', group: zh ? '操作' : 'Actions', label: zh ? '打开白名单' : 'Open Whitelist', icon: ShieldCheck, action: 'nav:/whitelist' },
-      { id: 'nav-scheduler', group: zh ? '操作' : 'Actions', label: zh ? '打开调度' : 'Open Scheduler', icon: CalendarClock, action: 'nav:/scheduler' },
+      { id: 'nav-scheduler', group: zh ? '操作' : 'Actions', label: zh ? '打开定时调度' : 'Open Scheduler', icon: CalendarClock, action: 'nav:/scheduler' },
       // Settings
       { id: 'nav-audit', group: zh ? '系统' : 'System', label: zh ? '打开审计日志' : 'Open Audit Log', icon: ScrollText, action: 'nav:/audit' },
       { id: 'nav-settings', group: zh ? '系统' : 'System', label: zh ? '打开设置' : 'Open Settings', icon: Settings, action: 'nav:/settings' }

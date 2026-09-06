@@ -33,6 +33,7 @@ export default function Reports(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const emailGroups = useAppStore((s) => s.emailGroups)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
   const [draft, setDraft] = useState(emptySchedule())
@@ -175,14 +176,30 @@ export default function Reports(): JSX.Element {
             />
           </div>
           <div className="lg:col-span-4">
-            <div className="label mb-1.5">收件邮箱</div>
+            <div className="label mb-1.5">收件邮箱 / 邮箱分组</div>
             <textarea
-              className="input min-h-[96px] font-mono text-sm"
-              rows={4}
-              placeholder="多个邮箱用逗号或换行分隔"
+              className="input min-h-[120px] font-mono text-sm"
+              rows={5}
+              placeholder="多个邮箱或分组用逗号、分号或换行分隔"
               value={draft.recipients}
               onChange={(e) => setDraft({ ...draft, recipients: e.target.value })}
             />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <select
+                className="input max-w-[12rem]"
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return
+                  const current = draft.recipients.trim()
+                  setDraft({ ...draft, recipients: current ? `${current}, ${e.target.value}` : e.target.value })
+                }}
+              >
+                <option value="">选择邮箱分组</option>
+                {emailGroups.map((group) => (
+                  <option key={group.id} value={group.name}>{group.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
         {draft.frequency === 'weekly' ? (

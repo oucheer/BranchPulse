@@ -13,6 +13,7 @@ import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
+import { resolveRecipients } from './email'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 
@@ -29,6 +30,14 @@ export class MonitoringService {
 
   private emitProgress(runId: string, activity: ActivityItem[], summary?: ScanProgress['summary']): void {
     this.onProgress?.({ runId, activity: [...activity], summary })
+  }
+
+  private readMonitoringRow(repositoryId?: string | null): Record<string, unknown> | null {
+    if (repositoryId) {
+      const row = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId]) ?? null
+      if (row) return row
+    }
+    return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1') ?? null
   }
 
   async runCheckNow(options: RunCheckOptions = {}): Promise<ScanRun> {
@@ -50,7 +59,7 @@ export class MonitoringService {
       addActivity('No repositories configured. Add a repository to begin.', 'warn')
     }
 
-    const monitoringRow = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+    const monitoringRow = this.readMonitoringRow(options.repositoryIds?.length ? options.repositoryIds[0] : null)
     const fetchEnabled = options.fetch ?? (monitoringRow?.fetch_enabled ?? 1) === 1
     const policy: EmailPolicy = options.emailPolicy ?? ((monitoringRow?.email_policy as EmailPolicy) ?? 'none')
     const notifyTarget: NotifyTarget = options.notifyTarget ?? ((monitoringRow?.notify_target as NotifyTarget) ?? 'self')
@@ -117,6 +126,7 @@ export class MonitoringService {
     }
     for (const deliveryKind of delivery) {
       const emailConfig = this.email.getConfig()
+      const groups = this.email.listGroups()
       if (!emailConfig.enabled) {
         addActivity('Email policy requested but email is disabled.', 'warn')
         break
@@ -133,7 +143,7 @@ export class MonitoringService {
           repositories: targets.length,
           generatedAt: new Date().toISOString()
         }
-        const result = await this.email.sendSummaryEmail(data)
+        const result = await this.email.sendSummaryEmail(data, undefined, resolveRecipients(typeof notifyTarget === 'string' ? notifyTarget : '', groups))
         if (result.ok) {
           emailsSent += result.emailsSent ?? 0
           addActivity('Summary email sent to self (1 email).', 'success')

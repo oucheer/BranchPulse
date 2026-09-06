@@ -13,28 +13,36 @@ export type ProtectionResult = {
 export class ProtectionService {
   constructor(private readonly storage: StorageService) {}
 
-  private load(table: string): ProtectionEntry[] {
-    const rows = this.storage.all<Record<string, unknown>>(`SELECT * FROM ${table} ORDER BY created_at ASC`)
+  private load(table: string, repositoryId?: string | null): ProtectionEntry[] {
+    const scoped = repositoryId !== undefined
+    const rows = this.storage.all<Record<string, unknown>>(
+      scoped && repositoryId
+        ? `SELECT * FROM ${table} WHERE repository_id = ? OR repository_id IS NULL ORDER BY created_at ASC`
+        : `SELECT * FROM ${table} ORDER BY created_at ASC`,
+      scoped && repositoryId ? [repositoryId] : []
+    )
     return rows.map((r) => ({
       id: String(r.id),
       pattern: String(r.pattern),
       type: (r.type as ProtectionEntry['type']) ?? 'exact',
       note: String(r.note ?? ''),
-      createdAt: String(r.created_at)
+      createdAt: String(r.created_at),
+      repositoryId: (r.repository_id as string | null) ?? null
     }))
   }
 
-  listWhitelist(): ProtectionEntry[] {
-    return this.load('whitelist')
+  listWhitelist(repositoryId?: string | null): ProtectionEntry[] {
+    return this.load('whitelist', repositoryId)
   }
 
-  listProtected(): ProtectionEntry[] {
-    return this.load('protected_branches')
+  listProtected(repositoryId?: string | null): ProtectionEntry[] {
+    return this.load('protected_branches', repositoryId)
   }
 
-  addWhitelist(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] {
+  addWhitelist(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>, repositoryId?: string | null): ProtectionEntry[] {
     this.storage.insert('whitelist', {
       id: newId(),
+      repository_id: repositoryId ?? null,
       pattern: entry.pattern,
       type: entry.type,
       note: entry.note,
@@ -43,14 +51,15 @@ export class ProtectionService {
     return this.listWhitelist()
   }
 
-  removeWhitelist(id: string): ProtectionEntry[] {
+  removeWhitelist(id: string, repositoryId?: string | null): ProtectionEntry[] {
     this.storage.delete('whitelist', 'id = ?', [id])
-    return this.listWhitelist()
+    return this.listWhitelist(repositoryId)
   }
 
-  addProtected(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] {
+  addProtected(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>, repositoryId?: string | null): ProtectionEntry[] {
     this.storage.insert('protected_branches', {
       id: newId(),
+      repository_id: repositoryId ?? null,
       pattern: entry.pattern,
       type: entry.type,
       note: entry.note,
@@ -59,14 +68,14 @@ export class ProtectionService {
     return this.listProtected()
   }
 
-  removeProtected(id: string): ProtectionEntry[] {
+  removeProtected(id: string, repositoryId?: string | null): ProtectionEntry[] {
     this.storage.delete('protected_branches', 'id = ?', [id])
-    return this.listProtected()
+    return this.listProtected(repositoryId)
   }
 
-  evaluate(name: string, isDefault: boolean): ProtectionResult {
-    const whitelisted = this.listWhitelist().some((e) => matchPattern(e.pattern, e.type, name))
-    const isProtected = this.listProtected().some((e) => matchPattern(e.pattern, e.type, name))
+  evaluate(name: string, isDefault: boolean, repositoryId?: string | null): ProtectionResult {
+    const whitelisted = this.listWhitelist(repositoryId).some((e) => matchPattern(e.pattern, e.type, name))
+    const isProtected = this.listProtected(repositoryId).some((e) => matchPattern(e.pattern, e.type, name))
     const rules: string[] = []
     if (whitelisted) rules.push('whitelist')
     if (isDefault) rules.push('default')

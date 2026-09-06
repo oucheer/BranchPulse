@@ -114,6 +114,7 @@ export interface Repository {
 
 export interface NamingRule {
   id: string
+  repositoryId?: string | null
   name: string
   pattern: string
   type: 'glob' | 'regex'
@@ -125,6 +126,7 @@ export interface NamingRule {
 
 export interface ProtectionEntry {
   id: string
+  repositoryId?: string | null
   pattern: string
   type: 'exact' | 'glob' | 'regex'
   note: string
@@ -146,6 +148,7 @@ export interface MonitoringConfig {
 
 export interface SchedulerJob {
   id: string
+  repositoryId?: string | null
   name: string
   kind: 'interval' | 'calendar'
   enabled: boolean
@@ -210,6 +213,13 @@ export interface NotificationRecord {
   deliveredToDesktop: boolean
   deliveredViaEmail: boolean
   read: boolean
+}
+
+export interface EmailGroup {
+  id: string
+  name: string
+  recipients: string
+  createdAt: string
 }
 
 export interface EmailConfig {
@@ -437,21 +447,21 @@ export interface BranchApi {
   deleteBranch(request: DeleteRequest): Promise<DeleteResult>
   batchDelete(requests: DeleteRequest[]): Promise<DeleteResult[]>
 
-  listNamingRules(): Promise<NamingRule[]>
+  listNamingRules(repositoryId?: string | null): Promise<NamingRule[]>
   saveNamingRule(rule: Partial<NamingRule> & { id?: string }): Promise<NamingRule[]>
-  deleteNamingRule(id: string): Promise<NamingRule[]>
-  reorderNamingRule(id: string, direction: -1 | 1): Promise<NamingRule[]>
-  validateBranchName(name: string): Promise<NamingResult>
+  deleteNamingRule(id: string, repositoryId?: string | null): Promise<NamingRule[]>
+  reorderNamingRule(id: string, direction: -1 | 1, repositoryId?: string | null): Promise<NamingRule[]>
+  validateBranchName(name: string, repositoryId?: string | null): Promise<NamingResult>
 
-  listWhitelist(): Promise<ProtectionEntry[]>
+  listWhitelist(repositoryId?: string | null): Promise<ProtectionEntry[]>
   addWhitelist(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): Promise<ProtectionEntry[]>
-  removeWhitelist(id: string): Promise<ProtectionEntry[]>
-  listProtected(): Promise<ProtectionEntry[]>
+  removeWhitelist(id: string, repositoryId?: string | null): Promise<ProtectionEntry[]>
+  listProtected(repositoryId?: string | null): Promise<ProtectionEntry[]>
   addProtected(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): Promise<ProtectionEntry[]>
-  removeProtected(id: string): Promise<ProtectionEntry[]>
+  removeProtected(id: string, repositoryId?: string | null): Promise<ProtectionEntry[]>
 
-  getMonitoring(): Promise<MonitoringConfig>
-  saveMonitoring(config: MonitoringConfig): Promise<MonitoringConfig>
+  getMonitoring(repositoryId?: string | null): Promise<MonitoringConfig>
+  saveMonitoring(config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig>
 
   listJobs(): Promise<SchedulerJob[]>
   saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
@@ -479,6 +489,10 @@ export interface BranchApi {
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
+  listEmailGroups(): Promise<EmailGroup[]>
+  saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
+  deleteEmailGroup(id: string): Promise<EmailGroup[]>
+
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void

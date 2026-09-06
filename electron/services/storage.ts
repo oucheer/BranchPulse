@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS branch_naming_rules (
   mode TEXT NOT NULL,
   description TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
-  priority INTEGER NOT NULL DEFAULT 0
+  priority INTEGER NOT NULL DEFAULT 0,
+  repository_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS monitoring_rules (
@@ -88,7 +89,8 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
   notify_target TEXT NOT NULL DEFAULT 'self',
   last_run_at TEXT,
   next_run_at TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  repository_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS notification_history (
@@ -150,6 +152,28 @@ CREATE TABLE IF NOT EXISTS report_schedules (
   enabled INTEGER NOT NULL DEFAULT 1,
   last_run_at TEXT,
   next_run_at TEXT,
+  created_at TEXT NOT NULL,
+  repository_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
+  repository_id TEXT PRIMARY KEY,
+  stale_threshold_days INTEGER NOT NULL,
+  grace_period_days INTEGER NOT NULL,
+  stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
+  grace_period_unit TEXT NOT NULL DEFAULT 'days',
+  fetch_enabled INTEGER NOT NULL DEFAULT 1,
+  naming_enabled INTEGER NOT NULL DEFAULT 1,
+  email_policy TEXT NOT NULL DEFAULT 'none',
+  notification_enabled INTEGER NOT NULL DEFAULT 1,
+  auto_delete_enabled INTEGER NOT NULL DEFAULT 0,
+  notify_target TEXT NOT NULL DEFAULT 'self'
+);
+
+CREATE TABLE IF NOT EXISTS email_groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  recipients TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 
@@ -166,7 +190,8 @@ CREATE TABLE IF NOT EXISTS whitelist (
   pattern TEXT NOT NULL,
   type TEXT NOT NULL,
   note TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  repository_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS protected_branches (
@@ -174,7 +199,8 @@ CREATE TABLE IF NOT EXISTS protected_branches (
   pattern TEXT NOT NULL,
   type TEXT NOT NULL,
   note TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  repository_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -301,6 +327,10 @@ export class StorageService {
     this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
+    this.ensureColumn('branch_naming_rules', 'repository_id', 'TEXT')
+    this.ensureColumn('scheduler_jobs', 'repository_id', 'TEXT')
+    this.ensureColumn('whitelist', 'repository_id', 'TEXT')
+    this.ensureColumn('protected_branches', 'repository_id', 'TEXT')
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {
@@ -513,6 +543,13 @@ export class StorageService {
     const sets = cols.map((c) => `${c} = ?`).join(', ')
     this.db.run(`UPDATE ${table} SET ${sets} WHERE ${where}`, [...cols.map((c) => obj[c]), ...whereParams] as never[])
     this.save()
+  }
+
+  upsert(table: string, obj: Record<string, unknown>, idColumn = 'id'): void {
+    const id = String(obj[idColumn] ?? '')
+    const existing = this.get(`SELECT 1 AS x FROM ${table} WHERE ${idColumn} = ?`, [id])
+    if (existing) this.update(table, obj, `${idColumn} = ?`, [id])
+    else this.insert(table, obj)
   }
 
   delete(table: string, where: string, params: unknown[] = []): void {

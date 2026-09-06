@@ -4,6 +4,10 @@ import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import type { NotifyTarget } from '@shared/types'
 
+function notifyTargetValue(target: string | null): string {
+  return target && target !== 'self' && target !== 'none' && target !== 'creator' && target !== 'both' ? target : ''
+}
+
 export default function Monitoring(): JSX.Element {
   const monitoring = useAppStore((s) => s.monitoring)
   const toast = useAppStore((s) => s.toast)
@@ -14,6 +18,7 @@ export default function Monitoring(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const repositories = useAppStore((s) => s.repositories)
   const settings = useAppStore((s) => s.settings)
+  const emailGroups = useAppStore((s) => s.emailGroups)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
 
@@ -35,7 +40,7 @@ export default function Monitoring(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.branchpulse.saveMonitoring(draft)
+      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -65,7 +70,10 @@ export default function Monitoring(): JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-canvas-fg">{tr('monitoring')}</h1>
+        <h1 className="text-lg font-bold text-canvas-fg">
+          {tr('monitoring')}
+          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库配置</span> : <span className="ml-2 text-sm font-medium text-muted">全局默认配置</span>}
+        </h1>
         <button className="btn btn-primary" disabled={saving || scanning} onClick={() => void save()}>
           <Activity size={15} /> {tr('save')}
         </button>
@@ -176,7 +184,24 @@ export default function Monitoring(): JSX.Element {
                 value={typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : ''}
                 onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value.trim()) })}
               />
-              <p className="mt-1 text-xs text-muted">勾选“通知自己”后，巡检提醒将发送到该邮箱。</p>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  className="input max-w-[12rem]"
+                  value=""
+                  onChange={(e) => {
+                    if (!e.target.value) return
+                    const current = notifyTargetValue(typeof draft.notifyTarget === 'string' ? draft.notifyTarget : '')
+                    const next = current ? `${current}, ${e.target.value}` : e.target.value
+                    setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, next) })
+                  }}
+                >
+                  <option value="">选择邮箱分组</option>
+                  {emailGroups.map((group) => (
+                    <option key={group.id} value={group.name}>{group.name}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="mt-1 text-xs text-muted">可选择全局邮箱分组，巡检汇总将展开发送给组内全部邮箱。</p>
             </div>
             <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
               <div className="flex items-center gap-2">

@@ -5,6 +5,7 @@ import type {
   BranchSummary,
   DashboardSnapshot,
   EmailConfig,
+  EmailGroup,
   MonitoringConfig,
   NamingRule,
   NotificationRecord,
@@ -44,6 +45,7 @@ interface AppState {
   whitelist: ProtectionEntry[]
   protected: ProtectionEntry[]
   emailConfig: EmailConfig | null
+  emailGroups: EmailGroup[]
   scanning: boolean
   progress: ScanProgress | null
   toasts: Toast[]
@@ -109,6 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   whitelist: [],
   protected: [],
   emailConfig: null,
+  emailGroups: [],
   scanning: false,
   progress: null,
   toasts: [],
@@ -120,16 +123,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         return
       }
       const snapshot = await window.branchpulse.init()
-      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig] = await Promise.all([
+      const activeId = snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null
+      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups] = await Promise.all([
         window.branchpulse.listJobs(),
         window.branchpulse.calendarRuns(),
         window.branchpulse.listReports(),
         window.branchpulse.listReportSchedules(),
         window.branchpulse.listAudit(),
-        window.branchpulse.listNamingRules(),
-        window.branchpulse.listWhitelist(),
-        window.branchpulse.listProtected(),
-        window.branchpulse.getEmailConfig()
+        window.branchpulse.listNamingRules(activeId),
+        window.branchpulse.listWhitelist(activeId),
+        window.branchpulse.listProtected(activeId),
+        window.branchpulse.getEmailConfig(),
+        window.branchpulse.listEmailGroups()
       ])
       set({
         ready: true,
@@ -148,7 +153,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         namingRules,
         whitelist,
         protected: protectedList,
-        emailConfig
+        emailConfig,
+        emailGroups
       })
       localStorage.setItem('branchpulse:language', snapshot.settings.language)
       set({ language: snapshot.settings.language })
@@ -168,6 +174,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ activeRepositoryId: repositoryId, settings: nextSettings })
     try {
       await window.branchpulse.saveSettings(nextSettings)
+      await get().refresh()
     } catch (err) {
       get().toast(err instanceof Error ? err.message : String(err), 'error')
     }

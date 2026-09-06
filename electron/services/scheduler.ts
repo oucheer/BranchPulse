@@ -17,6 +17,7 @@ function rowToJob(row: Record<string, unknown>): SchedulerJob {
   }
   return {
     id: String(row.id),
+    repositoryId: (row.repository_id as string | null) ?? null,
     name: String(row.name),
     kind: (row.kind === 'calendar' ? 'calendar' : 'interval') as SchedulerJob['kind'],
     enabled: Number(row.enabled ?? 1) === 1,
@@ -79,6 +80,7 @@ export class SchedulerService {
     const existing = job.id ? this.listJobs().find((j) => j.id === job.id) : undefined
     const merged: SchedulerJob = {
       id: existing?.id ?? newId(),
+      repositoryId: job.repositoryId ?? existing?.repositoryId ?? null,
       name: job.name ?? existing?.name ?? 'Monitoring job',
       kind: job.kind ?? existing?.kind ?? 'interval',
       enabled: job.enabled ?? existing?.enabled ?? true,
@@ -112,6 +114,7 @@ export class SchedulerService {
           end_date: merged.endDate,
           email_policy: merged.emailPolicy,
           fetch_enabled: merged.fetchEnabled ? 1 : 0,
+          repository_id: merged.repositoryId ?? null,
           auto_delete_enabled: merged.autoDeleteEnabled ? 1 : 0,
           notify_target: merged.notifyTarget,
           last_run_at: merged.lastRunAt,
@@ -123,6 +126,7 @@ export class SchedulerService {
     } else {
       this.storage.insert('scheduler_jobs', {
         id: merged.id,
+        repository_id: merged.repositoryId ?? null,
         name: merged.name,
         kind: merged.kind,
         enabled: merged.enabled ? 1 : 0,
@@ -159,7 +163,8 @@ export class SchedulerService {
       fetch: job.fetchEnabled,
       emailPolicy: job.emailPolicy,
       notifyTarget: job.notifyTarget,
-      autoDelete: job.autoDeleteEnabled
+      autoDelete: job.autoDeleteEnabled,
+      ...(job.repositoryId ? { repositoryIds: [job.repositoryId] } : {})
     })
     this.storage.update(
       'scheduler_jobs',

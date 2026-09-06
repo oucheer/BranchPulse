@@ -79,13 +79,13 @@ function elapsedHours(timestamp: string | null | undefined, now = Date.now()): n
   if (!Number.isFinite(parsed)) return 0
   return Math.max(0, (now - parsed) / (60 * 60 * 1000))
 }
-function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protection: ProtectionService): string {
+function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protection: ProtectionService, repositoryId?: string | null): string {
   const rules = naming
-    .listRules()
+    .listRules(repositoryId)
     .map((r) => `${r.id}:${r.enabled}:${r.mode}:${r.type}:${r.pattern}`)
     .join('|')
-  const wl = protection.listWhitelist().map((e) => `${e.type}:${e.pattern}`).join('|')
-  const pr = protection.listProtected().map((e) => `${e.type}:${e.pattern}`).join('|')
+  const wl = protection.listWhitelist(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
+  const pr = protection.listProtected(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
   return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
 }
 
@@ -108,8 +108,11 @@ export class BranchService {
     private readonly settingsService: SettingsService
   ) {}
 
-  private monitoring(): MonitoringConfig {
-    const row = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+  private monitoring(repositoryId?: string | null): MonitoringConfig {
+    const row = repositoryId
+      ? (this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+        ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
+      : this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
     return {
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
@@ -135,8 +138,8 @@ export class BranchService {
 
   private async scanGitLabRepository(repo: Repository, options: RepositoryScanOptions = {}): Promise<BranchSummary[]> {
     const progress = options.progress ?? ((): void => undefined)
-    const monitoring = this.monitoring()
-    const fp = fingerprint(monitoring, this.naming, this.protection)
+    const monitoring = this.monitoring(repo.id)
+    const fp = fingerprint(monitoring, this.naming, this.protection, repo.id)
     const projectId = repo.gitlabProjectId
     if (!projectId) throw new Error('GitLab project id is missing for this repository.')
 
@@ -470,7 +473,7 @@ export class BranchService {
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(cached.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
     const isDefault = cached.name === cached.baseBranch
-    const protection: ProtectionInfo = this.protection.evaluate(cached.name, isDefault)
+    const protection: ProtectionInfo = this.protection.evaluate(cached.name, isDefault, cached.repositoryId)
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: monitoring.staleThresholdDays,
@@ -505,11 +508,12 @@ export class BranchService {
   listBranches(): BranchSummary[] {
     const repos = new Map(this.repositoryService.list().map((r) => [r.id, r.name]))
     const rows = this.storage.all<Record<string, unknown>>('SELECT data_json, repository_id FROM branches ORDER BY name ASC')
-    const monitoring = this.monitoring()
     return rows.map((row) => {
       try {
+        const repositoryId = String(row.repository_id ?? '')
         const parsed = JSON.parse(String(row.data_json)) as BranchSummary
-        parsed.repositoryName = repos.get(String(row.repository_id)) ?? ''
+        parsed.repositoryName = repos.get(repositoryId) ?? ''
+        const monitoring = this.monitoring(repositoryId)
         return this.refreshComputed(parsed, monitoring, { name: parsed.name } as GitRefInfo, '')
       } catch {
         return null
@@ -538,7 +542,7 @@ export class BranchService {
       parsed.existsLocally = false
       parsed.existsRemotely = repo.source !== 'local'
     }
-    const monitoring = this.monitoring()
+    const monitoring = this.monitoring(criteria.repositoryId)
     return this.refreshComputed(parsed, monitoring, { name: criteria.name } as GitRefInfo, '')
   }
 

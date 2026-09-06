@@ -7,6 +7,7 @@ import type { ProtectionEntry } from '@shared/types'
 export default function Whitelist(): JSX.Element {
   const whitelist = useAppStore((s) => s.whitelist)
   const protectedList = useAppStore((s) => s.protected)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [tab, setTab] = useState<'whitelist' | 'protected'>('whitelist')
@@ -29,9 +30,9 @@ export default function Whitelist(): JSX.Element {
       const kind = tab === 'whitelist' ? 'whitelist' : 'protected'
       for (const branch of branches) {
         if (kind === 'whitelist') {
-          await window.branchpulse.addWhitelist({ pattern: branch, type: 'exact', note: '从 TXT 导入' })
+          await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type: 'exact', note: '从 TXT 导入' })
         } else {
-          await window.branchpulse.addProtected({ pattern: branch, type: 'exact', note: '从 TXT 导入' })
+          await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type: 'exact', note: '从 TXT 导入' })
         }
       }
       toast(`已导入 ${branches.length} 个分支到${kind === 'whitelist' ? '白名单' : '保护列表'}`, 'success')
@@ -46,9 +47,9 @@ export default function Whitelist(): JSX.Element {
   const remove = async (id: string, kind: 'whitelist' | 'protected'): Promise<void> => {
     try {
       if (kind === 'whitelist') {
-        await window.branchpulse.removeWhitelist(id)
+        await window.branchpulse.removeWhitelist(id, activeRepositoryId)
       } else {
-        await window.branchpulse.removeProtected(id)
+        await window.branchpulse.removeProtected(id, activeRepositoryId)
       }
       toast('Removed', 'success')
       void refresh()
@@ -61,9 +62,9 @@ export default function Whitelist(): JSX.Element {
     if (!form.pattern) return
     try {
       if (addMode === 'whitelist') {
-        await window.branchpulse.addWhitelist({ pattern: form.pattern, type: form.type, note: form.note })
+        await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       } else {
-        await window.branchpulse.addProtected({ pattern: form.pattern, type: form.type, note: form.note })
+        await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       }
       toast('Added', 'success')
       setAddOpen(false)
@@ -77,7 +78,10 @@ export default function Whitelist(): JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-canvas-fg">{tr('whitelist')}</h1>
+        <h1 className="text-lg font-bold text-canvas-fg">
+          {tr('whitelist')}
+          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库隔离</span> : <span className="ml-2 text-sm font-medium text-muted">全部仓库</span>}
+        </h1>
         <div className="flex gap-2">
           <button className="btn" onClick={() => { setAddMode('whitelist'); setAddOpen(true) }}>
             <Plus size={15} /> 手动添加
