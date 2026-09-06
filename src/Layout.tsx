@@ -50,23 +50,23 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       <AeroShards />
       <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
         <MoltenMetal
-          color1="#1f2937"
-          color2="#f97316"
+          color1="#5227FF"
+          color2="#FF9FFC"
           color3="#ffffff"
-          speed={0.14}
-          scale={3.2}
+          speed={0.35}
+          scale={4}
           detail={3}
-          glow={1.1}
-          coreSize={0.045}
-          swirl={0.7}
-          fold={-0.16}
-          blackPoint={0.02}
-          brightness={1.05}
+          glow={1.6}
+          coreSize={0.1}
+          swirl={1}
+          fold={-0.2}
+          blackPoint={0.05}
+          brightness={1.3}
           colorMode="molten"
           grain={true}
-          grainIntensity={0.03}
+          grainIntensity={0.05}
           mouseInteraction={false}
-          opacity={0.18}
+          opacity={0.16}
           backgroundColor="#07090e"
         />
       </div>

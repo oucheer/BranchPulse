@@ -391,7 +391,7 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(facts.lastCommitAt, now)
     const ageDays = elapsedDays(facts.createdAt, now)
-    const stale = inactiveDays > monitoring.staleThresholdDays
+    const stale = inactiveDays >= monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(facts.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
@@ -452,7 +452,7 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
-    const stale = inactiveDays > monitoring.staleThresholdDays
+    const stale = inactiveDays >= monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(cached.name) : { status: 'excluded', reason: 'Naming validation disabled.' }

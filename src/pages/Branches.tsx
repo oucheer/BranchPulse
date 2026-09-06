@@ -32,6 +32,12 @@ function stateColor(state: string): string {
   return 'rgb(var(--warn))'
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString()
+}
+
 // ─── Branch Graph (SVG) ──────────────────────────────────────────────────────
 
 interface GraphProps {
@@ -189,11 +195,12 @@ function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }
 
 // ─── Branch Explorer Row ─────────────────────────────────────────────────────
 
-function ExplorerRow({ b, selected, onSelect, onHover, onNotify, onDelete, protected_, deletionDisabled }: {
+function ExplorerRow({ b, selected, onSelect, onHover, onView, onNotify, onDelete, protected_, deletionDisabled }: {
   b: BranchSummary
   selected: boolean
   onSelect: () => void
   onHover: (v: boolean) => void
+  onView: () => void
   onNotify: () => void
   onDelete: () => void
   protected_: boolean
@@ -225,8 +232,11 @@ function ExplorerRow({ b, selected, onSelect, onHover, onNotify, onDelete, prote
         {b.health.score}
       </span>
       {protected_ ? <Shield size={11} className="shrink-0 text-info" /> : null}
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button className="rounded p-0.5 text-muted hover:text-canvas-fg" onClick={(e) => { e.stopPropagation(); onNotify() }} title={zh ? '通知' : 'Notify'}><Bell size={12} /></button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:border-primary/40 hover:text-primary" onClick={(e) => { e.stopPropagation(); onView() }} title={zh ? '查看' : 'View'}>
+          <Eye size={11} /> {zh ? '查看' : 'View'}
+        </button>
+        <button className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-canvas-fg group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onNotify() }} title={zh ? '通知' : 'Notify'}><Bell size={12} /></button>
         <button
           className="rounded p-0.5 text-muted hover:text-danger disabled:opacity-30"
           disabled={protected_ || deletionDisabled}
@@ -242,7 +252,7 @@ function ExplorerRow({ b, selected, onSelect, onHover, onNotify, onDelete, prote
 
 // ─── Branch Details Drawer ──────────────────────────────────────────────────
 
-function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deletionDisabled, deleting }: {
+function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deletionDisabled, deleting, loading }: {
   b: BranchSummary
   onClose: () => void
   onNotify: () => void
@@ -250,6 +260,7 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
   protected_: boolean
   deletionDisabled: boolean
   deleting: boolean
+  loading: boolean
 }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
@@ -283,8 +294,12 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
     { label: zh ? '类别' : 'Category', value: cat.label },
     { label: zh ? '状态' : 'Status', value: stateLabel(b.state, language) },
     { label: zh ? '健康度' : 'Health', value: `${b.health.score} / 100` },
-    { label: zh ? '最后提交' : 'Last commit', value: timeAgo(b.lastCommitAt) },
-    { label: zh ? '创建时间' : 'Created', value: b.createdAt ? timeAgo(b.createdAt) : '—' },
+    { label: zh ? '创建人' : 'Creator', value: b.creator.name || '—' },
+    { label: zh ? '创建人邮箱' : 'Creator email', value: b.creator.email || '—' },
+    { label: zh ? '最后提交' : 'Last commit', value: formatDateTime(b.lastCommitAt) },
+    { label: zh ? '最后提交哈希' : 'Commit SHA', value: b.lastCommitSha ? b.lastCommitSha.slice(0, 8) : '—' },
+    { label: zh ? '最近提交人' : 'Last author', value: b.lastAuthor || '—' },
+    { label: zh ? '创建时间' : 'Created', value: b.createdAt ? formatDateTime(b.createdAt) : '—' },
     { label: zh ? '提交数' : 'Commits', value: String(b.commitCount) },
     { label: zh ? '合并状态' : 'Merge', value: b.merged ? (zh ? `已合并 → ${b.mergedInto ?? ''}` : `Merged → ${b.mergedInto ?? ''}`) : (zh ? '未合并' : 'Not merged') },
     { label: zh ? '保护' : 'Protection', value: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') }
@@ -348,9 +363,37 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
             </div>
           ))}
         </div>
-      </div>
 
       {/* Actions */}
+        {/* Recent commits */}
+        <div className="mt-3 rounded-md border border-line p-2.5">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-canvas-fg">{zh ? '最近提交' : 'Recent Commits'}</span>
+            {loading ? <RefreshCw size={11} className="animate-spin text-primary" /> : null}
+          </div>
+          {loading && b.recentCommits.length === 0 ? (
+            <div className="space-y-1.5">
+              {[0, 1, 2].map((i) => <div key={i} className="h-8 animate-pulse rounded bg-line/50" />)}
+            </div>
+          ) : b.recentCommits.length === 0 ? (
+            <div className="text-[11px] text-muted">{zh ? '暂无提交记录' : 'No recent commits'}</div>
+          ) : (
+            <div className="space-y-1.5">
+              {b.recentCommits.slice(0, 5).map((commit) => (
+                <div key={commit.sha} className="rounded bg-surface-elevated px-2 py-1.5">
+                  <div className="truncate text-[11px] text-canvas-fg">{commit.subject}</div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-muted">
+                    <span className="truncate">{commit.authorName || '—'}{commit.authorEmail ? ' · ' + commit.authorEmail : ''}</span>
+                    <span className="shrink-0 font-mono">{commit.shortSha || commit.sha.slice(0, 8)}</span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-muted">{formatDateTime(commit.committedAt)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-4 py-3">
         <button className="btn px-2 py-1 text-[11px]" onClick={() => void handleValidate()} disabled={validating}>
           {validating ? '...' : (zh ? '验证' : 'Validate')}
@@ -398,6 +441,7 @@ export default function Branches(): JSX.Element {
   const [stateFilter, setStateFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
+  const [loadingDetails, setLoadingDetails] = useState(false)
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [confirmed, setConfirmed] = useState(false)
@@ -426,6 +470,26 @@ export default function Branches(): JSX.Element {
   )
 
   const states = ['active', 'stale', 'grace_period', 'grace_expired'] as const
+
+  const loadBranchDetails = async (branch: BranchSummary): Promise<void> => {
+    setSelectedBranch(branch)
+    setLoadingDetails(true)
+    try {
+      const detail = await window.branchpulse.getBranch({
+        repositoryId: branch.repositoryId,
+        name: branch.name,
+        type: branch.type,
+        remote: branch.remote
+      })
+      if (detail) {
+        setSelectedBranch((prev) => (prev?.repositoryId === detail.repositoryId && prev?.name === detail.name ? detail : prev))
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setLoadingDetails(false)
+    }
+  }
 
   const handleRefreshAll = async (): Promise<void> => {
     setRefreshingAll(true)
@@ -570,7 +634,7 @@ export default function Branches(): JSX.Element {
         filtered={filtered}
         selected={selectedBranch}
         search={search}
-        onSelect={(b) => setSelectedBranch((prev) => (prev?.id === b.id ? null : b))}
+        onSelect={(b) => void loadBranchDetails(b)}
         onHover={setHoveredBranch}
       />
 
@@ -599,8 +663,9 @@ export default function Branches(): JSX.Element {
                   key={`${b.id}-${b.type}`}
                   b={b}
                   selected={selectedBranch?.id === b.id}
-                  onSelect={() => setSelectedBranch((prev) => (prev?.id === b.id ? null : b))}
+                  onSelect={() => void loadBranchDetails(b)}
                   onHover={(v) => setHoveredBranch(v ? b : null)}
+                  onView={() => void loadBranchDetails(b)}
                   onNotify={() => void handleNotify(b)}
                   onDelete={() => void handleBeginDelete(b, 'remote')}
                   protected_={isProtected(b)}
@@ -623,6 +688,7 @@ export default function Branches(): JSX.Element {
               protected_={isProtected(selectedBranch)}
               deletionDisabled={settings.deletionDisabled}
               deleting={deleting}
+              loading={loadingDetails}
             />
           ) : null}
         </AnimatePresence>

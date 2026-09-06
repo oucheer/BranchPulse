@@ -319,17 +319,45 @@ export class GitLabService {
     }
     if (provider === 'gitee') {
       const rows = await this.paginate(`/repos/${encodedPath}/branches?per_page=100`, config)
-      return rows.map((row) => ({
-        name: String(row.name ?? ''),
-        protected: row.protected === true,
-        default: false,
-        merged: false,
-        developers_can_push: false,
-        developers_can_merge: false,
-        can_push: false,
-        web_url: '',
-        commit: { id: String((row.commit as Record<string, unknown>)?.sha ?? ''), short_id: '', title: '', created_at: '', parent_ids: [], message: '', author_name: '', author_email: '', authored_date: '', committer_name: '', committer_email: '', committed_date: '', web_url: '' }
-      }))
+      return rows.map((row) => {
+        const sourceCommit = ((row.commit ?? {}) as {
+          sha?: string
+          html_url?: string
+          commit?: {
+            message?: string
+            author?: { name?: string; email?: string; date?: string }
+            committer?: { name?: string; email?: string; date?: string }
+          }
+          parents?: Array<{ sha?: string }>
+        })
+        const authorDate = String(sourceCommit.commit?.author?.date ?? sourceCommit.commit?.committer?.date ?? '')
+        const committerDate = String(sourceCommit.commit?.committer?.date ?? sourceCommit.commit?.author?.date ?? '')
+        return {
+          name: String(row.name ?? ''),
+          protected: row.protected === true,
+          default: false,
+          merged: false,
+          developers_can_push: false,
+          developers_can_merge: false,
+          can_push: false,
+          web_url: String(sourceCommit.html_url ?? ''),
+          commit: {
+            id: String(sourceCommit.sha ?? ''),
+            short_id: String(sourceCommit.sha ?? '').slice(0, 8),
+            title: String(sourceCommit.commit?.message ?? '').split('\n')[0],
+            created_at: authorDate,
+            parent_ids: Array.isArray(sourceCommit.parents) ? sourceCommit.parents.map((parent) => String((parent as Record<string, unknown>).sha ?? '')) : [],
+            message: String(sourceCommit.commit?.message ?? ''),
+            author_name: String(sourceCommit.commit?.author?.name ?? ''),
+            author_email: String(sourceCommit.commit?.author?.email ?? ''),
+            authored_date: authorDate,
+            committer_name: String(sourceCommit.commit?.committer?.name ?? ''),
+            committer_email: String(sourceCommit.commit?.committer?.email ?? ''),
+            committed_date: committerDate,
+            web_url: String(sourceCommit.html_url ?? '')
+          }
+        }
+      })
     }
     const rows = await this.paginate(`/projects/${encodedPath}/repository/branches?per_page=100`, config)
     return rows.map((row) => ({
