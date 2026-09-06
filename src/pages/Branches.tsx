@@ -479,6 +479,15 @@ export default function Branches(): JSX.Element {
           <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
             <span className="text-[10px] text-muted">{filtered.length}</span>
+</div>
+          <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
+            <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
+            <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '停更' : 'Idle'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
+            <div className="flex shrink-0 items-center gap-0.5"><span className="text-[10px]">{zh ? '操作' : 'Actions'}</span></div>
           </div>
           <div className="max-h-96 overflow-y-auto">
             {filtered.length === 0 ? (

@@ -80,7 +80,7 @@ describe('NamingService.validate', () => {
   it('returns invalid when no rule matches', () => {
     const result = service.validate('random-name', [allowFeature])
     expect(result.status).toBe('invalid')
-    expect(result.reason).toMatch(/does not match/i)
+    expect(result.reason).toContain('分支名称不符合')
   })
 
   it('ignores disabled rules', () => {

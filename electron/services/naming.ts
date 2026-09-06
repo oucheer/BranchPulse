@@ -74,13 +74,13 @@ export class NamingService {
     for (const rule of list.filter((r) => r.enabled)) {
       if (!matchPattern(rule.pattern, rule.type, name)) continue
       if (rule.mode === 'exclude') {
-        return { status: 'excluded', ruleName: rule.name, reason: `Excluded by rule "${rule.name}".` }
+        return { status: 'excluded', ruleName: rule.name, reason: `由规则「${rule.name}」排除` }
       }
-      return { status: 'valid', ruleName: rule.name, reason: `Matches rule "${rule.name}".` }
+      return { status: 'valid', ruleName: rule.name, reason: `符合规则「${rule.name}」` }
     }
     return {
       status: 'invalid',
-      reason: 'Branch name does not match configured naming rules.'
+      reason: '分支名称不符合任何命名规则'
     }
   }
 }

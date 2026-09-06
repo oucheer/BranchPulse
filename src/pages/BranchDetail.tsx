@@ -85,7 +85,7 @@ export default function BranchDetail(): JSX.Element {
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">创建者邮箱</span>
-              <span className="font-mono text-xs text-canvas-fg">{branch.creator.email || '未知'}</span>
+              <span className="max-w-[60%] truncate text-right font-mono text-xs text-canvas-fg" title={branch.creator.email || '未知'}>{branch.creator.email || '未知'}</span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('firstCommit')}</span>

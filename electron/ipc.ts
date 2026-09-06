@@ -118,6 +118,7 @@ export function registerIpc(services: AppServices): void {
     return {
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
+      thresholdUnit: ((row?.threshold_unit as MonitoringConfig['thresholdUnit']) ?? 'days'),
       fetchEnabled: Number(row?.fetch_enabled ?? 1) === 1,
       namingEnabled: Number(row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none'),
@@ -131,6 +132,7 @@ export function registerIpc(services: AppServices): void {
     storage.update('monitoring_rules', {
       stale_threshold_days: config.staleThresholdDays,
       grace_period_days: config.gracePeriodDays,
+      threshold_unit: config.thresholdUnit,
       fetch_enabled: config.fetchEnabled ? 1 : 0,
       naming_enabled: config.namingEnabled ? 1 : 0,
       email_policy: config.emailPolicy,
@@ -138,7 +140,7 @@ export function registerIpc(services: AppServices): void {
       auto_delete_enabled: config.autoDeleteEnabled ? 1 : 0,
       notify_target: config.notifyTarget
     }, 'id = 1')
-    audit.record('monitoring_rules_updated', { staleThresholdDays: config.staleThresholdDays, gracePeriodDays: config.gracePeriodDays })
+    audit.record('monitoring_rules_updated', { staleThresholdDays: config.staleThresholdDays, gracePeriodDays: config.gracePeriodDays, thresholdUnit: config.thresholdUnit })
     return config
   }
 

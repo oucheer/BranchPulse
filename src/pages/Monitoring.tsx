@@ -67,25 +67,36 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交天数阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
             </div>
             <div>
-              <div className="label mb-1.5">未提交天数阈值（天）</div>
+              <div className="label mb-1.5">时间单位</div>
+              <select
+                className="input"
+                value={draft.thresholdUnit}
+                onChange={(e) => setDraft({ ...draft, thresholdUnit: e.target.value as 'hours' | 'days' })}
+              >
+                <option value="days">天</option>
+                <option value="hours">小时</option>
+              </select>
+            </div>
+            <div>
+              <div className="label mb-1.5">{draft.thresholdUnit === 'hours' ? '未提交时间阈值（小时）' : '未提交天数阈值（天）'}</div>
               <input
                 type="number"
                 min={1}
-                max={365}
+                max={draft.thresholdUnit === 'hours' ? 8760 : 365}
                 className="input"
                 value={draft.staleThresholdDays}
                 onChange={(e) => setDraft({ ...draft, staleThresholdDays: Math.max(1, Number(e.target.value) || 1) })}
               />
             </div>
             <div>
-              <div className="label mb-1.5">提醒宽限天数（天）</div>
+              <div className="label mb-1.5">{draft.thresholdUnit === 'hours' ? '提醒宽限期（小时）' : '提醒宽限天数（天）'}</div>
               <input
                 type="number"
                 min={0}
-                max={365}
+                max={draft.thresholdUnit === 'hours' ? 8760 : 365}
                 className="input"
                 value={draft.gracePeriodDays}
                 onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}

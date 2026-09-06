@@ -54,12 +54,12 @@ export class HealthService {
       detail: input.namingStatus === 'valid' ? '命名符合规则' : input.namingStatus === 'excluded' ? '未启用命名校验' : '命名不符合规则'
     })
 
-    const mergeScore = input.merged ? 0 : 15
+    const mergeScore = input.merged ? 15 : 0
     factors.push({
       label: '合并状态',
       score: mergeScore,
       weight: 15,
-      detail: input.merged ? '已合并到基准分支' : '尚未合并到基准分支'
+      detail: input.merged ? '已合并到基准分支，无合并扣分' : '尚未合并到基准分支，扣分'
     })
 
     let divergence = 10

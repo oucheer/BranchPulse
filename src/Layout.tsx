@@ -8,12 +8,12 @@ import { useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import AeroShards from './shell/AeroShards'
 import MoltenMetal from './components/MoltenMetal'
+import Ballpit from './components/Ballpit'
 import Sidebar from './shell/Sidebar'
 import Topbar from './shell/Topbar'
 import CommandPalette from './shell/CommandPalette'
 import { useAppStore } from './stores/appStore'
 import { motion as motionToken } from './design-system/tokens'
-
 export default function Layout({ children }: { children: ReactNode }): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const setProgress = useAppStore((s) => s.setProgress)
@@ -21,7 +21,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isDark, setIsDark] = useState(true)
   const { pathname } = useLocation()
-
   useEffect(() => {
     const checkDark = (): void => setIsDark(document.documentElement.classList.contains('dark'))
     checkDark()
@@ -29,7 +28,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -40,7 +38,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
   useEffect(() => {
     const unsub = window.branchpulse.onScanProgress((progress) => {
       setProgress(progress)
@@ -52,13 +49,13 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     })
     return () => unsub()
   }, [refresh, setProgress, setScanning])
-
   return (
     <div className="relative flex h-screen bg-canvas text-muted">
       {/* Layer 1-2: Ambient background */}
       <AeroShards />
       <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
-        <MoltenMetal
+        {isDark ? (
+          <MoltenMetal
           color1="#5227FF"
           color2="#FF9FFC"
           color3="#ffffff"
@@ -70,20 +67,27 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           swirl={1}
           fold={-0.2}
           blackPoint={0.05}
-          brightness={isDark ? 1.3 : 0.7}
+          brightness={1.3}
           colorMode="molten"
           grain={true}
           grainIntensity={0.05}
           mouseInteraction={false}
-          opacity={isDark ? 0.16 : 0.1}
-          backgroundColor={isDark ? '#07090e' : '#f5f4f9'}
-          lightMode={!isDark}
-        />
+          opacity={0.16}
+          backgroundColor={'#07090e'}
+          />
+        ) : (
+          <Ballpit
+            count={200}
+            gravity={0.7}
+            friction={0.8}
+            wallBounce={0.95}
+            followCursor={true}
+            opacity={0.35}
+          />
+        )}
       </div>
-
       {/* Layer 3: Sidebar */}
       <Sidebar />
-
       {/* Layer 4: Topbar + Workspace */}
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <Topbar onOpenPalette={() => setPaletteOpen(true)} />
@@ -102,7 +106,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           </AnimatePresence>
         </main>
       </div>
-
       {/* Layer 7: Command Palette */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>

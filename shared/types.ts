@@ -134,6 +134,7 @@ export interface ProtectionEntry {
 export interface MonitoringConfig {
   staleThresholdDays: number
   gracePeriodDays: number
+  thresholdUnit: 'hours' | 'days'
   fetchEnabled: boolean
   namingEnabled: boolean
   emailPolicy: EmailPolicy

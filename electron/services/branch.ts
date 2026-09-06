@@ -74,6 +74,11 @@ function elapsedDays(timestamp: string | null | undefined, now = Date.now()): nu
   if (!Number.isFinite(parsed)) return 0
   return Math.floor(Math.max(0, now - parsed) / DAY_MS)
 }
+function elapsedHours(timestamp: string | null | undefined, now = Date.now()): number {
+  const parsed = safeTimestamp(timestamp)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, (now - parsed) / (60 * 60 * 1000))
+}
 function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protection: ProtectionService): string {
   const rules = naming
     .listRules()
@@ -81,7 +86,7 @@ function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protec
     .join('|')
   const wl = protection.listWhitelist().map((e) => `${e.type}:${e.pattern}`).join('|')
   const pr = protection.listProtected().map((e) => `${e.type}:${e.pattern}`).join('|')
-  return `${monitoring.staleThresholdDays}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
+  return `${monitoring.thresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
 }
 
 export interface RepositoryScanOptions {
@@ -108,6 +113,7 @@ export class BranchService {
     return {
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
+      thresholdUnit: ((row?.threshold_unit as MonitoringConfig['thresholdUnit']) ?? 'days'),
       fetchEnabled: (row?.fetch_enabled ?? 1) === 1,
       namingEnabled: (row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none') as MonitoringConfig['emailPolicy'],
@@ -391,8 +397,11 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(facts.lastCommitAt, now)
     const ageDays = elapsedDays(facts.createdAt, now)
-    const stale = inactiveDays >= monitoring.staleThresholdDays
-    const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
+    const thresholdHours = monitoring.thresholdUnit === 'hours' ? monitoring.staleThresholdDays : monitoring.staleThresholdDays * 24
+    const graceHours = monitoring.thresholdUnit === 'hours' ? monitoring.gracePeriodDays : monitoring.gracePeriodDays * 24
+    const inactiveHours = elapsedHours(facts.lastCommitAt, now)
+    const stale = inactiveHours >= thresholdHours
+    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(facts.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
     const isDefault = ref.name === facts.baseBranch
@@ -452,8 +461,11 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
-    const stale = inactiveDays >= monitoring.staleThresholdDays
-    const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
+    const thresholdHours = monitoring.thresholdUnit === 'hours' ? monitoring.staleThresholdDays : monitoring.staleThresholdDays * 24
+    const graceHours = monitoring.thresholdUnit === 'hours' ? monitoring.gracePeriodDays : monitoring.gracePeriodDays * 24
+    const inactiveHours = elapsedHours(cached.lastCommitAt, now)
+    const stale = inactiveHours >= thresholdHours
+    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(cached.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
     const isDefault = cached.name === cached.baseBranch

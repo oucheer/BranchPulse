@@ -521,7 +521,7 @@ export default function Dashboard(): JSX.Element {
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                 <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
                 <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.stale ? 'text-warn' : 'text-danger'}`}>
-                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : b.stale ? (zh ? '陈旧' : 'Stale') : stateLabel(b.state, language)}
+                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : b.stale ? (zh ? '已停更' : 'Stale') : stateLabel(b.state, language)}
                 </span>
               </button>
             ))}
