@@ -19,7 +19,7 @@ export function timeAgo(iso: string | null | undefined, now = Date.now()): strin
 export function stateLabel(state: BranchState, language: 'en' | 'zh'): string {
   const labels: Record<BranchState, string> =
     language === 'zh'
-      ? { active: '活跃', stale: '已停更（宽限期内）', grace_period: '宽限期内', grace_expired: '宽限到期' }
+      ? { active: '活跃', stale: '已停更', grace_period: '宽限期内', grace_expired: '宽限到期' }
       : { active: 'Active', stale: 'Stale', grace_period: 'Grace', grace_expired: 'Expired' }
   return labels[state] ?? state
 }

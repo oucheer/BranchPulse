@@ -314,7 +314,7 @@ export default function Branches(): JSX.Element {
     [filtered]
   )
 
-  const states = ['active', 'stale', 'grace_period', 'grace_expired'] as const
+  const states = ['active', 'grace_period', 'grace_expired'] as const
 
   const loadBranchDetails = async (branch: BranchSummary): Promise<void> => {
     setSelectedBranch(branch)

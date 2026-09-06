@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS monitoring_rules (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   stale_threshold_days INTEGER NOT NULL,
   grace_period_days INTEGER NOT NULL,
-  threshold_unit TEXT NOT NULL DEFAULT 'days',
+  stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
+  grace_period_unit TEXT NOT NULL DEFAULT 'days',
   fetch_enabled INTEGER NOT NULL DEFAULT 1,
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL,
@@ -287,7 +288,8 @@ export class StorageService {
     this.ensureColumn('repositories', 'web_url', 'TEXT')
     this.ensureColumn('repositories', 'remote_project_path', 'TEXT')
     this.ensureColumn('repositories', 'remote_api_key', 'TEXT')
-    this.ensureColumn('monitoring_rules', 'threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
+    this.ensureColumn('monitoring_rules', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
+    this.ensureColumn('monitoring_rules', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')

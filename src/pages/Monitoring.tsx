@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bell, Play, Scale, Timer, Trash2 } from 'lucide-react'
+import { Activity, Bell, Mail, Play, Save, Scale, Timer, Trash2, UserRound } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import type { NotifyTarget } from '@shared/types'
@@ -20,6 +20,17 @@ export default function Monitoring(): JSX.Element {
   useEffect(() => {
     setDraft(monitoring)
   }, [monitoring])
+
+  const notifySelf = draft.notifyTarget === 'self' || draft.notifyTarget === 'both' || (typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@'))
+  const notifyCreator = draft.notifyTarget === 'creator' || draft.notifyTarget === 'both'
+
+  const applyNotify = (self: boolean, creator: boolean, email: string): NotifyTarget => {
+    if (self && creator) return 'both'
+    if (creator) return 'creator'
+    if (self && email.includes('@')) return email as NotifyTarget
+    if (self) return 'self'
+    return 'none'
+  }
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -69,38 +80,53 @@ export default function Monitoring(): JSX.Element {
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
               巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
             </div>
-            <div>
-              <div className="label mb-1.5">时间单位</div>
-              <select
-                className="input"
-                value={draft.thresholdUnit}
-                onChange={(e) => setDraft({ ...draft, thresholdUnit: e.target.value as 'hours' | 'days' })}
-              >
-                <option value="days">天</option>
-                <option value="hours">小时</option>
-              </select>
+            <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+              <div>
+                <div className="label mb-1.5">未提交阈值</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={draft.staleThresholdUnit === 'hours' ? 8760 : 365}
+                  className="input"
+                  value={draft.staleThresholdDays}
+                  onChange={(e) => setDraft({ ...draft, staleThresholdDays: Math.max(1, Number(e.target.value) || 1) })}
+                />
+              </div>
+              <div>
+                <div className="label mb-1.5">单位</div>
+                <select
+                  className="input"
+                  value={draft.staleThresholdUnit}
+                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days' })}
+                >
+                  <option value="days">天</option>
+                  <option value="hours">小时</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <div className="label mb-1.5">{draft.thresholdUnit === 'hours' ? '未提交时间阈值（小时）' : '未提交天数阈值（天）'}</div>
-              <input
-                type="number"
-                min={1}
-                max={draft.thresholdUnit === 'hours' ? 8760 : 365}
-                className="input"
-                value={draft.staleThresholdDays}
-                onChange={(e) => setDraft({ ...draft, staleThresholdDays: Math.max(1, Number(e.target.value) || 1) })}
-              />
-            </div>
-            <div>
-              <div className="label mb-1.5">{draft.thresholdUnit === 'hours' ? '提醒宽限期（小时）' : '提醒宽限天数（天）'}</div>
-              <input
-                type="number"
-                min={0}
-                max={draft.thresholdUnit === 'hours' ? 8760 : 365}
-                className="input"
-                value={draft.gracePeriodDays}
-                onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
-              />
+            <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+              <div>
+                <div className="label mb-1.5">提醒宽限期</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={draft.gracePeriodUnit === 'hours' ? 8760 : 365}
+                  className="input"
+                  value={draft.gracePeriodDays}
+                  onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
+                />
+              </div>
+              <div>
+                <div className="label mb-1.5">单位</div>
+                <select
+                  className="input"
+                  value={draft.gracePeriodUnit}
+                  onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as 'hours' | 'days' })}
+                >
+                  <option value="days">天</option>
+                  <option value="hours">小时</option>
+                </select>
+              </div>
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -116,17 +142,6 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle checked={draft.notificationEnabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
-            <div>
-              <div className="label mb-1.5">通知填写收件人</div>
-              <input
-                className="input"
-                type="email"
-                placeholder="you@example.com"
-                value={typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : ''}
-                onChange={(e) => setDraft({ ...draft, notifyTarget: (e.target.value.trim() || 'self') as NotifyTarget })}
-              />
-              <p className="mt-1 text-xs text-muted">巡检提醒将发送到该邮箱；留空则不发送。</p>
-            </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm text-canvas-fg">{tr('autoDeleteEnabled')}</div>
@@ -140,6 +155,9 @@ export default function Monitoring(): JSX.Element {
                 onChange={(v) => setDraft({ ...draft, autoDeleteEnabled: v })}
               />
             </div>
+            <button className="btn btn-primary w-full justify-center" disabled={saving || scanning} onClick={() => void save()}>
+              <Save size={14} /> 保存设置并生效
+            </button>
           </div>
         </Card>
 
@@ -148,7 +166,41 @@ export default function Monitoring(): JSX.Element {
             <Play size={15} className="text-primary" /> {tr('runCheckNow')}
           </div>
           <p className="mb-4 text-sm text-muted">{tr('runCheckDescription')}</p>
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <div>
+              <div className="label mb-1.5 flex items-center gap-1.5"><Mail size={13} /> 通知填写收件人</div>
+              <input
+                className="input"
+                type="email"
+                placeholder="you@example.com"
+                value={typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : ''}
+                onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value.trim()) })}
+              />
+              <p className="mt-1 text-xs text-muted">勾选“通知自己”后，巡检提醒将发送到该邮箱。</p>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Bell size={13} className="text-primary" />
+                <div className="text-sm text-canvas-fg">通知自己</div>
+              </div>
+              <Toggle
+                checked={notifySelf}
+                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(v, notifyCreator, typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : '') })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+              <div className="flex items-center gap-2">
+                <UserRound size={13} className="text-secondary" />
+                <div>
+                  <div className="text-sm text-canvas-fg">通知分支创始人</div>
+                  <div className="text-xs text-muted">勾选后过期的分支将邮件通知对应创始人</div>
+                </div>
+              </div>
+              <Toggle
+                checked={notifyCreator}
+                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, v, typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : '') })}
+              />
+            </div>
             <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(false)}>
               <Play size={14} /> {tr('inspectionOnly')}
             </button>
@@ -178,11 +230,11 @@ export default function Monitoring(): JSX.Element {
                 <div key={run.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
                   <div>
                     <div className="text-canvas-fg">{new Date(run.startedAt).toLocaleString()}</div>
-                <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个陈旧 · {run.namingInvalid} 个命名异常</div>
+                    <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个已停更 · {run.namingInvalid} 个命名异常</div>
                   </div>
-                    <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>
-                      {run.status === 'completed' ? '已完成' : run.status === 'failed' ? '失败' : '进行中'}
-                    </Badge>
+                  <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>
+                    {run.status === 'completed' ? '已完成' : run.status === 'failed' ? '失败' : '进行中'}
+                  </Badge>
                 </div>
               ))
             )}

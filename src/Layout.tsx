@@ -82,7 +82,6 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
             friction={0.8}
             wallBounce={0.95}
             followCursor={true}
-            opacity={0.35}
           />
         )}
       </div>

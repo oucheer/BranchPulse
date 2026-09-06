@@ -1,271 +1,539 @@
 import { useEffect, useRef } from 'react'
-import { Renderer, Camera, Transform, Program, Mesh, Sphere, Vec3 } from 'ogl'
+import {
+  ACESFilmicToneMapping,
+  AmbientLight,
+  Color,
+  MathUtils,
+  MeshPhysicalMaterial,
+  Object3D,
+  PerspectiveCamera,
+  Plane,
+  PointLight,
+  Raycaster,
+  Scene,
+  ShaderChunk,
+  SphereGeometry,
+  SRGBColorSpace,
+  InstancedMesh,
+  Timer,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+  PMREMGenerator
+} from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 
 export interface BallpitProps {
   count?: number
+  colors?: number[]
+  ambientColor?: number
+  ambientIntensity?: number
+  lightIntensity?: number
+  materialParams?: {
+    metalness?: number
+    roughness?: number
+    clearcoat?: number
+    clearcoatRoughness?: number
+  }
+  minSize?: number
+  maxSize?: number
+  size0?: number
   gravity?: number
   friction?: number
   wallBounce?: number
+  maxVelocity?: number
+  maxX?: number
+  maxY?: number
+  maxZ?: number
   followCursor?: boolean
-  opacity?: number
 }
 
-interface BallState {
-  x: number
-  y: number
-  z: number
-  vx: number
-  vy: number
-  vz: number
-  r: number
-  colorIdx: number
+interface BallpitConfig {
+  count: number
+  colors: number[]
+  ambientColor: number
+  ambientIntensity: number
+  lightIntensity: number
+  materialParams: {
+    metalness: number
+    roughness: number
+    clearcoat: number
+    clearcoatRoughness: number
+  }
+  minSize: number
+  maxSize: number
+  size0: number
+  gravity: number
+  friction: number
+  wallBounce: number
+  maxVelocity: number
+  maxX: number
+  maxY: number
+  maxZ: number
+  controlSphere0: boolean
+  followCursor: boolean
 }
 
-const PALETTE = ['#5227FF', '#FF9FFC', '#C4B5FD', '#F0ABFC', '#A5B4FC']
+const DEFAULTS: BallpitConfig = {
+  count: 200,
+  colors: [0, 0, 0],
+  ambientColor: 16777215,
+  ambientIntensity: 1,
+  lightIntensity: 200,
+  materialParams: {
+    metalness: 0.5,
+    roughness: 0.5,
+    clearcoat: 1,
+    clearcoatRoughness: 0.15
+  },
+  minSize: 0.5,
+  maxSize: 1,
+  size0: 1,
+  gravity: 0.5,
+  friction: 0.9975,
+  wallBounce: 0.95,
+  maxVelocity: 0.15,
+  maxX: 5,
+  maxY: 5,
+  maxZ: 2,
+  controlSphere0: false,
+  followCursor: true
+}
+
+// ─── Physics ────────────────────────────────────────────────────────────────
+
+class Physics {
+  config: BallpitConfig
+  positionData: Float32Array
+  velocityData: Float32Array
+  sizeData: Float32Array
+  center = new Vector3()
+
+  constructor(config: BallpitConfig) {
+    this.config = config
+    this.positionData = new Float32Array(3 * config.count).fill(0)
+    this.velocityData = new Float32Array(3 * config.count).fill(0)
+    this.sizeData = new Float32Array(config.count).fill(1)
+    this.init()
+    this.setSizes()
+  }
+
+  private init(): void {
+    const { config, positionData } = this
+    this.center.toArray(positionData, 0)
+    for (let i = 1; i < config.count; i++) {
+      const s = 3 * i
+      positionData[s] = MathUtils.randFloatSpread(2 * config.maxX)
+      positionData[s + 1] = MathUtils.randFloatSpread(2 * config.maxY)
+      positionData[s + 2] = MathUtils.randFloatSpread(2 * config.maxZ)
+    }
+  }
+
+  setSizes(): void {
+    const { config, sizeData } = this
+    sizeData[0] = config.size0
+    for (let i = 1; i < config.count; i++) {
+      sizeData[i] = MathUtils.randFloat(config.minSize, config.maxSize)
+    }
+  }
+
+  update(delta: number): void {
+    const { config, center, positionData, sizeData, velocityData } = this
+    const F = new Vector3()
+    const I = new Vector3()
+    const B = new Vector3()
+    const O = new Vector3()
+    const N = new Vector3()
+    const D = new Vector3()
+    const J = new Vector3()
+    const H = new Vector3()
+    const T = new Vector3()
+
+    let start = 0
+    if (config.controlSphere0) {
+      start = 1
+      F.fromArray(positionData, 0)
+      F.lerp(center, 0.1).toArray(positionData, 0)
+      new Vector3(0, 0, 0).toArray(velocityData, 0)
+    }
+    for (let idx = start; idx < config.count; idx++) {
+      const base = 3 * idx
+      I.fromArray(positionData, base)
+      B.fromArray(velocityData, base)
+      B.y -= delta * config.gravity * sizeData[idx]
+      B.multiplyScalar(config.friction)
+      B.clampLength(0, config.maxVelocity)
+      I.add(B)
+      I.toArray(positionData, base)
+      B.toArray(velocityData, base)
+    }
+    for (let idx = start; idx < config.count; idx++) {
+      const base = 3 * idx
+      I.fromArray(positionData, base)
+      B.fromArray(velocityData, base)
+      const radius = sizeData[idx]
+      for (let jdx = idx + 1; jdx < config.count; jdx++) {
+        const otherBase = 3 * jdx
+        O.fromArray(positionData, otherBase)
+        N.fromArray(velocityData, otherBase)
+        const otherRadius = sizeData[jdx]
+        D.copy(O).sub(I)
+        const dist = D.length()
+        const sumRadius = radius + otherRadius
+        if (dist < sumRadius) {
+          const overlap = sumRadius - dist
+          J.copy(D).normalize().multiplyScalar(0.5 * overlap)
+          H.copy(J).multiplyScalar(Math.max(B.length(), 1))
+          T.copy(J).multiplyScalar(Math.max(N.length(), 1))
+          I.sub(J)
+          B.sub(H)
+          I.toArray(positionData, base)
+          B.toArray(velocityData, base)
+          O.add(J)
+          N.add(T)
+          O.toArray(positionData, otherBase)
+          N.toArray(velocityData, otherBase)
+        }
+      }
+      if (config.controlSphere0) {
+        D.copy(F).sub(I)
+        const dist = D.length()
+        const sumRadius0 = radius + sizeData[0]
+        if (dist < sumRadius0) {
+          const diff = sumRadius0 - dist
+          J.copy(D.normalize()).multiplyScalar(diff)
+          H.copy(J).multiplyScalar(Math.max(B.length(), 2))
+          I.sub(J)
+          B.sub(H)
+        }
+      }
+      if (Math.abs(I.x) + radius > config.maxX) {
+        I.x = Math.sign(I.x) * (config.maxX - radius)
+        B.x = -B.x * config.wallBounce
+      }
+      if (config.gravity === 0) {
+        if (Math.abs(I.y) + radius > config.maxY) {
+          I.y = Math.sign(I.y) * (config.maxY - radius)
+          B.y = -B.y * config.wallBounce
+        }
+      } else if (I.y - radius < -config.maxY) {
+        I.y = -config.maxY + radius
+        B.y = -B.y * config.wallBounce
+      }
+      const maxBoundary = Math.max(config.maxZ, config.maxSize)
+      if (Math.abs(I.z) + radius > maxBoundary) {
+        I.z = Math.sign(I.z) * (maxBoundary - radius)
+        B.z = -B.z * config.wallBounce
+      }
+      I.toArray(positionData, base)
+      B.toArray(velocityData, base)
+    }
+  }
+}
+
+// ─── Physical material with sub-surface scattering ─────────────────────────
+
+class BallMaterial extends MeshPhysicalMaterial {
+  constructor(params?: Record<string, unknown>) {
+    super(params)
+    this.uniforms = {
+      thicknessDistortion: { value: 0.1 },
+      thicknessAmbient: { value: 0 },
+      thicknessAttenuation: { value: 0.1 },
+      thicknessPower: { value: 2 },
+      thicknessScale: { value: 10 }
+    }
+    this.defines = this.defines ?? {}
+    this.defines.USE_UV = ''
+    this.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.uniforms)
+      shader.fragmentShader =
+        '\n        uniform float thicknessPower;\n        uniform float thicknessScale;\n        uniform float thicknessDistortion;\n        uniform float thicknessAmbient;\n        uniform float thicknessAttenuation;\n      ' +
+        shader.fragmentShader
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'void main() {',
+        '\n        void RE_Direct_Scattering(const in IncidentLight directLight, const in vec2 uv, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, inout ReflectedLight reflectedLight) {\n          vec3 scatteringHalf = normalize(directLight.direction + (geometryNormal * thicknessDistortion));\n          float scatteringDot = pow(saturate(dot(geometryViewDir, -scatteringHalf)), thicknessPower) * thicknessScale;\n          #ifdef USE_COLOR\n            vec3 scatteringIllu = (scatteringDot + thicknessAmbient) * vColor;\n          #else\n            vec3 scatteringIllu = (scatteringDot + thicknessAmbient) * diffuse;\n          #endif\n          reflectedLight.directDiffuse += scatteringIllu * thicknessAttenuation * directLight.color;\n        }\n\n        void main() {\n      '
+      )
+      const replaced = ShaderChunk.lights_fragment_begin.replaceAll(
+        'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );',
+        '\n          RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );\n          RE_Direct_Scattering(directLight, vUv, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, reflectedLight);\n        '
+      )
+      shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', replaced)
+    }
+  }
+
+  uniforms: Record<string, { value: number }>
+}
+
+// ─── Instanced sphere group ─────────────────────────────────────────────────
+
+const tmpObj = new Object3D()
+
+class BallGroup extends InstancedMesh {
+  config: BallpitConfig
+  physics: Physics
+  ambientLight: AmbientLight
+  light: PointLight
+
+  constructor(renderer: WebGLRenderer, configOverrides: Partial<BallpitConfig> = {}) {
+    const config: BallpitConfig = { ...DEFAULTS, ...configOverrides }
+    if (configOverrides.materialParams) {
+      config.materialParams = { ...config.materialParams, ...configOverrides.materialParams }
+    }
+    const env = new RoomEnvironment()
+    const envTexture = new PMREMGenerator(renderer).fromScene(env, 0.04).texture
+    const geometry = new SphereGeometry()
+    const material = new BallMaterial({ envMap: envTexture, ...config.materialParams })
+    material.envMapRotation.x = -Math.PI / 2
+    super(geometry, material, config.count)
+    this.config = config
+    this.physics = new Physics(config)
+    this.ambientLight = new AmbientLight(config.ambientColor, config.ambientIntensity)
+    this.add(this.ambientLight)
+    this.light = new PointLight(config.colors[0], config.lightIntensity)
+    this.add(this.light)
+    this.setColors(config.colors)
+  }
+
+  setColors(colors: number[]): void {
+    if (!Array.isArray(colors) || colors.length <= 1) return
+    const palette = colors.map((c) => new Color(c))
+    const getColorAt = (ratio: number, out = new Color()): Color => {
+      const scaled = Math.max(0, Math.min(1, ratio)) * (palette.length - 1)
+      const idx = Math.floor(scaled)
+      if (idx >= palette.length - 1) return palette[palette.length - 1].clone()
+      const alpha = scaled - idx
+      return out.copy(palette[idx]).lerp(palette[idx + 1], alpha)
+    }
+    for (let idx = 0; idx < this.count; idx++) {
+      this.setColorAt(idx, getColorAt(idx / this.count))
+      if (idx === 0) this.light.color.copy(getColorAt(idx / this.count))
+    }
+    if (this.instanceColor) this.instanceColor.needsUpdate = true
+  }
+
+  update(delta: number): void {
+    this.physics.update(delta)
+    for (let idx = 0; idx < this.count; idx++) {
+      tmpObj.position.fromArray(this.physics.positionData, 3 * idx)
+      if (idx === 0 && this.config.followCursor === false) {
+        tmpObj.scale.setScalar(0)
+      } else {
+        tmpObj.scale.setScalar(this.physics.sizeData[idx])
+      }
+      tmpObj.updateMatrix()
+      this.setMatrixAt(idx, tmpObj.matrix)
+      if (idx === 0) this.light.position.copy(tmpObj.position)
+    }
+    this.instanceMatrix.needsUpdate = true
+  }
+}
 
 export default function Ballpit({
-  count = 200,
-  gravity = 0.7,
-  friction = 0.8,
-  wallBounce = 0.95,
+  className = '',
   followCursor = true,
-  opacity = 0.35
-}: BallpitProps): JSX.Element {
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  ...props
+}: BallpitProps & { className?: string }): JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-    const renderer = new Renderer({
-      webgl: 2,
-      alpha: true,
-      premultipliedAlpha: true,
+    // ─── Renderer / Scene / Camera ────────────────────────────────────────
+    const renderer = new WebGLRenderer({
+      canvas,
       antialias: true,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
+      alpha: true,
+      powerPreference: 'high-performance'
     })
-    const gl = renderer.gl
-    gl.clearColor(0, 0, 0, 0)
-    const canvas = gl.canvas as HTMLCanvasElement
-    canvas.style.width = '100%'
-    canvas.style.height = '100%'
-    canvas.style.display = 'block'
-    container.appendChild(canvas)
+    renderer.outputColorSpace = SRGBColorSpace
+    renderer.toneMapping = ACESFilmicToneMapping
 
-    const camera = new Camera(gl, { fov: 35 })
-    camera.position.set(0, 0, 12)
-    const scene = new Transform()
+    const scene = new Scene()
+    const camera = new PerspectiveCamera()
+    const cameraFov = camera.fov
+    camera.position.set(0, 0, 20)
+    camera.lookAt(0, 0, 0)
+    const cameraMaxAspect = 1.5
 
-    const vertex = /* glsl */ `
-      attribute vec3 position;
-      attribute vec3 normal;
-      uniform mat4 modelViewMatrix;
-      uniform mat4 projectionMatrix;
-      uniform mat3 normalMatrix;
-      varying vec3 vNormal;
-      varying vec3 vPos;
-      void main() {
-        vNormal = normalize(normalMatrix * normal);
-        vPos = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    const size = { width: 0, height: 0, wWidth: 0, wHeight: 0, ratio: 0, pixelRatio: 0 }
+    let spheres: BallGroup | null = null
+    let animationId = 0
+    const timer = new Timer()
+
+    const updateWorldSize = (): void => {
+      const fov = (camera.fov * Math.PI) / 180
+      size.wHeight = 2 * Math.tan(fov / 2) * camera.position.length()
+      size.wWidth = size.wHeight * camera.aspect
+    }
+
+    const applyCameraAspect = (): void => {
+      camera.aspect = size.width / Math.max(1, size.height)
+      if (cameraMaxAspect && camera.aspect > cameraMaxAspect) {
+        const fov = 2 * Math.atan(Math.tan(MathUtils.degToRad(cameraFov / 2)) / (camera.aspect / cameraMaxAspect))
+        camera.fov = 2 * MathUtils.radToDeg(fov)
+      } else {
+        camera.fov = cameraFov
       }
-    `
-
-    const fragment = /* glsl */ `
-      precision highp float;
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying vec3 vNormal;
-      varying vec3 vPos;
-      void main() {
-        // Simple lambert lighting from top-left
-        vec3 light = normalize(vec3(-0.4, 0.8, 0.5));
-        float diffuse = max(dot(normalize(vNormal), light), 0.0);
-        float ambient = 0.4;
-        float alpha = uOpacity * (0.65 + diffuse * 0.35);
-        vec3 col = uColor * (ambient + diffuse * 0.8);
-        gl_FragColor = vec4(col, alpha);
-      }
-    `
-
-    const geometry = new Sphere(gl, { radius: 1, widthSegments: 16, heightSegments: 12 })
-    const programs = PALETTE.map(
-      (hex) =>
-        new Program(gl, {
-          vertex,
-          fragment,
-          transparent: true,
-          depthWrite: false,
-          uniforms: {
-            uColor: { value: new Vec3(...hexToRgb(hex)) },
-            uOpacity: { value: opacity }
-          }
-        })
-    )
-
-    const worldSize = 7
-    const balls: BallState[] = []
-    const meshes: Mesh[] = []
-    const paletteCount = PALETTE.length
-
-    for (let i = 0; i < count; i++) {
-      const r = 0.08 + Math.random() * 0.12
-      const colorIdx = Math.floor(Math.random() * paletteCount)
-      const mesh = new Mesh(gl, { geometry, program: programs[colorIdx] })
-      mesh.scale.set(r, r, r)
-      scene.addChild(mesh)
-      meshes.push(mesh)
-      balls.push({
-        x: (Math.random() - 0.5) * worldSize,
-        y: (Math.random() - 0.5) * worldSize * 0.6,
-        z: (Math.random() - 0.5) * worldSize * 0.4,
-        vx: (Math.random() - 0.5) * 0.02,
-        vy: (Math.random() - 0.5) * 0.02,
-        vz: (Math.random() - 0.5) * 0.01,
-        r,
-        colorIdx
-      })
+      camera.updateProjectionMatrix()
+      updateWorldSize()
     }
 
-    // Mouse tracking
-    const targetMouse = { x: 0, y: 0 }
-    const currentMouse = { x: 0, y: 0 }
-    let mouseInside = false
-
-    const handlePointerMove = (event: PointerEvent): void => {
-      const rect = canvas.getBoundingClientRect()
-      const nx = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1
-      const ny = -(((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1)
-      targetMouse.x = nx * (worldSize * 0.5)
-      targetMouse.y = ny * (worldSize * 0.35)
-      mouseInside = true
-    }
-    const handlePointerLeave = (): void => {
-      mouseInside = false
-    }
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerleave', handlePointerLeave)
-
-    const halfW = worldSize * 0.5
-    const halfH = worldSize * 0.35
-    const halfD = worldSize * 0.2
-
-    const setSize = (): void => {
-      const rect = container.getBoundingClientRect()
-      const width = Math.max(1, Math.floor(rect.width))
-      const height = Math.max(1, Math.floor(rect.height))
+    const resize = (): void => {
+      const parent = canvas.parentElement
+      const width = parent?.offsetWidth ?? window.innerWidth
+      const height = parent?.offsetHeight ?? window.innerHeight
+      size.width = width
+      size.height = height
+      size.ratio = width / height
+      applyCameraAspect()
       renderer.setSize(width, height)
-      camera.perspective({ aspect: width / height })
+      let pr = window.devicePixelRatio
+      if (pr > 2) pr = 2
+      renderer.setPixelRatio(pr)
+      size.pixelRatio = pr
+      if (spheres) {
+        spheres.config.maxX = size.wWidth / 2
+        spheres.config.maxY = size.wHeight / 2
+      }
     }
-    const resizeObserver = new ResizeObserver(setSize)
-    resizeObserver.observe(container)
-    setSize()
 
-    let frameId = 0
-    let visible = true
-    let pageVisible = !document.hidden
-    let time = 0
+    const createSpheres = (config: Partial<BallpitConfig>): void => {
+      if (spheres) {
+        scene.remove(spheres)
+        spheres.dispose()
+      }
+      spheres = new BallGroup(renderer, config)
+      scene.add(spheres)
+      spheres.config.maxX = size.wWidth / 2
+      spheres.config.maxY = size.wHeight / 2
+    }
+
+    resize()
+
+    // ─── Pointer interaction ──────────────────────────────────────────────
+    const mouse = new Vector2()
+    const ndc = new Vector2()
+    const raycaster = new Raycaster()
+    const plane = new Plane(new Vector3(0, 0, 1), 0)
+    const hit = new Vector3()
+    let pointerInside = false
+    let paused = false
+
+    const inBounds = (): boolean => {
+      const rect = canvas.getBoundingClientRect()
+      return mouse.x >= rect.left && mouse.x <= rect.right && mouse.y >= rect.top && mouse.y <= rect.bottom
+    }
+
+    const updatePointer = (): void => {
+      const rect = canvas.getBoundingClientRect()
+      const px = mouse.x - rect.left
+      const py = mouse.y - rect.top
+      ndc.x = (px / rect.width) * 2 - 1
+      ndc.y = -(py / rect.height) * 2 + 1
+    }
+
+    const onPointerMove = (e: PointerEvent): void => {
+      mouse.set(e.clientX, e.clientY)
+      if (!inBounds()) {
+        if (pointerInside) {
+          pointerInside = false
+          if (spheres) spheres.config.controlSphere0 = false
+        }
+        return
+      }
+      pointerInside = true
+      updatePointer()
+      raycaster.setFromCamera(ndc, camera)
+      camera.getWorldDirection(plane.normal)
+      raycaster.ray.intersectPlane(plane, hit)
+      if (spheres) {
+        spheres.physics.center.copy(hit)
+        spheres.config.controlSphere0 = true
+      }
+    }
+    const onPointerLeave = (): void => {
+      pointerInside = false
+      if (spheres) spheres.config.controlSphere0 = false
+    }
+
+    document.body.addEventListener('pointermove', onPointerMove)
+    document.body.addEventListener('pointerleave', onPointerLeave)
+    canvas.style.touchAction = 'none'
+    canvas.style.userSelect = 'none'
+
+    // ─── Resize / visibility ──────────────────────────────────────────────
+    const parent = canvas.parentElement
+    let resizeTimer: number | undefined
+    const onDocResize = (): void => {
+      if (resizeTimer) window.clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(resize, 100)
+    }
+    let resizeObserver: ResizeObserver | null = null
+    if (parent) {
+      resizeObserver = new ResizeObserver(onDocResize)
+      resizeObserver.observe(parent)
+    }
+    window.addEventListener('resize', onDocResize)
+
+    let inView = true
+    const intersectionObserver = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting
+      if (inView && !document.hidden) start()
+      else stop()
+    }, { threshold: 0 })
+    intersectionObserver.observe(canvas)
+    const onVisibility = (): void => {
+      if (document.hidden) stop()
+      else if (inView) start()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     const render = (): void => {
-      time += 0.016
-
-      // Smooth mouse
-      currentMouse.x += (targetMouse.x - currentMouse.x) * 0.08
-      currentMouse.y += (targetMouse.y - currentMouse.y) * 0.08
-
-      const dt = 0.016
-      for (let i = 0; i < balls.length; i++) {
-        const b = balls[i]
-
-        // Gravity
-        b.vy -= gravity * dt
-
-        // Mouse repulsion
-        if (followCursor && mouseInside) {
-          const dx = b.x - currentMouse.x
-          const dy = b.y - currentMouse.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist < 2.0 && dist > 0.01) {
-            const force = (1 - dist / 2.0) * 0.08
-            b.vx += (dx / dist) * force
-            b.vy += (dy / dist) * force
-          }
-        }
-
-        // Slight drift for liveliness
-        b.vx += Math.sin(time * 0.5 + i * 0.1) * 0.001
-        b.vz += Math.cos(time * 0.3 + i * 0.07) * 0.0005
-
-        // Friction
-        const fr = Math.pow(friction, dt * 60)
-        b.vx *= fr
-        b.vy *= fr
-        b.vz *= fr
-
-        // Integrate
-        b.x += b.vx
-        b.y += b.vy
-        b.z += b.vz
-
-        // Wall bounce
-        if (b.x - b.r < -halfW) { b.x = -halfW + b.r; b.vx = Math.abs(b.vx) * wallBounce }
-        if (b.x + b.r > halfW) { b.x = halfW - b.r; b.vx = -Math.abs(b.vx) * wallBounce }
-        if (b.y - b.r < -halfH) { b.y = -halfH + b.r; b.vy = Math.abs(b.vy) * wallBounce }
-        if (b.y + b.r > halfH) { b.y = halfH - b.r; b.vy = -Math.abs(b.vy) * wallBounce }
-        if (b.z - b.r < -halfD) { b.z = -halfD + b.r; b.vz = Math.abs(b.vz) * wallBounce }
-        if (b.z + b.r > halfD) { b.z = halfD - b.r; b.vz = -Math.abs(b.vz) * wallBounce }
-
-        meshes[i].position.set(b.x, b.y, b.z)
-      }
-
-      renderer.render({ scene, camera })
-      frameId = window.requestAnimationFrame(render)
+      renderer.render(scene, camera)
     }
-
-    const tryStart = (): void => {
-      if (visible && pageVisible && frameId === 0) frameId = window.requestAnimationFrame(render)
+    const animate = (): void => {
+      animationId = requestAnimationFrame(animate)
+      timer.update()
+      const delta = timer.getDelta()
+      if (spheres && !paused) spheres.update(delta)
+      render()
     }
-    const tryStop = (): void => {
-      if (frameId !== 0) {
-        window.cancelAnimationFrame(frameId)
-        frameId = 0
+    const start = (): void => {
+      if (animationId === 0) animationId = requestAnimationFrame(animate)
+    }
+    const stop = (): void => {
+      if (animationId !== 0) {
+        cancelAnimationFrame(animationId)
+        animationId = 0
       }
     }
-    const intersectionObserver = new IntersectionObserver(([entry]) => {
-      visible = entry.isIntersecting
-      if (visible) tryStart()
-      else tryStop()
-    }, { threshold: 0 })
-    intersectionObserver.observe(container)
-    const handleVisibility = (): void => {
-      pageVisible = !document.hidden
-      if (pageVisible) tryStart()
-      else tryStop()
+
+    const overrides: Partial<BallpitConfig> = { ...props, followCursor } as Partial<BallpitConfig>
+    if (overrides.materialParams) {
+      overrides.materialParams = { ...DEFAULTS.materialParams, ...overrides.materialParams }
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    tryStart()
+    createSpheres(overrides)
+    start()
 
     return () => {
-      tryStop()
-      resizeObserver.disconnect()
+      stop()
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', onDocResize)
       intersectionObserver.disconnect()
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerleave', handlePointerLeave)
-      if (canvas.parentNode === container) container.removeChild(canvas)
-      gl.getExtension('WEBGL_lose_context')?.loseContext()
+      document.removeEventListener('visibilitychange', onVisibility)
+      document.body.removeEventListener('pointermove', onPointerMove)
+      document.body.removeEventListener('pointerleave', onPointerLeave)
+      if (spheres) {
+        scene.remove(spheres)
+        spheres.dispose()
+      }
+      renderer.dispose()
+      renderer.forceContextLoss()
     }
-  }, [count, gravity, friction, wallBounce, followCursor, opacity])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  return <div ref={containerRef} className="pointer-events-none h-full w-full" aria-hidden="true" />
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return [1, 1, 1]
-  return [
-    Number.parseInt(result[1], 16) / 255,
-    Number.parseInt(result[2], 16) / 255,
-    Number.parseInt(result[3], 16) / 255
-  ]
+  return <canvas className={className} ref={canvasRef} style={{ width: '100%', height: '100%' }} />
 }
