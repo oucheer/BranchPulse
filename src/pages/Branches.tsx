@@ -53,10 +53,10 @@ function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
 
   const ROW_H = 34
-  const GRAPH_BRANCHES = filtered.slice(0, 30)
+  const GRAPH_BRANCHES = filtered
   const base = filtered.find((b) => b.protection.isDefault) ?? filtered.find((b) => branchCategory(b.name).label === 'Main') ?? filtered[0]
-  const height = Math.max(100, GRAPH_BRANCHES.length * ROW_H + 40)
-  const W = 640
+  const height = Math.max(140, GRAPH_BRANCHES.length * ROW_H + 48)
+  const W = 760
 
   const isDimmed = useCallback((id: string): boolean => {
     if (hoveredId) return hoveredId !== id
@@ -98,14 +98,14 @@ function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }
       ) : (
         <div
           ref={containerRef}
-          className="relative cursor-grab overflow-hidden active:cursor-grabbing"
+          className="relative max-h-[430px] cursor-grab overflow-auto active:cursor-grabbing"
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={() => { onMouseUp(); onHover(null); setHoveredId(null) }}
         >
           <svg
-            width="100%"
+            width={W}
             height={height}
             viewBox={`0 0 ${W} ${height}`}
             preserveAspectRatio="xMinYMin meet"
@@ -113,19 +113,19 @@ function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }
             style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: dragRef.current ? 'none' : 'transform 200ms ease-out' }}
           >
             {/* Trunk */}
-            <line x1="20" y1="16" x2="20" y2={height - 16} stroke="rgb(var(--line))" strokeWidth="2" strokeLinecap="round" opacity={0.5} />
+            <line x1="20" y1="24" x2="20" y2={height - 18} stroke="rgb(var(--line))" strokeWidth="2" strokeLinecap="round" opacity={0.5} />
             {base ? (
-              <circle cx="20" cy="16" r="5" fill="rgb(var(--primary))" />
+              <circle cx="20" cy="24" r="5" fill="rgb(var(--primary))" />
             ) : null}
             {base ? (
-              <text x="30" y="20" fontSize="11" fontWeight="600" fill="rgb(var(--primary))" fontFamily="JetBrains Mono, monospace">{base.displayName}</text>
+              <text x="30" y="28" fontSize="11" fontWeight="600" fill="rgb(var(--primary))" fontFamily="JetBrains Mono, monospace">{base.displayName}</text>
             ) : null}
 
             {GRAPH_BRANCHES.map((b, i) => {
               if (b.id === base?.id) return null
-              const y = 20 + i * ROW_H
+              const y = 28 + i * ROW_H
               const midX = 20 + (200 - 20) * 0.5
-              const path = `M 20 16 C ${midX} 16, ${midX} ${y}, 200 ${y}`
+              const path = `M 20 24 C ${midX} 24, ${midX} ${y}, 190 ${y}`
               const dim = isDimmed(b.id)
               const isActive = activeId === b.id
               const cat = branchCategory(b.name)
@@ -140,24 +140,24 @@ function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }
                   className="cursor-pointer"
                 >
                   <path d={path} fill="none" stroke={sc} strokeWidth={isActive ? 2 : 1.2} strokeLinecap="round" strokeDasharray="4 3" opacity={isActive ? 1 : 0.55} style={{ transition: 'stroke-width 140ms ease, opacity 140ms ease' }} />
-                  <circle cx={200} cy={y} r={isActive ? 4.5 : 3} fill={sc} style={{ transition: 'r 140ms ease' }} />
+                  <circle cx={190} cy={y} r={isActive ? 4.5 : 3} fill={sc} style={{ transition: 'r 140ms ease' }} />
                   {selected?.id === b.id ? (
-                    <circle cx={200} cy={y} r="7" fill="none" stroke={sc} strokeWidth="1.5" opacity={0.6} />
+                    <circle cx={190} cy={y} r="7" fill="none" stroke={sc} strokeWidth="1.5" opacity={0.6} />
                   ) : null}
-                  <text x={214} y={y + 4} fontSize="11" fill={isActive ? 'rgb(var(--fg))' : 'rgb(var(--muted))'} fontFamily="JetBrains Mono, monospace" style={{ transition: 'fill 140ms ease' }}>
+                  <text x={204} y={y + 4} fontSize="11" fill={isActive ? 'rgb(var(--fg))' : 'rgb(var(--muted))'} fontFamily="JetBrains Mono, monospace" style={{ transition: 'fill 140ms ease' }}>
                     {b.displayName}
                   </text>
-                  <text x={400} y={y + 4} fontSize="9.5" fill={cat.color} opacity={0.7}>
+                  <text x={520} y={y + 4} fontSize="9.5" fill={cat.color} opacity={0.7}>
                     {cat.label}
                   </text>
-                  <text x={460} y={y + 4} fontSize="9.5" fill="rgb(var(--muted))" className="tabular-nums">
+                  <text x={590} y={y + 4} fontSize="9.5" fill="rgb(var(--muted))" className="tabular-nums">
                     {b.inactiveDays}d
                   </text>
-                  <rect x={508} y={y - 9} width="26" height="15" rx="7.5" fill={sc} opacity={0.12} />
-                  <text x={521} y={y + 3} fontSize="9" fontWeight="600" textAnchor="middle" fill={sc} className="tabular-nums">
+                  <rect x={650} y={y - 9} width="26" height="15" rx="7.5" fill={sc} opacity={0.12} />
+                  <text x={663} y={y + 3} fontSize="9" fontWeight="600" textAnchor="middle" fill={sc} className="tabular-nums">
                     {b.health.score}
                   </text>
-                  <text x={546} y={y + 3} fontSize="9" fontWeight="500" fill={sc}>
+                  <text x={688} y={y + 3} fontSize="9" fontWeight="500" fill={sc}>
                     {stateLabel(b.state, language)}
                   </text>
                 </g>

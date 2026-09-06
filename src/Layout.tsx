@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import AeroShards from './shell/AeroShards'
+import MoltenMetal from './components/MoltenMetal'
 import Sidebar from './shell/Sidebar'
 import Topbar from './shell/Topbar'
 import CommandPalette from './shell/CommandPalette'
@@ -47,6 +48,28 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     <div className="relative flex h-screen bg-canvas text-muted">
       {/* Layer 1-2: Ambient background */}
       <AeroShards />
+      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
+        <MoltenMetal
+          color1="#1f2937"
+          color2="#f97316"
+          color3="#ffffff"
+          speed={0.14}
+          scale={3.2}
+          detail={3}
+          glow={1.1}
+          coreSize={0.045}
+          swirl={0.7}
+          fold={-0.16}
+          blackPoint={0.02}
+          brightness={1.05}
+          colorMode="molten"
+          grain={true}
+          grainIntensity={0.03}
+          mouseInteraction={false}
+          opacity={0.18}
+          backgroundColor="#07090e"
+        />
+      </div>
 
       {/* Layer 3: Sidebar */}
       <Sidebar />

@@ -177,6 +177,7 @@ export class RepositoryService {
         source: merged.source,
         gitlab_url: merged.gitlabUrl ?? null,
         gitlab_project_id: merged.gitlabProjectId ?? null,
+        remote_project_path: merged.remoteProjectPath ?? null,
         web_url: merged.webUrl ?? null,
         current_branch: merged.currentBranch,
         default_branch: merged.defaultBranch,

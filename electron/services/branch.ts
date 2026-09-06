@@ -64,9 +64,15 @@ function refForRemote(remote: string, name: string): string {
 }
 
 function safeTimestamp(value: string | null | undefined): number {
-  if (!value) return Date.now()
+  if (!value) return Number.NaN
   const parsed = new Date(value).getTime()
-  return Number.isFinite(parsed) ? parsed : Date.now()
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function elapsedDays(timestamp: string | null | undefined, now = Date.now()): number {
+  const parsed = safeTimestamp(timestamp)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.floor(Math.max(0, now - parsed) / DAY_MS)
 }
 function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protection: ProtectionService): string {
   const rules = naming
@@ -203,7 +209,10 @@ export class BranchService {
     config?: GitLabConnectionConfig
   ): Promise<BranchSummary> {
     const cacheKey = `${repo.id}|remote|${branch.name}`
-    const latestCommit = branch.commit
+    const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100, config)
+    const latestCommit = branch.commit?.committed_date || branch.commit?.created_at
+      ? branch.commit
+      : commits[0]
     const cacheContentKey = `${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
@@ -216,7 +225,6 @@ export class BranchService {
       }
     }
 
-    const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100, config)
     const commitSet = new Set(commits.map((c) => c.id))
     const unique = commits.filter((c) => !defaultShas.has(c.id))
     const firstUnique = unique.length > 0 ? unique[unique.length - 1] : null
@@ -236,7 +244,7 @@ export class BranchService {
           }
         : { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' }
 
-    const lastCommitAt = latestCommit?.committed_date ?? null
+    const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
     const createdAt = firstUnique?.committed_date ?? latestCommit?.created_at ?? null
     const ref: GitRefInfo = {
       fullRef: `refs/remotes/origin/${branch.name}`,
@@ -381,8 +389,8 @@ export class BranchService {
     monitoring: MonitoringConfig
   ): BranchSummary {
     const now = Date.now()
-    const inactiveDays = Math.floor(Math.max(0, now - safeTimestamp(facts.lastCommitAt)) / DAY_MS)
-    const ageDays = Math.floor(Math.max(0, now - safeTimestamp(facts.createdAt)) / DAY_MS)
+    const inactiveDays = elapsedDays(facts.lastCommitAt, now)
+    const ageDays = elapsedDays(facts.createdAt, now)
     const stale = inactiveDays > monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
@@ -442,8 +450,8 @@ export class BranchService {
 
   private refreshComputed(cached: BranchSummary, monitoring: MonitoringConfig, ref: GitRefInfo, currentBranch: string): BranchSummary {
     const now = Date.now()
-    const inactiveDays = Math.floor(Math.max(0, now - safeTimestamp(cached.lastCommitAt)) / DAY_MS)
-    const ageDays = Math.floor(Math.max(0, now - safeTimestamp(cached.createdAt)) / DAY_MS)
+    const inactiveDays = elapsedDays(cached.lastCommitAt, now)
+    const ageDays = elapsedDays(cached.createdAt, now)
     const stale = inactiveDays > monitoring.staleThresholdDays
     const graceExpired = stale && inactiveDays > monitoring.staleThresholdDays + monitoring.gracePeriodDays
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
