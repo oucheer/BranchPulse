@@ -14,6 +14,30 @@ function notifyLabel(target: string): string {
   return `通知 ${target}`
 }
 
+function parseNotifyDraft(target: string | null): { self: boolean; creator: boolean; recipients: string } {
+  const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
+  let self = false
+  let creator = false
+  const rest: string[] = []
+  for (const token of tokens) {
+    if (token === 'self') self = true
+    else if (token === 'creator') creator = true
+    else if (token === 'both') { self = true; creator = true }
+    else if (token !== 'none') rest.push(token)
+  }
+  return { self, creator, recipients: rest.join(', ') }
+}
+
+function applyNotifyDraft(self: boolean, creator: boolean, recipients: string): NotifyTarget {
+  const parts: string[] = []
+  if (self) parts.push('self')
+  if (creator) parts.push('creator')
+  for (const token of recipients.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)) {
+    if (token !== 'self' && token !== 'creator' && token !== 'none' && !parts.includes(token)) parts.push(token)
+  }
+  return (parts.join(', ') || 'none') as NotifyTarget
+}
+
 const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
   repositoryId,
   name: '',
@@ -43,6 +67,10 @@ export default function Scheduler(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
+  const parsedNotify = parseNotifyDraft(editJob?.notifyTarget ?? null)
+  const notifySelf = parsedNotify.self
+  const notifyCreator = parsedNotify.creator
+  const customRecipients = parsedNotify.recipients
 
   const visibleJobs = activeRepositoryId ? jobs.filter((job) => job.repositoryId === activeRepositoryId || job.repositoryId === null) : jobs
 
@@ -283,8 +311,8 @@ export default function Scheduler(): JSX.Element {
               className="input"
               type="email"
               placeholder="you@example.com 或分组名"
-              value={typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@') ? editJob.notifyTarget : ''}
-              onChange={(e) => setEditJob({ ...editJob, notifyTarget: (e.target.value.trim() || 'self') as NotifyTarget })}
+              value={customRecipients}
+              onChange={(e) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, notifyCreator, e.target.value) })}
             />
             <div className="mt-2 flex items-center gap-2">
               <select
@@ -292,9 +320,8 @@ export default function Scheduler(): JSX.Element {
                 value=""
                 onChange={(e) => {
                   if (!e.target.value) return
-                  const current = typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@') ? editJob.notifyTarget : ''
-                  const next = current ? `${current}, ${e.target.value}` : e.target.value
-                  setEditJob({ ...editJob, notifyTarget: next as NotifyTarget })
+                  const next = customRecipients ? `${customRecipients}, ${e.target.value}` : e.target.value
+                  setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, notifyCreator, next) })
                 }}
               >
                 <option value="">选择邮箱分组</option>
@@ -303,17 +330,36 @@ export default function Scheduler(): JSX.Element {
                 ))}
               </select>
             </div>
+            {(() => {
+              const tokens = customRecipients.split(/[,;\s]+/).map((t) => t.trim().toLowerCase()).filter(Boolean)
+              const seen = new Set<string>()
+              const out: string[] = []
+              for (const token of tokens) {
+                const group = emailGroups.find((g) => g.name.trim().toLowerCase() === token)
+                if (group) {
+                  for (const r of group.recipients.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)) {
+                    if (!seen.has(r.toLowerCase())) { seen.add(r.toLowerCase()); out.push(r) }
+                  }
+                }
+              }
+              return out.length > 0 ? (
+                <div className="mt-2 rounded-md border border-line bg-surface/60 px-3 py-2">
+                  <div className="text-xs font-medium text-muted">分组收件人（只读）</div>
+                  <div className="mt-1 break-all text-xs text-canvas-fg">{out.join(', ')}</div>
+                </div>
+              ) : null
+            })()}
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
                 <span className="text-sm text-canvas-fg">通知自己</span>
-                <Toggle checked={editJob?.notifyTarget === 'self' || editJob?.notifyTarget === 'both' || (typeof editJob?.notifyTarget === 'string' && editJob.notifyTarget.includes('@'))} onChange={(v) => setEditJob({ ...editJob, notifyTarget: (v ? 'self' : 'none') as NotifyTarget })} />
+                <Toggle checked={notifySelf} onChange={(v) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(v, notifyCreator, customRecipients) })} />
               </div>
               <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
                 <span className="text-sm text-canvas-fg">通知分支创始人</span>
-                <Toggle checked={editJob?.notifyTarget === 'creator' || editJob?.notifyTarget === 'both'} onChange={(v) => setEditJob({ ...editJob, notifyTarget: (v ? 'creator' : 'none') as NotifyTarget })} />
+                <Toggle checked={notifyCreator} onChange={(v) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, v, customRecipients) })} />
               </div>
             </div>
-            <p className="mt-1 text-xs text-muted">支持填写邮箱或全局邮箱分组，多个用逗号分隔。</p>
+            <p className="mt-1 text-xs text-muted">支持填写邮箱或全局邮箱分组，多个用逗号分隔；勾选“通知自己”发送到设置中的个人邮箱，可同时生效。</p>
           </div>
         </div>
       </Modal>

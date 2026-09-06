@@ -231,6 +231,7 @@ export interface EmailConfig {
   secure: boolean
   tls: boolean
   testRecipient: string
+  selfEmail: string
   enabled: boolean
 }
 

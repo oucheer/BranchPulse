@@ -55,6 +55,26 @@ export function resolveRecipients(input: string, groups: EmailGroup[] = []): str
   return resolved
 }
 
+export interface ParsedNotifyTarget {
+  self: boolean
+  creator: boolean
+  recipients: string
+}
+
+export function parseNotifyTarget(target: string | null | undefined): ParsedNotifyTarget {
+  const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
+  let self = false
+  let creator = false
+  const rest: string[] = []
+  for (const token of tokens) {
+    if (token === 'self') self = true
+    else if (token === 'creator') creator = true
+    else if (token === 'both') { self = true; creator = true }
+    else if (token !== 'none') rest.push(token)
+  }
+  return { self, creator, recipients: rest.join(', ') }
+}
+
 export class EmailService {
   constructor(
     private readonly storage: StorageService,
@@ -72,6 +92,7 @@ export class EmailService {
       secure: Number(row?.secure ?? 1) === 1,
       tls: Number(row?.tls ?? 0) === 1,
       testRecipient: String(row?.test_recipient ?? row?.username ?? ''),
+      selfEmail: String(row?.self_email ?? ''),
       enabled: Number(row?.enabled ?? 0) === 1
     }
   }
@@ -95,6 +116,7 @@ export class EmailService {
         secure: config.secure ? 1 : 0,
         tls: config.tls ? 1 : 0,
         test_recipient: config.testRecipient || config.username,
+        self_email: config.selfEmail || '',
         enabled: config.enabled ? 1 : 0
       },
       'id = 1'

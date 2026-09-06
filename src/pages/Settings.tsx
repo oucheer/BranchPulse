@@ -23,6 +23,7 @@ export default function Settings(): JSX.Element {
     secure: true,
     tls: false,
     testRecipient: '',
+    selfEmail: '',
     enabled: false
   })
   const [savingApp, setSavingApp] = useState(false)
@@ -185,21 +186,21 @@ export default function Settings(): JSX.Element {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">{tr('trayEnabled')}</div>
-                  <div className="text-xs text-muted">Keep running in system tray</div>
+                  <div className="text-xs text-muted">关闭时驻留系统托盘，继续运行</div>
                 </div>
                 <Toggle checked={draft.trayEnabled} onChange={(v) => setDraft({ ...draft, trayEnabled: v })} />
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm text-canvas-fg">Launch minimized</div>
-                  <div className="text-xs text-muted">Start hidden to tray</div>
+                  <div className="text-sm text-canvas-fg">启动时最小化</div>
+                  <div className="text-xs text-muted">启动时隐藏到托盘</div>
                 </div>
                 <Toggle checked={draft.launchMinimized} onChange={(v) => setDraft({ ...draft, launchMinimized: v })} />
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm text-canvas-fg">Start with Windows</div>
-                  <div className="text-xs text-muted">Launch on login</div>
+                  <div className="text-sm text-canvas-fg">随 Windows 启动</div>
+                  <div className="text-xs text-muted">登录系统时自动启动</div>
                 </div>
                 <Toggle checked={draft.startWithWindows} onChange={(v) => setDraft({ ...draft, startWithWindows: v })} />
               </div>
@@ -259,10 +260,21 @@ export default function Settings(): JSX.Element {
                 className="input"
                 type="email"
                 value={emailDraft.username}
-                onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value, testRecipient: e.target.value })}
+                onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })}
                 placeholder="you@example.com"
               />
               <p className="mt-1 text-xs text-muted">这是统一发件账号。用于登录邮箱服务发送邮件，不会自动同步为所有收件人。</p>
+            </div>
+            <div>
+              <div className="label mb-1.5">我的个人邮箱</div>
+              <input
+                className="input"
+                type="email"
+                value={emailDraft.selfEmail}
+                onChange={(e) => setEmailDraft({ ...emailDraft, selfEmail: e.target.value })}
+                placeholder="your@email.com"
+              />
+              <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱，与其他收件人设置互不影响。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>

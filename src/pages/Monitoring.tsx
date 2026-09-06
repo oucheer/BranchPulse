@@ -4,8 +4,28 @@ import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import type { NotifyTarget } from '@shared/types'
 
-function notifyTargetValue(target: string | null): string {
-  return target && target !== 'self' && target !== 'none' && target !== 'creator' && target !== 'both' ? target : ''
+function parseNotifyDraft(target: string | null): { self: boolean; creator: boolean; recipients: string } {
+  const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
+  let self = false
+  let creator = false
+  const rest: string[] = []
+  for (const token of tokens) {
+    if (token === 'self') self = true
+    else if (token === 'creator') creator = true
+    else if (token === 'both') { self = true; creator = true }
+    else if (token !== 'none') rest.push(token)
+  }
+  return { self, creator, recipients: rest.join(', ') }
+}
+
+function applyNotifyDraft(self: boolean, creator: boolean, recipients: string): NotifyTarget {
+  const parts: string[] = []
+  if (self) parts.push('self')
+  if (creator) parts.push('creator')
+  for (const token of recipients.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)) {
+    if (token !== 'self' && token !== 'creator' && token !== 'none' && !parts.includes(token)) parts.push(token)
+  }
+  return (parts.join(', ') || 'none') as NotifyTarget
 }
 
 export default function Monitoring(): JSX.Element {
@@ -26,18 +46,27 @@ export default function Monitoring(): JSX.Element {
     setDraft(monitoring)
   }, [monitoring])
 
-  const notifySelf = draft.notifyTarget === 'self' || draft.notifyTarget === 'both'
-  const notifyCreator = draft.notifyTarget === 'creator' || draft.notifyTarget === 'both'
-  const customRecipients = notifyTargetValue(draft.notifyTarget)
+  const parsedNotify = parseNotifyDraft(draft.notifyTarget)
+  const notifySelf = parsedNotify.self
+  const notifyCreator = parsedNotify.creator
+  const customRecipients = parsedNotify.recipients
 
-  const applyNotify = (self: boolean, creator: boolean, recipients: string): NotifyTarget => {
-    const hasRecipients = recipients.trim().length > 0
-    if (self && creator) return 'both'
-    if (creator) return 'creator'
-    if (self) return 'self'
-    if (hasRecipients) return recipients.trim() as NotifyTarget
-    return 'none'
-  }
+  const groupRecipientsPreview = (() => {
+    const tokens = customRecipients.split(/[,;\s]+/).map((t) => t.trim().toLowerCase()).filter(Boolean)
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const token of tokens) {
+      const group = emailGroups.find((g) => g.name.trim().toLowerCase() === token)
+      if (group) {
+        for (const r of group.recipients.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)) {
+          if (!seen.has(r.toLowerCase())) { seen.add(r.toLowerCase()); out.push(r) }
+        }
+      }
+    }
+    return out
+  })()
+
+  const applyNotify = applyNotifyDraft
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -186,7 +215,7 @@ export default function Monitoring(): JSX.Element {
                 value={customRecipients}
                 onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value) })}
               />
-              <p className="mt-1 text-xs text-muted">填写的收件人会直接接收邮件；若未填写且勾选“通知自己”，将发送到设置中配置的发件邮箱。</p>
+              <p className="mt-1 text-xs text-muted">填写的收件人直接接收邮件；勾选“通知自己”时发送到设置中配置的个人邮箱，两者可同时生效。</p>
               <div className="mt-2 flex items-center gap-2">
                 <select
                   className="input max-w-[12rem]"
@@ -205,6 +234,12 @@ export default function Monitoring(): JSX.Element {
                 </select>
               </div>
               <p className="mt-1 text-xs text-muted">可选择全局邮箱分组，巡检汇总将展开发送给组内全部邮箱。</p>
+              {groupRecipientsPreview.length > 0 ? (
+                <div className="mt-2 rounded-md border border-line bg-surface/60 px-3 py-2">
+                  <div className="text-xs font-medium text-muted">分组收件人（只读）</div>
+                  <div className="mt-1 break-all text-xs text-canvas-fg">{groupRecipientsPreview.join(', ')}</div>
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
               <div className="flex items-center gap-2">

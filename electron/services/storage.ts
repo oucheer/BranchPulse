@@ -320,6 +320,7 @@ export class StorageService {
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
+    this.ensureColumn('email_config', 'self_email', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_url', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')

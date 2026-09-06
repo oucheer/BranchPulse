@@ -20,7 +20,9 @@ export class DeletionPolicyEngine {
     const targetExists = auth.targetType === 'local' ? target.existsLocally : target.existsRemotely
     addCheck('Deletion target validation', targetExists, targetExists ? 'Target exists.' : 'Target no longer exists.')
 
-    addCheck('Explicit user authorization', auth.authorized === true, auth.authorized === true ? 'User authorized deletion.' : 'User authorization required.')
+    if (auth.confirmed === true) {
+      addCheck('Explicit user authorization', auth.authorized === true, auth.authorized === true ? 'User authorized deletion.' : 'User authorization required.')
+    }
     addCheck('Confirmation', auth.confirmed === true, auth.confirmed === true ? 'Confirmation accepted.' : 'Deletion confirmation is required.')
 
     const failed = checks.find((c) => !c.passed)

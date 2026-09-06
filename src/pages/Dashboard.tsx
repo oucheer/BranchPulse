@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, CheckCircle2, Clock, FileBarChart, FolderGit2, GitBranch,
-  GitMerge, Plus, RefreshCw, Scale, Search, ShieldCheck, Info
+  GitMerge, RefreshCw, Scale, Search, ShieldCheck, Info
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import SpecularButton from '../components/SpecularButton'
@@ -288,7 +288,6 @@ export default function Dashboard(): JSX.Element {
   ]
 
   const quickActions = [
-    { label: zh ? '添加仓库' : 'Add Repository', icon: Plus, action: () => navigate('/repositories') },
     { label: tr('runCheckNow'), icon: RefreshCw, action: () => void handleRunCheck() },
     { label: zh ? '命名规则' : 'Naming Rules', icon: Search, action: () => navigate('/naming-rules') },
     { label: tr('reports'), icon: FileBarChart, action: () => navigate('/reports') }

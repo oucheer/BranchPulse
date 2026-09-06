@@ -125,6 +125,36 @@ body {
 .btn:active:not(:disabled) {
   transform: scale(0.98);
 }
+
+/* Global specular edge highlight for all buttons */
+.btn {
+  position: relative;
+  overflow: hidden;
+}
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    120px circle at var(--specular-x, 50%) var(--specular-y, 50%),
+    rgba(var(--primary-rgb, 99 102 241), 0.35),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+  pointer-events: none;
+}
+.btn:hover:not(:disabled)::after {
+  opacity: 1;
+}
+.btn-primary::after {
+  background: radial-gradient(
+    120px circle at var(--specular-x, 50%) var(--specular-y, 50%),
+    rgba(255, 255, 255, 0.3),
+    transparent 60%
+  );
+}
 .btn-primary:hover:not(:disabled) {
   box-shadow: 0 0 0 1px rgb(var(--primary) / 0.20), 0 4px 14px -4px rgb(var(--primary) / 0.25);
 }

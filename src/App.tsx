@@ -44,6 +44,20 @@ export default function App(): JSX.Element {
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
+    const onPointerMove = (e: PointerEvent): void => {
+      document.querySelectorAll<HTMLElement>('.btn').forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        const x = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * 100
+        const y = ((e.clientY - rect.top) / Math.max(rect.height, 1)) * 100
+        el.style.setProperty('--specular-x', x + '%')
+        el.style.setProperty('--specular-y', y + '%')
+      })
+    }
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    return () => window.removeEventListener('pointermove', onPointerMove)
+  }, [])
+
+  useEffect(() => {
     if (!ready || splashDone) return
     const elapsed = Date.now() - splashStartedAt
     const remaining = Math.max(0, 2600 - elapsed)

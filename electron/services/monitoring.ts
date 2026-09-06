@@ -13,7 +13,7 @@ import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
-import { resolveRecipients } from './email'
+import { resolveRecipients, parseNotifyTarget } from './email'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 
@@ -118,9 +118,10 @@ export class MonitoringService {
 
     let emailsSent = 0
     const delivery: Array<'summary' | 'creators'> = []
-    if (notifyTarget === 'self' || notifyTarget === 'both') delivery.push('summary')
-    if (notifyTarget === 'creator' || notifyTarget === 'both') delivery.push('creators')
-    if (notifyTarget === 'none' && policy !== 'none') {
+    const parsedNotify = parseNotifyTarget(typeof notifyTarget === 'string' ? notifyTarget : 'none')
+    if (parsedNotify.self || parsedNotify.recipients) delivery.push('summary')
+    if (parsedNotify.creator) delivery.push('creators')
+    if (delivery.length === 0 && policy !== 'none') {
       if (policy === 'summary') delivery.push('summary')
       if (policy === 'creators') delivery.push('creators')
     }
@@ -143,11 +144,16 @@ export class MonitoringService {
           repositories: targets.length,
           generatedAt: new Date().toISOString()
         }
-        const selfFallback = this.email.getConfig().testRecipient || this.email.getConfig().username
+        const cfg = this.email.getConfig()
+        const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
+        const targetRecipients: string[] = []
+        if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
+        if (parsedNotify.recipients) targetRecipients.push(...resolveRecipients(parsedNotify.recipients, groups))
+        const uniqueRecipients = [...new Set(targetRecipients.filter(Boolean))]
         const result = await this.email.sendSummaryEmail(
           data,
           undefined,
-          notifyTarget === 'self' ? resolveRecipients(selfFallback) : resolveRecipients(typeof notifyTarget === 'string' ? notifyTarget : '', groups)
+          uniqueRecipients.length > 0 ? uniqueRecipients : undefined
         )
         if (result.ok) {
           emailsSent += result.emailsSent ?? 0
