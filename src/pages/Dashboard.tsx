@@ -1,26 +1,198 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, FolderGit2, GitBranch, GitMerge, Hourglass, Scale, ShieldCheck, Trash2, Network } from 'lucide-react'
+import { motion } from 'framer-motion'
+import {
+  Activity, AlertTriangle, CheckCircle2, Clock, FileBarChart, FolderGit2, GitBranch,
+  GitMerge, Plus, RefreshCw, Scale, Search, ShieldCheck, Info
+} from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Card, StatCard, Badge } from '../components/ui'
-import { timeAgo, stateLabel, stateTone, healthTone } from '../lib/format'
-import type { BranchSummary } from '@shared/types'
+import { Card } from '../components/ui'
+import { timeAgo, stateLabel } from '../lib/format'
+import { motion as motionToken, shadow } from '../design-system/tokens'
+import type { BranchSummary, ScanRun, NotificationRecord } from '@shared/types'
 
-const MAX_GRAPH_BRANCHES = 14
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function statusToneClass(tone: string): string {
-  if (tone === 'ok') return 'text-ok bg-ok/10 border-ok/20'
-  if (tone === 'warn') return 'text-warn bg-warn/10 border-warn/20'
-  if (tone === 'danger') return 'text-danger bg-danger/10 border-danger/20'
-  return 'text-secondary bg-secondary/10 border-secondary/20'
+function healthLabel(score: number, lang: string): string {
+  if (score >= 80) return lang === 'zh' ? '健康' : 'Healthy'
+  if (score >= 60) return lang === 'zh' ? '关注' : 'Attention'
+  if (score >= 40) return lang === 'zh' ? '警告' : 'Warning'
+  return lang === 'zh' ? '严重' : 'Critical'
 }
 
-function toneColor(tone: string): string {
-  if (tone === 'ok') return 'rgb(var(--ok))'
-  if (tone === 'warn') return 'rgb(var(--warn))'
-  if (tone === 'danger') return 'rgb(var(--danger))'
-  return 'rgb(var(--secondary))'
+function healthColor(score: number): string {
+  if (score >= 80) return 'rgb(var(--ok))'
+  if (score >= 60) return 'rgb(var(--warn))'
+  if (score >= 40) return 'rgb(var(--warn))'
+  return 'rgb(var(--danger))'
 }
+
+function CountUp({ value, duration = 0.6 }: { value: number; duration?: number }): JSX.Element {
+  const [display, setDisplay] = useState(0)
+  const prev = useRef(0)
+  useEffect(() => {
+    const start = prev.current
+    const diff = value - start
+    if (diff === 0) { setDisplay(value); return }
+    const startTime = performance.now()
+    let raf = 0
+    const tick = (now: number): void => {
+      const t = Math.min((now - startTime) / (duration * 1000), 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(Math.round(start + diff * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else prev.current = value
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [value, duration])
+  return <>{display}</>
+}
+
+function Donut({ segments, size = 80, stroke = 9, center }: { segments: { label: string; value: number; color: string }[]; size?: number; stroke?: number; center?: React.ReactNode }): JSX.Element {
+  const total = segments.reduce((s, x) => s + x.value, 0)
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  let offset = 0
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgb(var(--line))" strokeWidth={stroke} opacity={0.3} />
+        {total > 0 && segments.map((seg, i) => {
+          const frac = seg.value / total
+          const dash = frac * c
+          const el = (
+            <circle
+              key={i}
+              cx={size / 2} cy={size / 2} r={r}
+              fill="none" stroke={seg.color} strokeWidth={stroke}
+              strokeDasharray={`${dash} ${c - dash}`}
+              strokeDashoffset={-offset}
+              strokeLinecap="butt"
+            />
+          )
+          offset += dash
+          return el
+        })}
+      </svg>
+      {center ? <div className="absolute inset-0 flex flex-col items-center justify-center">{center}</div> : null}
+    </div>
+  )
+}
+
+function Sparkline({ data, color, height = 40 }: { data: number[]; color: string; height?: number }): JSX.Element | null {
+  if (data.length < 2) return null
+  const w = 100
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${height - 4 - ((v - min) / range) * (height - 8)}`)
+  const path = points.join(' ')
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className="block">
+      <motion.polyline
+        points={path}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={{ duration: 0.7, ease: 'easeOut' }}
+      />
+    </svg>
+  )
+}
+
+// ─── Mini Chart Components ──────────────────────────────────────────────────
+
+function ActivityChart({ runs }: { runs: ScanRun[] }): JSX.Element {
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
+  // Build last 7 days from real scanRuns
+  const days = useMemo(() => {
+    const arr: { date: string; label: string; total: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000)
+      const key = d.toISOString().slice(0, 10)
+      const dayRuns = runs.filter((r) => r.finishedAt?.slice(0, 10) === key)
+      const total = dayRuns.reduce((s, r) => s + (r.activity?.length ?? 0), 0)
+      arr.push({ date: key, label: `${d.getMonth() + 1}/${d.getDate()}`, total })
+    }
+    return arr
+  }, [runs])
+  const max = Math.max(...days.map((d) => d.total), 1)
+
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支活跃度' : 'Branch Activity'}</div>
+        <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
+      </div>
+      <div className="flex items-end gap-1.5" style={{ height: 64 }}>
+        {days.map((d, i) => (
+          <div key={d.date} className="group relative flex-1">
+            <motion.div
+              className="w-full rounded-t-sm bg-primary/60 transition-colors group-hover:bg-primary"
+              initial={{ height: 0 }}
+              animate={{ height: Math.max(3, (d.total / max) * 56) }}
+              transition={{ delay: i * 0.06, duration: 0.5, ease: 'easeOut' }}
+            />
+            <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+              {d.label}: {d.total}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1 flex gap-1.5 text-[9px] text-muted opacity-60">
+        {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
+      </div>
+    </Card>
+  )
+}
+
+function HealthTrendCard({ runs, current }: { runs: ScanRun[]; current: number }): JSX.Element {
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
+  // Derive per-day average from real scanRuns
+  const trend = useMemo(() => {
+    const arr: number[] = []
+    for (let i = 6; i >= 0; i--) {
+      const key = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+      const dayRuns = runs.filter((r) => r.finishedAt?.slice(0, 10) === key && r.status === 'completed')
+      // Use branches active+merged ratio as proxy (real data)
+      const dayTotal = dayRuns.reduce((s, r) => s + r.branches, 0)
+      if (dayTotal > 0) {
+        const dayActive = dayRuns.reduce((s, r) => s + r.active + r.merged, 0)
+        arr.push(Math.round((dayActive / dayTotal) * 100))
+      }
+    }
+    if (arr.length < 2) arr.push(current)
+    return arr
+  }, [runs, current])
+
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold text-canvas-fg">{zh ? '健康趋势' : 'Health Trend'}</div>
+        <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
+      </div>
+      {trend.length < 2 ? (
+        <div className="flex items-center justify-center text-xs text-muted" style={{ height: 64 }}>
+          {zh ? '暂无足够检查历史' : 'No inspection history'}
+        </div>
+      ) : (
+        <Sparkline data={trend} color="rgb(var(--secondary))" height={64} />
+      )}
+      <div className="mt-1 text-[10px] tabular-nums text-muted">
+        {trend.length >= 2 ? `${trend[0]} → ${trend[trend.length - 1]}` : '—'}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard(): JSX.Element {
   const branches = useAppStore((s) => s.branches)
@@ -30,214 +202,412 @@ export default function Dashboard(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const monitoring = useAppStore((s) => s.monitoring)
   const language = useAppStore((s) => s.language)
+  const refresh = useAppStore((s) => s.refresh)
+  const setScanning = useAppStore((s) => s.setScanning)
+  const toast = useAppStore((s) => s.toast)
+  const scanning = useAppStore((s) => s.scanning)
   const navigate = useNavigate()
-  const [hovered, setHovered] = useState<string | null>(null)
+  const zh = language === 'zh'
+  const [refreshing, setRefreshing] = useState(false)
 
   const visibleBranches = activeRepositoryId ? branches.filter((b) => b.repositoryId === activeRepositoryId) : branches
+  const visibleScanRuns = useMemo(
+    () => (activeRepositoryId ? scanRuns.filter((r) => r.repositories <= 1) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
+    [scanRuns, activeRepositoryId]
+  )
   const visibleNotifications = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
-  const visibleScanRuns = activeRepositoryId ? scanRuns.filter((r) => r.repositories <= 1) : scanRuns
-
-  const graphBranches = useMemo(() => {
-    const filtered = visibleBranches.filter((b) => !b.merged || b.state !== 'grace_expired')
-    const sorted = filtered.sort((a, b) => (a.inactiveDays ?? 9999) - (b.inactiveDays ?? 9999))
-    return sorted.slice(0, MAX_GRAPH_BRANCHES)
-  }, [visibleBranches])
-
-  const baseBranch = graphBranches.find((b) => b.protection.isDefault)?.baseBranch ?? 'main'
-  const count = useCallback((fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length, [visibleBranches])
+  const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
+  const lastRun = visibleScanRuns[0]
   const avgHealth = visibleBranches.length ? Math.round(visibleBranches.reduce((s, b) => s + b.health.score, 0) / visibleBranches.length) : 0
+  const count = useCallback((fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length, [visibleBranches])
   const validBranches = count((b) => b.naming.status === 'valid')
   const excludedBranches = count((b) => b.naming.status === 'excluded')
+  const violations = count((b) => b.naming.status === 'invalid')
   const compliance = visibleBranches.length ? Math.round(((validBranches + excludedBranches) / visibleBranches.length) * 100) : 0
-  const lastRun = visibleScanRuns.find((r) => r.status === 'completed')
+  const staleCount = count((b) => b.stale)
+  const activeCount = count((b) => b.state === 'active')
+  const mergedCount = count((b) => b.merged)
+  const protectedCount = count((b) => b.protection.protected)
+  const expiredCount = count((b) => b.state === 'grace_expired')
+  const graceCount = count((b) => b.state === 'grace_period')
 
-  const handleBranchClick = (b: BranchSummary) => {
-    navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)
+  const statusDistribution = [
+    { label: zh ? '活跃' : 'Active', value: activeCount, color: 'rgb(var(--ok))' },
+    { label: zh ? '宽限' : 'Grace', value: graceCount, color: 'rgb(var(--warn))' },
+    { label: zh ? '到期' : 'Expired', value: expiredCount, color: 'rgb(var(--danger))' },
+    { label: zh ? '合并' : 'Merged', value: mergedCount, color: 'rgb(var(--secondary))' }
+  ].filter((x) => x.value > 0)
+
+  const alerts = useMemo(() => {
+    const list: { severity: 'warn' | 'danger' | 'info'; title: string; desc: string; to: string }[] = []
+    if (violations > 0) list.push({ severity: 'danger', title: `${violations} ${zh ? '命名违规' : 'Naming Violations'}`, desc: zh ? '分支命名不符合规则' : 'Branches fail naming rules', to: '/naming-rules' })
+    if (staleCount > 0) list.push({ severity: 'warn', title: `${staleCount} ${zh ? '陈旧分支' : 'Stale Branches'}`, desc: zh ? '超过阈值未更新' : 'Beyond stale threshold', to: '/branches' })
+    if (expiredCount > 0) list.push({ severity: 'danger', title: `${expiredCount} ${zh ? '宽限到期' : 'Grace Expired'}`, desc: zh ? '需要处理' : 'Requires action', to: '/branches' })
+    if (!lastRun) list.push({ severity: 'info', title: zh ? '仓库未巡检' : 'Repository Not Scanned', desc: zh ? '运行第一次巡检' : 'Run first inspection', to: '/monitoring' })
+    return list
+  }, [violations, staleCount, expiredCount, lastRun, zh])
+
+  const attention = useMemo(() =>
+    visibleBranches
+      .filter((b) => b.stale || b.naming.status === 'invalid' || b.state === 'grace_expired')
+      .sort((a, b) => b.inactiveDays - a.inactiveDays)
+      .slice(0, 5),
+    [visibleBranches]
+  )
+
+  const handleRefresh = async (): Promise<void> => {
+    setRefreshing(true)
+    try {
+      await refresh()
+    } catch {
+      toast(zh ? '无法刷新仪表盘' : 'Unable to refresh dashboard', 'error')
+    } finally {
+      setRefreshing(false)
+    }
   }
 
-  const graphRows = graphBranches.map((b, i) => ({ ...b, rowY: 28 + i * 38, tone: stateTone(b.state) }))
-  const graphHeight = Math.max(80, graphRows.length * 38 + 44)
+  const handleRunCheck = async (): Promise<void> => {
+    setScanning(true)
+    try {
+      const run = await window.branchpulse.runCheckNow({ trigger: 'manual' })
+      toast(`${zh ? '巡检完成' : 'Check complete'}: ${run.branches}`, 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setScanning(false)
+    }
+  }
 
-  const statusChips = [
-    { key: 'active', label: tr('active'), value: count((b) => b.state === 'active'), tone: 'ok' },
-    { key: 'stale', label: tr('stale'), value: count((b) => b.stale), tone: 'warn' },
-    { key: 'grace', label: tr('gracePeriod'), value: count((b) => b.state === 'grace_period'), tone: 'warn' },
-    { key: 'expired', label: tr('graceExpired'), value: count((b) => b.state === 'grace_expired'), tone: 'danger' },
-    { key: 'merged', label: tr('merged'), value: count((b) => b.merged), tone: 'secondary' },
-    { key: 'violation', label: tr('namingViolations'), value: count((b) => b.naming.status === 'invalid'), tone: 'danger' },
-    { key: 'cleanup', label: tr('cleanupCandidates'), value: count((b) => b.cleanupCandidate), tone: 'danger' },
-    { key: 'protected', label: tr('protectedBranches'), value: count((b) => b.protection.protected), tone: 'primary' }
+  const compactMetrics = [
+    { label: tr('repositories'), value: activeRepositoryId ? 1 : repositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
+    { label: tr('totalBranches'), value: visibleBranches.length, icon: GitBranch, to: '/branches', tone: 'text-muted' },
+    { label: tr('namingCompliance'), value: `${compliance}%`, icon: Scale, to: '/naming-rules', tone: compliance >= 90 ? 'text-ok' : compliance >= 70 ? 'text-warn' : 'text-danger' },
+    { label: zh ? '监控' : 'Monitoring', value: monitoring.notificationEnabled ? (zh ? '开启' : 'On') : (zh ? '关闭' : 'Off'), icon: Activity, to: '/monitoring', tone: monitoring.notificationEnabled ? 'text-ok' : 'text-muted' }
+  ]
+
+  const quickActions = [
+    { label: zh ? '添加仓库' : 'Add Repository', icon: Plus, action: () => navigate('/repositories') },
+    { label: tr('runCheckNow'), icon: RefreshCw, action: () => void handleRunCheck() },
+    { label: zh ? '命名规则' : 'Naming Rules', icon: Search, action: () => navigate('/naming-rules') },
+    { label: tr('reports'), icon: FileBarChart, action: () => navigate('/reports') }
   ]
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-canvas-fg">{tr('dashboard')}</h1>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-muted">
-            {lastRun ? <span>{tr('lastCheck')}: {timeAgo(lastRun.finishedAt)}</span> : null}
-            <span className="h-2 w-2 rounded-full" style={{ background: monitoring.notificationEnabled ? 'rgb(var(--ok))' : 'rgb(var(--warn))' }} />
-            <span className="tabular-nums">{monitoring.staleThresholdDays}d / {monitoring.gracePeriodDays}d</span>
-          </div>
+    <div className="space-y-5">
+      {/* ─── Header ─────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-bold text-canvas-fg">{tr('dashboard')}</h1>
+          <p className="mt-0.5 text-xs text-muted">{zh ? '监控和管理您的 Git 仓库与分支健康状态' : 'Monitor and manage your Git repositories and branch health'}</p>
         </div>
-
-        {/* KPI row */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCard label={tr('repositories')} value={activeRepositoryId ? 1 : repositories.length} icon={<FolderGit2 size={18} />} />
-          <StatCard label={tr('totalBranches')} value={visibleBranches.length} icon={<GitBranch size={18} />} />
-          <StatCard label={tr('averageHealth')} value={avgHealth} tone={avgHealth >= 70 ? 'ok' : avgHealth >= 40 ? 'warn' : 'danger'} icon={<Activity size={18} />} />
-          <StatCard label={tr('namingCompliance')} value={`${compliance}%`} tone={compliance >= 90 ? 'ok' : compliance >= 70 ? 'warn' : 'danger'} icon={<Scale size={18} />} />
-        </div>
-
-        {/* Status chip strip */}
-        <div className="flex flex-wrap gap-1.5">
-          {statusChips.map((chip) => (
-            <span
-              key={chip.key}
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums transition-opacity duration-150 ${statusToneClass(chip.tone)}`}
-            >
-              {chip.label}
-              <span className="ml-0.5 font-semibold">{chip.value}</span>
-            </span>
-          ))}
-        </div>
-
-        {/* Branch Graph */}
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Network size={15} className="text-primary" />
-              <span className="text-sm font-semibold text-canvas-fg">{tr('branchGraph')}</span>
+        <div className="flex items-center gap-3 text-xs text-muted">
+          {lastRun ? (
+            <div className="flex items-center gap-1.5">
+              <span>{tr('lastCheck')}: {timeAgo(lastRun.finishedAt)}</span>
+              <span className={`h-1.5 w-1.5 rounded-full ${lastRun.status === 'completed' ? 'bg-ok' : lastRun.status === 'failed' ? 'bg-danger' : 'bg-warn'}`} />
+              <span className={lastRun.status === 'completed' ? 'text-ok' : lastRun.status === 'failed' ? 'text-danger' : 'text-warn'}>
+                {lastRun.status === 'completed' ? (zh ? '正常' : 'OK') : lastRun.status}
+              </span>
             </div>
-            <button
-              onClick={() => navigate('/branches')}
-              className="text-xs font-medium text-primary transition-opacity hover:opacity-75"
-            >
-              {tr('viewAll')}
-            </button>
-          </div>
-          {graphBranches.length === 0 ? (
-            <div className="flex items-center justify-center py-10 text-sm text-muted">{tr('noBranches')}</div>
-          ) : (
-            <div className="relative">
-              <svg
-                width="100%"
-                height={graphHeight}
-                viewBox={`0 0 560 ${graphHeight}`}
-                preserveAspectRatio="xMinYMin meet"
-                className="block"
-                onMouseLeave={() => setHovered(null)}
-              >
-                {/* Trunk line */}
-                <line x1="18" y1="8" x2="18" y2={graphHeight - 8} stroke="rgb(var(--line))" strokeWidth="2" strokeLinecap="round" />
-                {/* Base branch node */}
-                <circle cx="18" cy="14" r="5" fill="rgb(var(--primary))" />
-                <text x="28" y="18" fontSize="11" fontWeight="600" fill="rgb(var(--primary))" fontFamily="JetBrains Mono, monospace">{baseBranch}</text>
+          ) : null}
+          <button
+            onClick={() => void handleRefresh()}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:border-primary/40 hover:text-canvas-fg disabled:opacity-40"
+          >
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+            {zh ? '刷新' : 'Refresh'}
+          </button>
+        </div>
+      </div>
 
-                {graphRows.map((b, i) => {
-                  const x1 = 18
-                  const y1 = 14
-                  const x2 = 240
-                  const y2 = b.rowY
-                  const midX = x1 + (x2 - x1) * 0.45
-                  const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`
-                  const isActive = hovered === b.id
-                  const isDimmed = hovered !== null && hovered !== b.id
-                  return (
-                    <g
-                      key={b.id}
-                      opacity={isDimmed ? 0.22 : 1}
-                      style={{ transition: 'opacity 180ms ease' }}
-                      onMouseEnter={() => setHovered(b.id)}
-                      onClick={() => handleBranchClick(b)}
-                      className="cursor-pointer"
-                    >
-                      <path
-                        d={path}
-                        fill="none"
-                        stroke={toneColor(b.tone)}
-                        strokeWidth={isActive ? 2.2 : 1.4}
-                        strokeLinecap="round"
-                        strokeDasharray="4 4"
-                        opacity={isActive ? 1 : 0.7}
-                        style={{ transition: 'stroke-width 150ms ease, opacity 150ms ease' }}
-                      />
-                      {/* Connection dot at trunk */}
-                      <circle cx={x1} cy={y1} r={isActive ? 4 : 2.5} fill={toneColor(b.tone)} opacity={0.6} style={{ transition: 'r 150ms ease' }} />
-                      {/* Tip node */}
-                      <circle cx={x2 + 8} cy={y2} r={isActive ? 5 : 3.5} fill={toneColor(b.tone)} style={{ transition: 'r 150ms ease, fill 150ms ease' }} />
-                      {/* Label */}
-                      <text x={x2 + 18} y={y2 + 4} fontSize="11.5" fill={isActive ? 'rgb(var(--fg))' : 'rgb(var(--muted))'} fontFamily="JetBrains Mono, monospace" style={{ transition: 'fill 150ms ease' }}>
-                        {b.displayName}
-                      </text>
-                      {/* Inactive days */}
-                      <text x={x2 + 200} y={y2 + 4} fontSize="10" fill="rgb(var(--muted))" className="tabular-nums">
-                        {b.inactiveDays}d
-                      </text>
-                      {/* Health pill */}
-                      <rect x={x2 + 240} y={y2 - 9} width="26" height="16" rx="8" fill={toneColor(healthTone(b.health.level))} opacity={0.15} />
-                      <text x={x2 + 253} y={y2 + 3} fontSize="9" fontWeight="600" textAnchor="middle" fill={toneColor(healthTone(b.health.level))} className="tabular-nums">
-                        {b.health.score}
-                      </text>
-                      {/* State badge */}
-                      <rect x={x2 + 276} y={y2 - 9} width="42" height="16" rx="8" fill={toneColor(b.tone)} opacity={0.12} />
-                      <text x={x2 + 297} y={y2 + 3} fontSize="9" fontWeight="500" textAnchor="middle" fill={toneColor(b.tone)}>
-                        {stateLabel(b.state, language)}
-                      </text>
-                    </g>
-                  )
-                })}
-              </svg>
-              {graphBranches.length < visibleBranches.length ? (
-                <button
-                  onClick={() => navigate('/branches')}
-                  className="absolute bottom-2 left-4 text-[11px] font-medium text-muted transition-colors hover:text-primary"
-                >
-                  {tr('moreBranches').replace('N', String(visibleBranches.length - graphBranches.length))}
-                </button>
-              ) : null}
+      {/* ─── Layer 1: Health Summary ───────────────────────────── */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        {/* Primary Health Card */}
+        <motion.div
+          className="col-span-2 flex items-center gap-5 rounded-card border border-line bg-surface p-5 md:col-span-2"
+          style={{ boxShadow: shadow.md }}
+          whileHover={{ translateY: -1 }}
+          transition={{ duration: 0.15 }}
+        >
+          <div className="relative inline-flex items-center justify-center" style={{ width: 84, height: 84 }}>
+            <svg width="84" height="84" className="-rotate-90">
+              <circle cx="42" cy="42" r="36" fill="none" stroke="rgb(var(--line))" strokeWidth="7" opacity={0.4} />
+              <motion.circle
+                cx="42" cy="42" r="36"
+                fill="none"
+                stroke={healthColor(avgHealth)}
+                strokeWidth="7"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 36}
+                initial={{ strokeDashoffset: 2 * Math.PI * 36 }}
+                animate={{ strokeDashoffset: 2 * Math.PI * 36 * (1 - avgHealth / 100) }}
+                transition={{ duration: 0.7, ease: 'easeOut' }}
+              />
+            </svg>
+            <div className="absolute text-center">
+              <div className="text-2xl font-bold tabular-nums" style={{ color: healthColor(avgHealth) }}>
+                <CountUp value={avgHealth} />
+              </div>
+              <div className="text-[9px] text-muted opacity-70">/100</div>
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-muted">{zh ? '整体健康度' : 'Overall Health'}</div>
+            <div className="mt-0.5 text-lg font-semibold" style={{ color: healthColor(avgHealth) }}>{healthLabel(avgHealth, language)}</div>
+            <div className="mt-0.5 text-[10px] text-muted">{zh ? '基于分支健康评分平均值' : 'Average of branch health scores'}</div>
+          </div>
+        </motion.div>
+
+        {/* Compact Metrics */}
+        {compactMetrics.map((m, i) => {
+          const Icon = m.icon
+          return (
+            <motion.button
+              key={m.label}
+              onClick={() => navigate(m.to)}
+              className="flex flex-col justify-between rounded-card border border-line bg-surface p-4 text-left transition-colors hover:border-primary/30"
+              style={{ boxShadow: shadow.sm }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 * i, duration: motionToken.fast.duration }}
+              whileHover={{ translateY: -1 }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted">{m.label}</span>
+                <Icon size={15} className={`${m.tone} opacity-60`} />
+              </div>
+              <div className={`mt-1.5 text-xl font-bold tabular-nums ${m.tone}`}>
+                {typeof m.value === 'number' ? <CountUp value={m.value} /> : m.value}
+              </div>
+            </motion.button>
+          )
+        })}
+      </div>
+
+      {/* ─── Status Summary Bar ──────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-4 rounded-card border border-line bg-surface px-4 py-2.5" style={{ boxShadow: shadow.sm }}>
+        {[
+          { label: tr('active'), value: activeCount, color: 'rgb(var(--ok))' },
+          { label: tr('stale'), value: staleCount, color: 'rgb(var(--warn))' },
+          { label: tr('gracePeriod'), value: graceCount, color: 'rgb(var(--warn))' },
+          { label: tr('graceExpired'), value: expiredCount, color: 'rgb(var(--danger))' },
+          { label: tr('merged'), value: mergedCount, color: 'rgb(var(--secondary))' },
+          { label: tr('namingViolations'), value: violations, color: 'rgb(var(--danger))' },
+          { label: tr('protectedBranches'), value: protectedCount, color: 'rgb(var(--info))' }
+        ].map((s) => (
+          <div key={s.label} className="flex items-center gap-1.5 text-xs">
+            <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+            <span className="text-muted">{s.label}</span>
+            <span className="font-semibold tabular-nums text-canvas-fg">{s.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ─── Layer 2: Activity + Trend ────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <ActivityChart runs={visibleScanRuns} />
+        <HealthTrendCard runs={completedRuns} current={avgHealth} />
+      </div>
+
+      {/* ─── Distribution + Inspections ─────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {/* Compliance Donut */}
+        <Card className="p-4">
+          <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('namingCompliance')}</div>
+          <div className="flex items-center gap-4">
+            <Donut
+              size={76} stroke={8}
+              segments={[
+                { label: 'valid', value: validBranches + excludedBranches, color: 'rgb(var(--ok))' },
+                { label: 'invalid', value: violations, color: 'rgb(var(--danger))' }
+              ]}
+              center={
+                <div className="text-center">
+                  <div className="text-sm font-bold tabular-nums text-canvas-fg">{compliance}%</div>
+                </div>
+              }
+            />
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-ok" />
+                <span className="text-muted">{zh ? '合规' : 'Compliant'}</span>
+                <span className="ml-auto font-semibold tabular-nums">{validBranches + excludedBranches}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-danger" />
+                <span className="text-muted">{zh ? '违规' : 'Violations'}</span>
+                <span className="ml-auto font-semibold tabular-nums">{violations}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-info" />
+                <span className="text-muted">{zh ? '排除' : 'Excluded'}</span>
+                <span className="ml-auto font-semibold tabular-nums">{excludedBranches}</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Status Distribution Donut */}
+        <Card className="p-4">
+          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '分支状态分布' : 'Branch Status'}</div>
+          {statusDistribution.length === 0 ? (
+            <div className="flex items-center justify-center py-6 text-xs text-muted">{tr('noBranches')}</div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <Donut
+                size={76} stroke={8}
+                segments={statusDistribution}
+                center={
+                  <div className="text-center">
+                    <div className="text-sm font-bold tabular-nums text-canvas-fg">{visibleBranches.length}</div>
+                    <div className="text-[8px] text-muted">{zh ? '总数' : 'Total'}</div>
+                  </div>
+                }
+              />
+              <div className="flex-1 space-y-1 text-xs">
+                {statusDistribution.map((s) => (
+                  <div key={s.label} className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+                    <span className="truncate text-muted">{s.label}</span>
+                    <span className="ml-auto font-semibold tabular-nums">{s.value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </Card>
 
-        {/* Bottom: Repos + Notifications */}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Card className="p-4">
-            <div className="mb-3 text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
+        {/* Recent Inspections */}
+        <Card className="p-4 md:col-span-2 xl:col-span-1">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold text-canvas-fg">{zh ? '最近巡检' : 'Recent Inspections'}</div>
+            <button onClick={() => navigate('/monitoring')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
+          </div>
+          {visibleScanRuns.length === 0 ? (
+            <div className="py-5 text-center text-xs text-muted">{zh ? '暂无巡检记录' : 'No inspections yet'}</div>
+          ) : (
             <div className="space-y-1.5">
-              {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).slice(0, 6).map((r) => (
-                <div key={r.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm transition-colors hover:border-primary/30">
-                  <span className="text-canvas-fg">{r.name}</span>
-                  <span className="tabular-nums text-muted">{r.totalBranches}</span>
+              {visibleScanRuns.slice(0, 3).map((r) => (
+                <div key={r.id} className="flex items-center gap-2.5 rounded-md border border-line px-2.5 py-1.5 text-xs">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.status === 'completed' ? 'bg-ok' : r.status === 'failed' ? 'bg-danger' : 'bg-warn'}`} />
+                  <span className="tabular-nums text-muted">{new Date(r.finishedAt ?? r.startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="truncate text-canvas-fg">{r.branches} {zh ? '分支' : 'branches'}</span>
+                  {r.namingInvalid > 0 ? <span className="ml-auto shrink-0 font-medium text-danger">{r.namingInvalid} {zh ? '违规' : 'issues'}</span> : <span className="ml-auto shrink-0 text-ok">✓</span>}
                 </div>
               ))}
-              {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).length === 0 ? (
-                <div className="py-5 text-center text-sm text-muted">{tr('noRepositories')}</div>
-              ) : null}
             </div>
-          </Card>
-          <Card className="p-4">
-            <div className="mb-3 text-sm font-semibold text-canvas-fg">{tr('notifications')}</div>
-            <div className="space-y-1.5">
-              {visibleNotifications.slice(0, 6).map((n) => (
-                <div key={n.id} className="flex items-start gap-2 rounded-md border border-line px-3 py-2 text-sm">
-                  <Badge tone={n.read ? 'default' : 'primary'}>{n.type}</Badge>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-xs text-canvas-fg">{n.branch}</div>
-                    <div className="text-xs text-muted">{n.message}</div>
-                  </div>
-                </div>
-              ))}
-              {visibleNotifications.length === 0 ? (
-                <div className="py-5 text-center text-sm text-muted">{tr('noNotifications')}</div>
-              ) : null}
-            </div>
-          </Card>
-        </div>
+          )}
+        </Card>
       </div>
+
+      {/* ─── Attention Required ─────────────────────────────────── */}
+      {attention.length > 0 ? (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle size={15} className="text-warn" />
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Attention Required'}</span>
+            <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
+          </div>
+          <div className="space-y-1.5">
+            {attention.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
+                <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
+                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.stale ? 'text-warn' : 'text-danger'}`}>
+                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : b.stale ? (zh ? '陈旧' : 'Stale') : stateLabel(b.state, language)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      {/* ─── Layer 3: Alerts + Quick Actions ───────────────────── */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Active Alerts */}
+        <Card className="p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <Info size={15} className="text-info" />
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '活跃提醒' : 'Active Alerts'}</span>
+          </div>
+          {alerts.length === 0 ? (
+            <div className="flex items-center gap-2 rounded-md border border-ok/20 bg-ok/5 px-3 py-2 text-xs text-ok">
+              <CheckCircle2 size={14} />
+              <span>{zh ? '一切正常，无需处理。' : 'Everything looks good.'}</span>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {alerts.map((a, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigate(a.to)}
+                  className={`flex w-full items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors ${
+                    a.severity === 'danger' ? 'border-danger/20 bg-danger/5 hover:border-danger/40' :
+                    a.severity === 'warn' ? 'border-warn/20 bg-warn/5 hover:border-warn/40' :
+                    'border-info/20 bg-info/5 hover:border-info/40'
+                  }`}
+                >
+                  {a.severity === 'danger' ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" /> :
+                   a.severity === 'warn' ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warn" /> :
+                   <Info size={14} className="mt-0.5 shrink-0 text-info" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-canvas-fg">{a.title}</div>
+                    <div className="text-[10px] text-muted">{a.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Quick Actions */}
+        <Card className="p-4">
+          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '快捷操作' : 'Quick Actions'}</div>
+          <div className="grid grid-cols-2 gap-2">
+            {quickActions.map((q) => {
+              const Icon = q.icon
+              return (
+                <button
+                  key={q.label}
+                  onClick={q.action}
+                  className="flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-2.5 text-xs font-medium text-muted transition-all hover:border-primary/40 hover:text-canvas-fg active:scale-[0.98]"
+                >
+                  <Icon size={14} />
+                  {q.label}
+                </button>
+              )
+            })}
+          </div>
+        </Card>
+      </div>
+
+      {/* ─── Repository Overview (compact, only if repo exists) ── */}
+      {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).length > 0 ? (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
+            <button onClick={() => navigate('/repositories')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
+          </div>
+          <div className="space-y-1.5">
+            {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).slice(0, 4).map((r) => (
+              <div key={r.id} className="flex items-center gap-3 rounded-md border border-line px-3 py-2 text-sm">
+                <FolderGit2 size={15} className="shrink-0 text-muted" />
+                <span className="min-w-0 flex-1 truncate font-medium text-canvas-fg">{r.name}</span>
+                <span className="shrink-0 text-xs uppercase text-muted opacity-70">{r.source}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted">{r.totalBranches} {zh ? '分支' : 'br'}</span>
+                {r.lastScanAt ? <span className="shrink-0 text-[10px] text-muted opacity-60">{timeAgo(r.lastScanAt)}</span> : null}
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </div>
   )
 }
