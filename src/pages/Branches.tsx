@@ -629,16 +629,16 @@ export default function Branches(): JSX.Element {
         <Card className="min-w-0 flex-1 overflow-hidden p-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
-            <div className="flex flex-wrap items-center justify-end gap-1.5 text-[10px] text-muted">
-              <span className="tabular-nums">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
-              <button className="no-specular text-primary hover:underline" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
-              <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
-              <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
-              <button className="no-specular text-danger hover:underline" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
-              <button className="no-specular text-muted hover:underline" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
-          </div>
+            <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
+              <span className="tabular-nums text-muted">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted transition-colors hover:border-line hover:text-canvas-fg" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
+            </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
-</div>
+          </div>
           <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
             <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
             <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
@@ -786,4 +786,6 @@ export default function Branches(): JSX.Element {
     </div>
   )
 }
+
+
 
