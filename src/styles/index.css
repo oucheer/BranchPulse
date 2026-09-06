@@ -127,11 +127,13 @@ body {
 }
 
 /* Global specular edge highlight for all buttons */
-.btn {
+.btn,
+button:not(.no-specular):not([class*="no-specular"]) {
   position: relative;
   overflow: hidden;
 }
-.btn::after {
+.btn::after,
+button:not(.no-specular):not([class*="no-specular"])::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -145,7 +147,8 @@ body {
   transition: opacity var(--motion-fast) var(--ease-out);
   pointer-events: none;
 }
-.btn:hover:not(:disabled)::after {
+.btn:hover:not(:disabled)::after,
+button:not(.no-specular):not([class*="no-specular"]):hover:not(:disabled)::after {
   opacity: 1;
 }
 .btn-primary::after {

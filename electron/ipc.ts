@@ -285,6 +285,8 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:listBranches', (): BranchSummary[] => branch.listBranches())
   ipcMain.handle('branchpulse:getBranch', (_e, criteria: BranchCriteria): Promise<BranchSummary | null> => branch.getBranch(criteria))
   ipcMain.handle('branchpulse:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
+  ipcMain.handle('branchpulse:notifyBranchesEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifyBranchesEmail(bs))
+  ipcMain.handle('branchpulse:notifySelfEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifySelfEmail(bs))
   ipcMain.handle('branchpulse:beginDelete', (_e, criteria: BranchCriteria): Promise<DeleteAuthSession> => beginDeleteFor(criteria))
   ipcMain.handle('branchpulse:deleteBranch', (_e, request: DeleteRequest): Promise<DeleteResult> => executeDelete(request))
   ipcMain.handle('branchpulse:batchDelete', (_e, requests: DeleteRequest[]): Promise<DeleteResult[]> => {

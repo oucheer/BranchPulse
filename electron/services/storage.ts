@@ -531,8 +531,9 @@ export class StorageService {
 
   insert(table: string, obj: Record<string, unknown>): string {
     const record = { ...obj }
-    if (!record.id) record.id = newId()
-    const cols = Object.keys(record)
+    const tableCols = this.all<Record<string, unknown>>(`PRAGMA table_info(${table})`).map((c) => String(c.name))
+    if (tableCols.includes('id') && !record.id) record.id = newId()
+    const cols = Object.keys(record).filter((c) => tableCols.includes(c))
     const placeholders = cols.map(() => '?').join(', ')
     this.db.run(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`, cols.map((c) => record[c] as never))
     this.save()

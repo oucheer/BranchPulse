@@ -444,6 +444,8 @@ export interface BranchApi {
   listBranches(): Promise<BranchSummary[]>
   getBranch(criteria: BranchCriteria): Promise<BranchSummary | null>
   notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]>
+  notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
+  notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
   beginDelete(criteria: BranchCriteria): Promise<DeleteAuthSession>
   deleteBranch(request: DeleteRequest): Promise<DeleteResult>
   batchDelete(requests: DeleteRequest[]): Promise<DeleteResult[]>

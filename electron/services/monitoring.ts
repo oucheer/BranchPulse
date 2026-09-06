@@ -350,6 +350,29 @@ export class MonitoringService {
     return this.generateNotifications([branch])
   }
 
+  async notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }> {
+    const rows = branches.map((b) => this.toIssueRow(b))
+    const result = await this.email.sendCreatorEmails(rows)
+    return { sent: result.emailsSent ?? 0, message: result.message }
+  }
+
+  async notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }> {
+    const summary = this.summarize(branches, 1)
+    const data: EmailSummaryData = {
+      total: summary.branches,
+      stale: summary.stale,
+      gracePeriod: summary.gracePeriod,
+      graceExpired: summary.graceExpired,
+      namingInvalid: summary.namingInvalid,
+      merged: summary.merged,
+      cleanupCandidates: summary.cleanupCandidates,
+      repositories: 1,
+      generatedAt: new Date().toISOString()
+    }
+    const result = await this.email.sendSummaryEmail(data)
+    return { sent: result.emailsSent ?? 0, message: result.message }
+  }
+
   listNotifications(): NotificationRecord[] {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 500')
     return rows.map((r) => ({

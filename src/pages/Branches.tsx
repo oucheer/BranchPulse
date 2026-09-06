@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch, GitMerge,
-  Maximize2, Minus, Plus, RefreshCw, Search, Shield, Trash2, X, XCircle
+  Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, Trash2, X, XCircle
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, ConfirmCheckbox, EmptyState, Modal } from '../components/ui'
@@ -40,7 +40,7 @@ function formatDateTime(value: string | null | undefined): string {
 
 // ─── Branch Explorer Row ─────────────────────────────────────────────────────
 
-function ExplorerRow({ b, selected, onSelect, onHover, onView, onNotify, onDelete, protected_, deletionDisabled }: {
+function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView, onNotify, onDelete, protected_, deletionDisabled }: {
   b: BranchSummary
   selected: boolean
   onSelect: () => void
@@ -50,6 +50,8 @@ function ExplorerRow({ b, selected, onSelect, onHover, onView, onNotify, onDelet
   onDelete: () => void
   protected_: boolean
   deletionDisabled: boolean
+  checked: boolean
+  onToggle: () => void
 }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
@@ -64,6 +66,13 @@ function ExplorerRow({ b, selected, onSelect, onHover, onView, onNotify, onDelet
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
+      <input
+        type="checkbox"
+        className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--danger))]"
+        checked={checked}
+        onClick={(e) => e.stopPropagation()}
+        onChange={onToggle}
+      />
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: sc }} />
       <span className="min-w-0 flex-1 truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
       {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
@@ -292,6 +301,11 @@ export default function Branches(): JSX.Element {
   const [confirmed, setConfirmed] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refreshingAll, setRefreshingAll] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
+  const [batchDeleteTargets, setBatchDeleteTargets] = useState<DeleteTarget[]>([])
+  const [batchConfirm, setBatchConfirm] = useState(false)
+  const [batchBusy, setBatchBusy] = useState(false)
 
   const effectiveRepo = repoFilter || activeRepositoryId || ''
   const filtered = useMemo(() => {
@@ -313,6 +327,97 @@ export default function Branches(): JSX.Element {
       .slice(0, 5),
     [filtered]
   )
+
+
+  const branchKey = (b: BranchSummary): string => b.id + '-' + b.type
+  const selectedBranches = branches.filter((b) => selectedIds.has(branchKey(b)))
+
+  const toggleSelect = (b: BranchSummary): void => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(branchKey(b))) next.delete(branchKey(b))
+      else next.add(branchKey(b))
+      return next
+    })
+  }
+
+  const selectAllVisible = (): void => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      filtered.forEach((b) => next.add(branchKey(b)))
+      return next
+    })
+  }
+
+  const selectByFilter = (pred: (b: BranchSummary) => boolean): void => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      filtered.filter(pred).forEach((b) => next.add(branchKey(b)))
+      return next
+    })
+  }
+
+  const clearSelection = (): void => setSelectedIds(new Set())
+
+  const notifyCreatorsBulk = async (pred: (b: BranchSummary) => boolean, label: string): Promise<void> => {
+    const targets = selectedBranches.filter(pred)
+    if (targets.length === 0) { toast('没有符合条件的分支: ' + label, 'warn'); return }
+    try {
+      const r = await window.branchpulse.notifyBranchesEmail(targets)
+      toast(r.message, r.sent > 0 ? 'success' : 'warn')
+      void refresh()
+    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
+  }
+
+  const notifySelfBulk = async (): Promise<void> => {
+    if (selectedBranches.length === 0) { toast('请先勾选分支', 'warn'); return }
+    try {
+      const r = await window.branchpulse.notifySelfEmail(selectedBranches)
+      toast(r.message, r.sent > 0 ? 'success' : 'warn')
+      void refresh()
+    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
+  }
+
+  const openBatchDelete = async (): Promise<void> => {
+    const targets = selectedBranches.filter((b) => !isProtected(b))
+    if (targets.length === 0) { toast('没有可删除的选中分支（受保护分支已跳过）', 'warn'); return }
+    const sessions: DeleteTarget[] = []
+    for (const b of targets) {
+      try {
+        const session = await window.branchpulse.beginDelete({ repositoryId: b.repositoryId, name: b.name, type: 'remote' })
+        if (session.decision.allowed && session.token) {
+          sessions.push({ criteria: { repositoryId: b.repositoryId, name: b.name, type: 'remote', remote: b.remote }, session })
+        }
+      } catch { /* skip */ }
+    }
+    if (sessions.length === 0) { toast('预检失败，没有可删除的分支', 'error'); return }
+    setBatchDeleteTargets(sessions)
+    setBatchConfirm(false)
+    setBatchDeleteOpen(true)
+  }
+
+  const confirmBatchDelete = async (): Promise<void> => {
+    if (!batchConfirm) return
+    setBatchBusy(true)
+    let ok = 0
+    let fail = 0
+    for (const t of batchDeleteTargets) {
+      try {
+        const r = await window.branchpulse.deleteBranch({
+          authorization: { authorized: true, targetType: t.criteria.type, repositoryId: t.criteria.repositoryId, branch: t.criteria.name, confirmationToken: t.session.token, confirmed: true },
+          confirmationToken: t.session.token
+        })
+        if (r.ok) ok += 1
+        else fail += 1
+      } catch { fail += 1 }
+    }
+    toast('删除完成：成功 ' + ok + '，失败 ' + fail, fail === 0 ? 'success' : 'warn')
+    setBatchDeleteOpen(false)
+    setSelectedIds(new Set())
+    setBatchConfirm(false)
+    void refresh()
+    setBatchBusy(false)
+  }
 
   const states = ['active', 'grace_period', 'grace_expired'] as const
 
@@ -468,10 +573,62 @@ export default function Branches(): JSX.Element {
           <option value="local">{zh ? '本地' : 'Local'}</option>
           <option value="remote">{zh ? '远程' : 'Remote'}</option>
         </select>
-        <div className="ml-auto text-xs tabular-nums text-muted">
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted">
+          <span className="tabular-nums">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
+          <button className="no-specular text-primary hover:underline" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
+          <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
+          <button className="no-specular text-warn hover:underline" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
+          <button className="no-specular text-danger hover:underline" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+          <button className="no-specular text-muted hover:underline" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
+        </div>
+        <div className="text-xs tabular-nums text-muted">
           {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
         </div>
       </div>
+
+      {/* Batch Actions Bar */}
+      {selectedIds.size > 0 ? (
+        <Card className="border-danger/30 bg-danger/5 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-danger">
+              {zh ? '已选中' : 'Selected'} {selectedIds.size} {zh ? '个分支' : 'branches'}
+            </span>
+            <div className="flex-1" />
+            <button
+              className="btn text-xs"
+              disabled={batchBusy}
+              onClick={() => void notifySelfBulk()}
+              title={zh ? '将选中分支信息汇总通知给自己' : 'Notify self with summary'}
+            >
+              <Mail size={12} /> {zh ? '汇总通知给自己' : 'Notify self'}
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={batchBusy}
+              onClick={() => void notifyCreatorsBulk((b) => b.stale, '过期')}
+              title={zh ? '通知选中的过期分支创始人' : 'Notify stale branch creators'}
+            >
+              <Bell size={12} /> {zh ? '通知过期分支创始人' : 'Notify stale creators'}
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={batchBusy}
+              onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
+              title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
+            >
+              <Bell size={12} /> {zh ? '通知命名不规范创始人' : 'Notify invalid creators'}
+            </button>
+            <button
+              className="btn border-danger/40 bg-danger/10 text-xs font-semibold text-danger hover:bg-danger/20"
+              disabled={batchBusy || settings.deletionDisabled}
+              onClick={() => void openBatchDelete()}
+              title={zh ? '删除选中的分支' : 'Delete selected branches'}
+            >
+              <Trash2 size={12} /> {zh ? '一键删除' : 'Delete selected'}
+            </button>
+          </div>
+        </Card>
+      ) : null}
 
       {/* Workspace: Explorer + Details */}
       <div className="flex gap-4">
@@ -507,6 +664,8 @@ export default function Branches(): JSX.Element {
                   key={`${b.id}-${b.type}`}
                   b={b}
                   selected={selectedBranch?.id === b.id}
+                  checked={selectedIds.has(b.id + '-' + b.type)}
+                  onToggle={() => toggleSelect(b)}
                   onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                   onHover={(v) => setHoveredBranch(v ? b : null)}
                   onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
@@ -584,6 +743,42 @@ export default function Branches(): JSX.Element {
             {tr('branch')}: <span className="font-mono font-semibold text-canvas-fg">{deleteTarget?.criteria.name}</span> ({deleteTarget?.criteria.type})
           </div>
           <ConfirmCheckbox label={tr('understand')} checked={confirmed} onChange={setConfirmed} />
+        </div>
+      </Modal>
+
+      {/* Batch Delete Modal */}
+      <Modal
+        open={batchDeleteOpen}
+        title={zh ? '批量删除分支' : 'Batch Delete Branches'}
+        onClose={() => { setBatchDeleteOpen(false); setBatchConfirm(false) }}
+        footer={
+          <div className="flex gap-2">
+            <button className="btn" onClick={() => { setBatchDeleteOpen(false); setBatchConfirm(false) }}>{tr('cancel')}</button>
+            <button
+              className="btn border-danger/40 bg-danger text-white hover:opacity-90"
+              disabled={!batchConfirm || batchBusy}
+              onClick={() => void confirmBatchDelete()}
+            >
+              {batchBusy ? '...' : (zh ? '确认删除' : 'Delete')}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="text-sm font-semibold text-danger">
+            {zh ? '即将删除以下' : 'About to delete'} {batchDeleteTargets.length} {zh ? '个远程分支：' : 'remote branches:'}
+          </div>
+          <div className="max-h-48 overflow-y-auto rounded-md border border-line px-3 py-2">
+            {batchDeleteTargets.map((t) => (
+              <div key={t.criteria.repositoryId + t.criteria.name} className="py-1 font-mono text-xs text-canvas-fg">
+                {t.criteria.name}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted">
+            {zh ? '此操作不可恢复，受保护分支已自动跳过。请确认列表中的分支可以安全删除。' : 'This action cannot be undone. Protected branches are skipped automatically.'}
+          </p>
+          <ConfirmCheckbox label={tr('understand')} checked={batchConfirm} onChange={setBatchConfirm} />
         </div>
       </Modal>
     </div>
