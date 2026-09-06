@@ -263,7 +263,30 @@ export default function Settings(): JSX.Element {
                 onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })}
                 placeholder="you@example.com"
               />
-              <p className="mt-1 text-xs text-muted">这是统一发件账号。用于登录邮箱服务发送邮件，不会自动同步为所有收件人。</p>
+              <p className="mt-1 text-xs text-muted">这是统一发件账号。用于登录邮箱服务发送邮件，不会自动同步为所有收件人。常见邮箱可留空 SMTP 服务器自动推导。</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
+              <div>
+                <div className="label mb-1.5">SMTP 服务器（可选）</div>
+                <input
+                  className="input"
+                  type="text"
+                  value={emailDraft.server}
+                  onChange={(e) => setEmailDraft({ ...emailDraft, server: e.target.value })}
+                  placeholder="留空自动推导"
+                />
+              </div>
+              <div>
+                <div className="label mb-1.5">端口（可选）</div>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={emailDraft.port}
+                  onChange={(e) => setEmailDraft({ ...emailDraft, port: Number(e.target.value) || 0 })}
+                  placeholder="留空自动推导"
+                />
+              </div>
             </div>
             <div>
               <div className="label mb-1.5">我的个人邮箱</div>

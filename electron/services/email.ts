@@ -195,11 +195,29 @@ export class EmailService {
 
   private buildTransport(config?: EmailConfig) {
     const cfg = config ?? this.getConfig()
-    if (!cfg.server && cfg.username.includes('@gmail.com')) {
-      cfg.server = 'smtp.gmail.com'
-      cfg.port = 465
-      cfg.secure = true
-      cfg.tls = false
+    if (!cfg.server && cfg.username) {
+      const domain = cfg.username.toLowerCase().split('@').pop() || ''
+      const providerMap: Record<string, { server: string; port: number; secure: boolean; requireTls?: boolean }> = {
+        'gmail.com': { server: 'smtp.gmail.com', port: 465, secure: true },
+        'googlemail.com': { server: 'smtp.gmail.com', port: 465, secure: true },
+        'qq.com': { server: 'smtp.qq.com', port: 465, secure: true },
+        'foxmail.com': { server: 'smtp.qq.com', port: 465, secure: true },
+        '163.com': { server: 'smtp.163.com', port: 465, secure: true },
+        '126.com': { server: 'smtp.126.com', port: 465, secure: true },
+        'outlook.com': { server: 'smtp.office365.com', port: 587, secure: false, requireTls: true },
+        'hotmail.com': { server: 'smtp.office365.com', port: 587, secure: false, requireTls: true },
+        'live.com': { server: 'smtp.office365.com', port: 587, secure: false, requireTls: true },
+        'icloud.com': { server: 'smtp.mail.me.com', port: 587, secure: false, requireTls: true }
+      }
+      const provider = providerMap[domain] ?? {
+        server: domain ? 'smtp.' + domain : '',
+        port: 465,
+        secure: true
+      }
+      cfg.server = provider.server
+      cfg.port = provider.port
+      cfg.secure = provider.secure
+      cfg.tls = provider.requireTls === true
     }
     return nodemailer.createTransport({
       host: cfg.server,
@@ -341,7 +359,10 @@ export class EmailService {
     const details = failures.slice(0, 3).join('; ')
     if (failed > 0) {
       this.audit.record('email_creator_sent', { recipients, count: sent, failed, errors: failures }, sent > 0 ? 'success' : 'failure')
-      const suffix = details ? ` 失败原因：${details}` : ''
+      const configHint = cfg.server
+        ? ''
+        : 'SMTP 服务器未配置。请在设置中填写发件邮箱后保存；特殊服务商请在设置的 SMTP 服务器中手动填写。'
+      const suffix = details ? ` 失败原因：${details}` : configHint
       return {
         ok: sent > 0,
         message: sent > 0

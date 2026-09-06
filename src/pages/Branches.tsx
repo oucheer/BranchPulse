@@ -581,11 +581,12 @@ export default function Branches(): JSX.Element {
       </div>
 
       {/* Batch Actions Bar */}
-      {selectedIds.size > 0 ? (
         <Card className="border-danger/30 bg-danger/5 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-danger">
-              {zh ? '已选中' : 'Selected'} {selectedIds.size} {zh ? '个分支' : 'branches'}
+            <span className={selectedIds.size > 0 ? 'text-sm font-semibold text-danger' : 'text-sm font-semibold text-muted'}>
+              {selectedIds.size > 0
+                ? (zh ? '已选中' : 'Selected') + ' ' + selectedIds.size + ' ' + (zh ? '个分支' : 'branches')
+                : (zh ? '未选择分支' : 'No branches selected')}
             </span>
             <div className="flex-1" />
             <button
@@ -622,7 +623,6 @@ export default function Branches(): JSX.Element {
             </button>
           </div>
         </Card>
-      ) : null}
 
       {/* Workspace: Explorer + Details */}
       <div className="flex gap-4">
