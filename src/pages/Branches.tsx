@@ -1,12 +1,386 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Bell, Eye, Filter, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch, GitMerge,
+  Maximize2, Minus, Plus, RefreshCw, Search, Shield, Trash2, X, XCircle
+} from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, ConfirmCheckbox, EmptyState, Modal, Ring } from '../components/ui'
+import { Badge, Card, ConfirmCheckbox, EmptyState, Modal } from '../components/ui'
 import { stateLabel, stateTone, timeAgo } from '../lib/format'
+import { motion as motionToken, shadow } from '../design-system/tokens'
 import type { BranchSummary, DeleteAuthSession, BranchType } from '@shared/types'
 
 type DeleteTarget = { criteria: { repositoryId: string; name: string; type: BranchType; remote?: string }; session: DeleteAuthSession }
+
+// ─── Branch type classification ─────────────────────────────────────────────
+
+function branchCategory(name: string): { label: string; color: string } {
+  const n = name.toLowerCase()
+  if (n === 'main' || n === 'master' || n === 'develop' || n.startsWith('origin/main') || n.startsWith('origin/master') || n.startsWith('origin/develop')) return { label: 'Main', color: 'rgb(var(--primary))' }
+  if (n.includes('feature/')) return { label: 'Feature', color: 'rgb(var(--secondary))' }
+  if (n.includes('fix/') || n.includes('bugfix/')) return { label: 'Fix', color: 'rgb(var(--danger))' }
+  if (n.includes('hotfix/')) return { label: 'Hotfix', color: 'rgb(var(--danger))' }
+  if (n.includes('release/')) return { label: 'Release', color: 'rgb(var(--info))' }
+  return { label: 'Other', color: 'rgb(var(--muted))' }
+}
+
+function stateColor(state: string): string {
+  if (state === 'active') return 'rgb(var(--ok))'
+  if (state === 'grace_period') return 'rgb(var(--warn))'
+  if (state === 'grace_expired') return 'rgb(var(--danger))'
+  return 'rgb(var(--warn))'
+}
+
+// ─── Branch Graph (SVG) ──────────────────────────────────────────────────────
+
+interface GraphProps {
+  branches: BranchSummary[]
+  filtered: BranchSummary[]
+  selected: BranchSummary | null
+  search: string
+  onSelect: (b: BranchSummary) => void
+  onHover: (b: BranchSummary | null) => void
+}
+
+function BranchGraph({ branches, filtered, selected, search, onSelect, onHover }: GraphProps): JSX.Element {
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+
+  const ROW_H = 34
+  const GRAPH_BRANCHES = filtered.slice(0, 30)
+  const base = filtered.find((b) => b.protection.isDefault) ?? filtered.find((b) => branchCategory(b.name).label === 'Main') ?? filtered[0]
+  const height = Math.max(100, GRAPH_BRANCHES.length * ROW_H + 40)
+  const W = 640
+
+  const isDimmed = useCallback((id: string): boolean => {
+    if (hoveredId) return hoveredId !== id
+    if (search) {
+      const q = search.toLowerCase()
+      return !id.toLowerCase().includes(q)
+    }
+    if (selected) return selected.id !== id
+    return false
+  }, [hoveredId, search, selected])
+
+  const activeId = hoveredId ?? selected?.id ?? null
+
+  const onMouseDown = (e: React.MouseEvent): void => {
+    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y }
+  }
+  const onMouseMove = (e: React.MouseEvent): void => {
+    if (!dragRef.current) return
+    setPan({ x: dragRef.current.panX + (e.clientX - dragRef.current.startX), y: dragRef.current.panY + (e.clientY - dragRef.current.startY) })
+  }
+  const onMouseUp = (): void => { dragRef.current = null }
+
+  return (
+    <Card className="overflow-hidden p-0" >
+      <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <GitBranch size={14} className="text-primary" />
+          <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支图谱' : 'Branch Graph'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => setZoom((z) => Math.min(z + 0.15, 2))} title={zh ? '放大' : 'Zoom In'}><Plus size={13} /></button>
+          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => setZoom((z) => Math.max(z - 0.15, 0.5))} title={zh ? '缩小' : 'Zoom Out'}><Minus size={13} /></button>
+          <button className="rounded p-1 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} title={zh ? '重置' : 'Reset'}><Maximize2 size={13} /></button>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="flex items-center justify-center py-12 text-sm text-muted">{zh ? '没有匹配的分支' : 'No matching branches'}</div>
+      ) : (
+        <div
+          ref={containerRef}
+          className="relative cursor-grab overflow-hidden active:cursor-grabbing"
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={() => { onMouseUp(); onHover(null); setHoveredId(null) }}
+        >
+          <svg
+            width="100%"
+            height={height}
+            viewBox={`0 0 ${W} ${height}`}
+            preserveAspectRatio="xMinYMin meet"
+            className="block select-none"
+            style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transition: dragRef.current ? 'none' : 'transform 200ms ease-out' }}
+          >
+            {/* Trunk */}
+            <line x1="20" y1="16" x2="20" y2={height - 16} stroke="rgb(var(--line))" strokeWidth="2" strokeLinecap="round" opacity={0.5} />
+            {base ? (
+              <circle cx="20" cy="16" r="5" fill="rgb(var(--primary))" />
+            ) : null}
+            {base ? (
+              <text x="30" y="20" fontSize="11" fontWeight="600" fill="rgb(var(--primary))" fontFamily="JetBrains Mono, monospace">{base.displayName}</text>
+            ) : null}
+
+            {GRAPH_BRANCHES.map((b, i) => {
+              if (b.id === base?.id) return null
+              const y = 20 + i * ROW_H
+              const midX = 20 + (200 - 20) * 0.5
+              const path = `M 20 16 C ${midX} 16, ${midX} ${y}, 200 ${y}`
+              const dim = isDimmed(b.id)
+              const isActive = activeId === b.id
+              const cat = branchCategory(b.name)
+              const sc = stateColor(b.state)
+              return (
+                <g
+                  key={b.id}
+                  opacity={dim ? 0.18 : 1}
+                  style={{ transition: 'opacity 160ms ease' }}
+                  onMouseEnter={() => { setHoveredId(b.id); onHover(b) }}
+                  onClick={(e) => { e.stopPropagation(); onSelect(b) }}
+                  className="cursor-pointer"
+                >
+                  <path d={path} fill="none" stroke={sc} strokeWidth={isActive ? 2 : 1.2} strokeLinecap="round" strokeDasharray="4 3" opacity={isActive ? 1 : 0.55} style={{ transition: 'stroke-width 140ms ease, opacity 140ms ease' }} />
+                  <circle cx={200} cy={y} r={isActive ? 4.5 : 3} fill={sc} style={{ transition: 'r 140ms ease' }} />
+                  {selected?.id === b.id ? (
+                    <circle cx={200} cy={y} r="7" fill="none" stroke={sc} strokeWidth="1.5" opacity={0.6} />
+                  ) : null}
+                  <text x={214} y={y + 4} fontSize="11" fill={isActive ? 'rgb(var(--fg))' : 'rgb(var(--muted))'} fontFamily="JetBrains Mono, monospace" style={{ transition: 'fill 140ms ease' }}>
+                    {b.displayName}
+                  </text>
+                  <text x={400} y={y + 4} fontSize="9.5" fill={cat.color} opacity={0.7}>
+                    {cat.label}
+                  </text>
+                  <text x={460} y={y + 4} fontSize="9.5" fill="rgb(var(--muted))" className="tabular-nums">
+                    {b.inactiveDays}d
+                  </text>
+                  <rect x={508} y={y - 9} width="26" height="15" rx="7.5" fill={sc} opacity={0.12} />
+                  <text x={521} y={y + 3} fontSize="9" fontWeight="600" textAnchor="middle" fill={sc} className="tabular-nums">
+                    {b.health.score}
+                  </text>
+                  <text x={546} y={y + 3} fontSize="9" fontWeight="500" fill={sc}>
+                    {stateLabel(b.state, language)}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+      )}
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[10px] text-muted">
+        {[
+          { label: zh ? '主干' : 'Main', color: 'rgb(var(--primary))' },
+          { label: 'Feature', color: 'rgb(var(--secondary))' },
+          { label: zh ? '修复' : 'Fix', color: 'rgb(var(--danger))' },
+          { label: 'Release', color: 'rgb(var(--info))' },
+          { label: zh ? '活跃' : 'Active', color: 'rgb(var(--ok))' },
+          { label: zh ? '宽限' : 'Grace', color: 'rgb(var(--warn))' },
+          { label: zh ? '到期' : 'Expired', color: 'rgb(var(--danger))' }
+        ].map((l) => (
+          <span key={l.label} className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: l.color }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Branch Explorer Row ─────────────────────────────────────────────────────
+
+function ExplorerRow({ b, selected, onSelect, onHover, onNotify, onDelete, protected_, deletionDisabled }: {
+  b: BranchSummary
+  selected: boolean
+  onSelect: () => void
+  onHover: (v: boolean) => void
+  onNotify: () => void
+  onDelete: () => void
+  protected_: boolean
+  deletionDisabled: boolean
+}): JSX.Element {
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
+  const cat = branchCategory(b.name)
+  const sc = stateColor(b.state)
+  return (
+    <div
+      className={`group flex cursor-pointer items-center gap-2 border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
+        selected ? 'bg-primary/5' : 'hover:bg-surface/60'
+      }`}
+      onClick={onSelect}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: sc }} />
+      <span className="min-w-0 flex-1 truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
+      {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
+      {b.merged ? <GitMerge size={11} className="shrink-0 text-secondary" /> : null}
+      <span className="shrink-0 text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
+      <span className="shrink-0 tabular-nums text-muted">{b.inactiveDays}d</span>
+      <span
+        className="shrink-0 rounded-full px-1.5 text-[10px] font-semibold tabular-nums"
+        style={{ background: `${sc}1A`, color: sc }}
+      >
+        {b.health.score}
+      </span>
+      {protected_ ? <Shield size={11} className="shrink-0 text-info" /> : null}
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button className="rounded p-0.5 text-muted hover:text-canvas-fg" onClick={(e) => { e.stopPropagation(); onNotify() }} title={zh ? '通知' : 'Notify'}><Bell size={12} /></button>
+        <button
+          className="rounded p-0.5 text-muted hover:text-danger disabled:opacity-30"
+          disabled={protected_ || deletionDisabled}
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          title={protected_ ? (zh ? '受保护' : 'Protected') : zh ? '删除远程' : 'Delete remote'}
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Branch Details Drawer ──────────────────────────────────────────────────
+
+function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deletionDisabled, deleting }: {
+  b: BranchSummary
+  onClose: () => void
+  onNotify: () => void
+  onDeleteBegin: () => void
+  protected_: boolean
+  deletionDisabled: boolean
+  deleting: boolean
+}): JSX.Element {
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
+  const toast = useAppStore((s) => s.toast)
+  const [validating, setValidating] = useState(false)
+  const [validation, setValidation] = useState<{ ok: boolean; reason?: string } | null>(null)
+  const cat = branchCategory(b.name)
+  const sc = stateColor(b.state)
+
+  const handleValidate = async (): Promise<void> => {
+    setValidating(true)
+    setValidation(null)
+    try {
+      const result = await window.branchpulse.validateBranchName(b.name)
+      setValidation({ ok: result.status === 'valid' || result.status === 'excluded', reason: result.reason })
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  const handleCopy = (): void => {
+    void navigator.clipboard.writeText(b.name)
+    toast(zh ? '已复制分支名' : 'Branch name copied', 'success')
+  }
+
+  const detailRows: { label: string; value: string; tone?: string }[] = [
+    { label: zh ? '仓库' : 'Repository', value: b.repositoryName },
+    { label: zh ? '类型' : 'Type', value: b.type === 'local' ? (zh ? '本地' : 'Local') : (zh ? '远程' : 'Remote') },
+    { label: zh ? '类别' : 'Category', value: cat.label },
+    { label: zh ? '状态' : 'Status', value: stateLabel(b.state, language) },
+    { label: zh ? '健康度' : 'Health', value: `${b.health.score} / 100` },
+    { label: zh ? '最后提交' : 'Last commit', value: timeAgo(b.lastCommitAt) },
+    { label: zh ? '创建时间' : 'Created', value: b.createdAt ? timeAgo(b.createdAt) : '—' },
+    { label: zh ? '提交数' : 'Commits', value: String(b.commitCount) },
+    { label: zh ? '合并状态' : 'Merge', value: b.merged ? (zh ? `已合并 → ${b.mergedInto ?? ''}` : `Merged → ${b.mergedInto ?? ''}`) : (zh ? '未合并' : 'Not merged') },
+    { label: zh ? '保护' : 'Protection', value: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') }
+  ]
+
+  return (
+    <motion.div
+      className="flex h-full flex-col border-l border-line bg-surface"
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: 320, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{ duration: motionToken.normal.duration, ease: motionToken.normal.ease }}
+      style={{ minWidth: 0, overflow: 'hidden' }}
+    >
+      <div className="flex items-start justify-between border-b border-line px-4 py-3">
+        <div className="min-w-0">
+          <div className="truncate font-mono text-sm font-semibold text-canvas-fg">{b.displayName}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+            <span style={{ color: cat.color }}>{cat.label}</span>
+            <span className="text-muted">·</span>
+            <span style={{ color: sc }}>{stateLabel(b.state, language)}</span>
+            <span className="text-muted">·</span>
+            <span className="font-semibold tabular-nums" style={{ color: sc }}>{b.health.score}</span>
+          </div>
+        </div>
+        <button onClick={onClose} className="shrink-0 rounded p-1 text-muted hover:text-canvas-fg"><X size={14} /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {/* Governance */}
+        <div className="mb-3 space-y-1.5">
+          {[
+            { label: zh ? '命名' : 'Naming', ok: b.naming.status === 'valid' || b.naming.status === 'excluded', text: b.naming.status === 'valid' ? (zh ? '合规' : 'Compliant') : b.naming.status === 'excluded' ? (zh ? '排除' : 'Excluded') : (zh ? '违规' : 'Violation') },
+            { label: zh ? '保护' : 'Protection', ok: protected_, text: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') },
+            { label: zh ? '生命周期' : 'Lifecycle', ok: b.state === 'active', text: b.stale ? (zh ? `停更 ${b.inactiveDays} 天` : `Inactive ${b.inactiveDays}d`) : b.merged ? (zh ? '已合并' : 'Merged') : stateLabel(b.state, language) }
+          ].map((g) => (
+            <div key={g.label} className="flex items-center justify-between rounded-md border border-line px-2.5 py-1.5 text-xs">
+              <span className="text-muted">{g.label}</span>
+              <span className={`flex items-center gap-1 font-medium ${g.ok ? 'text-ok' : 'text-warn'}`}>
+                {g.ok ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                {g.text}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Naming detail */}
+        {b.naming.status === 'invalid' && b.naming.reason ? (
+          <div className="mb-3 rounded-md border border-danger/20 bg-danger/5 px-2.5 py-2 text-[11px] text-danger">
+            <div className="font-medium">{zh ? '违规原因' : 'Violation reason'}</div>
+            <div className="mt-0.5 opacity-80">{b.naming.reason}</div>
+          </div>
+        ) : null}
+
+        {/* Details grid */}
+        <div className="space-y-1">
+          {detailRows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between text-xs">
+              <span className="text-muted">{r.label}</span>
+              <span className="max-w-[55%] truncate text-right text-canvas-fg">{r.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-4 py-3">
+        <button className="btn px-2 py-1 text-[11px]" onClick={() => void handleValidate()} disabled={validating}>
+          {validating ? '...' : (zh ? '验证' : 'Validate')}
+        </button>
+        <button className="btn px-2 py-1 text-[11px]" onClick={handleCopy}>
+          <Copy size={11} /> {zh ? '复制' : 'Copy'}
+        </button>
+        <button className="btn px-2 py-1 text-[11px]" onClick={onNotify}>
+          <Bell size={11} /> {zh ? '通知' : 'Notify'}
+        </button>
+        <button
+          className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
+          disabled={protected_ || deletionDisabled || deleting}
+          onClick={onDeleteBegin}
+          title={protected_ ? tr('deleteDisabled') : undefined}
+        >
+          <Trash2 size={11} /> {zh ? '删除' : 'Delete'}
+        </button>
+      </div>
+      {validation ? (
+        <div className={`mx-4 mb-3 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] ${validation.ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+          {validation.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+          {validation.ok ? (zh ? '命名合规' : 'Naming compliant') : validation.reason ?? (zh ? '命名不合规' : 'Naming violation')}
+        </div>
+      ) : null}
+    </motion.div>
+  )
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function Branches(): JSX.Element {
   const branches = useAppStore((s) => s.branches)
@@ -15,30 +389,41 @@ export default function Branches(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
+  const zh = language === 'zh'
 
   const [search, setSearch] = useState('')
   const [repoFilter, setRepoFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [loadingBranch, setLoadingBranch] = useState<string | null>(null)
+  const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
+  const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refreshingAll, setRefreshingAll] = useState(false)
 
+  const effectiveRepo = repoFilter || activeRepositoryId || ''
   const filtered = useMemo(() => {
     let list = branches
+    if (effectiveRepo) list = list.filter((b) => b.repositoryId === effectiveRepo)
     if (search) {
       const q = search.toLowerCase()
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
-    if (repoFilter) list = list.filter((b) => b.repositoryId === repoFilter)
-    else if (activeRepositoryId) list = list.filter((b) => b.repositoryId === activeRepositoryId)
     if (stateFilter) list = list.filter((b) => b.state === stateFilter)
     if (typeFilter) list = list.filter((b) => b.type === typeFilter)
     return list
-  }, [branches, search, repoFilter, stateFilter, typeFilter, activeRepositoryId])
+  }, [branches, search, effectiveRepo, stateFilter, typeFilter])
+
+  const attention = useMemo(() =>
+    filtered
+      .filter((b) => b.stale || b.naming.status === 'invalid' || b.state === 'grace_expired')
+      .sort((a, b) => b.inactiveDays - a.inactiveDays)
+      .slice(0, 5),
+    [filtered]
+  )
 
   const states = ['active', 'stale', 'grace_period', 'grace_expired'] as const
 
@@ -48,7 +433,7 @@ export default function Branches(): JSX.Element {
       for (const repo of repositories) {
         await window.branchpulse.scanRepository(repo.id, true)
       }
-      toast('已从远程仓库刷新所有分支', 'success')
+      toast(zh ? '已从远程仓库刷新所有分支' : 'All branches refreshed', 'success')
       await refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -56,10 +441,11 @@ export default function Branches(): JSX.Element {
       setRefreshingAll(false)
     }
   }
+
   const handleNotify = async (branch: BranchSummary): Promise<void> => {
     try {
       const results = await window.branchpulse.notifyBranch(branch)
-      toast(`${results.length} notification${results.length === 1 ? '' : 's'} generated`, 'success')
+      toast(`${results.length} ${zh ? '条通知已生成' : 'notifications generated'}`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -102,13 +488,10 @@ export default function Branches(): JSX.Element {
         },
         confirmationToken: deleteTarget.session.token
       })
-      if (result.ok) {
-        toast(result.message, 'success')
-      } else {
-        toast(result.message, 'error')
-      }
+      toast(result.message, result.ok ? 'success' : 'error')
       setDeleteTarget(null)
       setConfirmed(false)
+      setSelectedBranch(null)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -117,115 +500,162 @@ export default function Branches(): JSX.Element {
     }
   }
 
+  const isProtected = (b: BranchSummary): boolean => b.protection.protected || b.protection.isDefault || b.protection.whitelisted
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-canvas-fg">{tr('branches')}</h1>
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-muted">{filtered.length} / {branches.length} 个分支</div>
-          <button className="btn px-2" onClick={() => void handleRefreshAll()} disabled={refreshingAll} title="从远程仓库刷新分支信息">
-            <RefreshCw size={14} className={refreshingAll ? 'animate-spin' : ''} /> {refreshingAll ? '刷新中' : '刷新'}
-          </button>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-bold text-canvas-fg">{tr('branches')}</h1>
+          <p className="mt-0.5 text-xs text-muted">{zh ? '查看和管理仓库分支' : 'Visualize and manage repository branches'}</p>
         </div>
+        <button
+          onClick={() => void handleRefreshAll()}
+          disabled={refreshingAll}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-primary/40 hover:text-canvas-fg disabled:opacity-40"
+        >
+          <RefreshCw size={12} className={refreshingAll ? 'animate-spin' : ''} />
+          {zh ? '同步仓库' : 'Sync'}
+        </button>
       </div>
 
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            className="input pl-8"
-            placeholder={tr('search') + '...'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <select className="input w-auto" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)}>
-          <option value="">{tr('repositories')}</option>
+        <select
+          value={effectiveRepo}
+          onChange={(e) => setRepoFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+        >
+          <option value="">{zh ? '所有仓库' : 'All repositories'}</option>
           {repositories.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <select className="input w-auto" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
-          <option value="">{tr('state')}</option>
-          {states.map((s) => <option key={s} value={s}>{stateLabel(s, 'en')}</option>)}
+        <div className="relative flex-1 min-w-40" style={{ maxWidth: 280 }}>
+          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={zh ? '搜索分支...' : 'Search branches...'}
+            className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-xs text-canvas-fg outline-none transition-colors placeholder:text-muted focus:border-primary/50"
+          />
+          {search ? (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
+          ) : null}
+        </div>
+        <select
+          value={stateFilter}
+          onChange={(e) => setStateFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+        >
+          <option value="">{zh ? '所有状态' : 'All states'}</option>
+          {states.map((s) => <option key={s} value={s}>{stateLabel(s, language)}</option>)}
         </select>
-        <select className="input w-auto" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-          <option value="">{tr('type')}</option>
-          <option value="remote">Remote</option>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+        >
+          <option value="">{zh ? '所有类型' : 'All types'}</option>
+          <option value="local">{zh ? '本地' : 'Local'}</option>
+          <option value="remote">{zh ? '远程' : 'Remote'}</option>
         </select>
-        <Filter size={14} className="text-muted" />
+        <div className="ml-auto text-xs tabular-nums text-muted">
+          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState title={tr('noBranches')} />
-      ) : (
-        <div className="overflow-x-auto rounded-card border border-line">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs uppercase tracking-normal text-muted">
-                <th className="px-4 py-3 font-medium">{tr('branch')}</th>
-                <th className="px-4 py-3 font-medium">{tr('repository')}</th>
-                <th className="px-4 py-3 font-medium">{tr('type')}</th>
-                <th className="px-4 py-3 font-medium">{tr('state')}</th>
-                <th className="px-4 py-3 font-medium">{tr('inactiveDays')}</th>
-                <th className="px-4 py-3 font-medium">{tr('health')}</th>
-                <th className="px-4 py-3 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((branch) => {
-                const isProtected = branch.protection.protected || branch.protection.isDefault || branch.protection.whitelisted
-                return (
-                  <tr key={`${branch.id}-${branch.type}`} className="border-b border-line/50 last:border-0 hover:bg-surface/50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-medium text-canvas-fg">{branch.displayName}</span>
-                        {branch.isHead ? <Badge tone="primary">HEAD</Badge> : null}
-                        {branch.merged ? <Badge tone="info">{tr('merged')}</Badge> : null}
-                        {branch.naming.status === 'invalid' ? <Badge tone="danger">invalid</Badge> : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted">{branch.repositoryName}</td>
-                    <td className="px-4 py-3">
-                      <Badge tone={branch.type === 'local' ? 'secondary' : 'default'}>{branch.type}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={stateTone(branch.state)}>{stateLabel(branch.state, 'en')}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted">{branch.inactiveDays} 天</td>
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs text-canvas-fg">{branch.health.score}%</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <button
-                          className="btn px-2 py-1 text-[11px]"
-                          onClick={() => navigate(`/branches/${branch.repositoryId}/${branch.type}/${encodeURIComponent(branch.name.replaceAll('/', '~'))}`)}
-                        >
-                          <Eye size={13} /> {tr('view')}
-                        </button>
-                        <button
-                          className="btn px-2 py-1 text-[11px]"
-                          onClick={() => void handleNotify(branch)}
-                        >
-                          <Bell size={13} /> {tr('notify')}
-                        </button>
-                        <button
-                          className="btn border-danger/30 px-2 py-1 text-[11px] text-danger hover:border-danger hover:text-danger"
-                          disabled={!branch.existsRemotely || isProtected || settings.deletionDisabled}
-                          onClick={() => void handleBeginDelete(branch, 'remote')}
-                          title={isProtected ? tr('deleteDisabled') : undefined}
-                        >
-                          <Trash2 size={13} className="text-danger" /> {tr('deleteRemote')}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Graph */}
+      <BranchGraph
+        branches={branches}
+        filtered={filtered}
+        selected={selectedBranch}
+        search={search}
+        onSelect={(b) => setSelectedBranch((prev) => (prev?.id === b.id ? null : b))}
+        onHover={setHoveredBranch}
+      />
 
+      {/* Workspace: Explorer + Details */}
+      <div className="flex gap-4">
+        <Card className="min-w-0 flex-1 overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
+            <span className="text-[10px] text-muted">{filtered.length}</span>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="py-10 text-center">
+                <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
+                <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
+                <button
+                  onClick={() => { setSearch(''); setStateFilter(''); setTypeFilter('') }}
+                  className="mt-3 text-xs font-medium text-primary hover:underline"
+                >
+                  {zh ? '清除筛选' : 'Clear Filters'}
+                </button>
+              </div>
+            ) : (
+              filtered.slice(0, 50).map((b) => (
+                <ExplorerRow
+                  key={`${b.id}-${b.type}`}
+                  b={b}
+                  selected={selectedBranch?.id === b.id}
+                  onSelect={() => setSelectedBranch((prev) => (prev?.id === b.id ? null : b))}
+                  onHover={(v) => setHoveredBranch(v ? b : null)}
+                  onNotify={() => void handleNotify(b)}
+                  onDelete={() => void handleBeginDelete(b, 'remote')}
+                  protected_={isProtected(b)}
+                  deletionDisabled={settings.deletionDisabled}
+                />
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Details Drawer */}
+        <AnimatePresence mode="wait">
+          {selectedBranch ? (
+            <DetailsDrawer
+              key={selectedBranch.id}
+              b={selectedBranch}
+              onClose={() => setSelectedBranch(null)}
+              onNotify={() => void handleNotify(selectedBranch)}
+              onDeleteBegin={() => void handleBeginDelete(selectedBranch, 'remote')}
+              protected_={isProtected(selectedBranch)}
+              deletionDisabled={settings.deletionDisabled}
+              deleting={deleting}
+            />
+          ) : null}
+        </AnimatePresence>
+      </div>
+
+      {/* Attention */}
+      {attention.length > 0 ? (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle size={14} className="text-warn" />
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Needs Attention'}</span>
+            <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
+          </div>
+          <div className="space-y-1.5">
+            {attention.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => setSelectedBranch(b)}
+                className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted">{b.inactiveDays}d</span>
+                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>
+                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      {/* Delete Modal */}
       <Modal
         open={deleteTarget !== null}
         title={tr('confirmDelete')}
@@ -233,11 +663,7 @@ export default function Branches(): JSX.Element {
         footer={
           <div className="flex gap-2">
             <button className="btn" onClick={() => { setDeleteTarget(null); setConfirmed(false) }}>{tr('cancel')}</button>
-            <button
-              className="btn text-danger"
-              disabled={!confirmed || deleting}
-              onClick={() => void handleConfirmDelete()}
-            >
+            <button className="btn text-danger" disabled={!confirmed || deleting} onClick={() => void handleConfirmDelete()}>
               {deleting ? '...' : tr('confirmDelete')}
             </button>
           </div>
@@ -247,11 +673,7 @@ export default function Branches(): JSX.Element {
           <div className="text-sm text-muted">
             {tr('branch')}: <span className="font-mono font-semibold text-canvas-fg">{deleteTarget?.criteria.name}</span> ({deleteTarget?.criteria.type})
           </div>
-          <ConfirmCheckbox
-            label={tr('understand')}
-            checked={confirmed}
-            onChange={setConfirmed}
-          />
+          <ConfirmCheckbox label={tr('understand')} checked={confirmed} onChange={setConfirmed} />
         </div>
       </Modal>
     </div>
