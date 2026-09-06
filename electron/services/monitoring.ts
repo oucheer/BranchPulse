@@ -143,7 +143,12 @@ export class MonitoringService {
           repositories: targets.length,
           generatedAt: new Date().toISOString()
         }
-        const result = await this.email.sendSummaryEmail(data, undefined, resolveRecipients(typeof notifyTarget === 'string' ? notifyTarget : '', groups))
+        const selfFallback = this.email.getConfig().testRecipient || this.email.getConfig().username
+        const result = await this.email.sendSummaryEmail(
+          data,
+          undefined,
+          notifyTarget === 'self' ? resolveRecipients(selfFallback) : resolveRecipients(typeof notifyTarget === 'string' ? notifyTarget : '', groups)
+        )
         if (result.ok) {
           emailsSent += result.emailsSent ?? 0
           addActivity('Summary email sent to self (1 email).', 'success')

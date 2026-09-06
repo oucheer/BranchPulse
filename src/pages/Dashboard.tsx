@@ -6,6 +6,7 @@ import {
   GitMerge, Plus, RefreshCw, Scale, Search, ShieldCheck, Info
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
+import SpecularButton from '../components/SpecularButton'
 import { Card } from '../components/ui'
 import { timeAgo, stateLabel } from '../lib/format'
 import { motion as motionToken, shadow } from '../design-system/tokens'
@@ -569,8 +570,35 @@ export default function Dashboard(): JSX.Element {
         {/* Quick Actions */}
         <Card className="p-4">
           <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '快捷操作' : 'Quick Actions'}</div>
+          <div className="mb-2">
+            <SpecularButton
+              size="sm"
+              radius={10}
+              tint="rgb(var(--primary))"
+              tintOpacity={1}
+              blur={0}
+              textColor="#ffffff"
+              lineColor="#ffd9a8"
+              baseColor="#b35810"
+              intensity={1}
+              shineSize={12}
+              shineFade={45}
+              thickness={1}
+              speed={0.35}
+              followMouse
+              proximity={220}
+              disabled={scanning}
+              onClick={() => void handleRunCheck()}
+              className="w-full"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
+                {tr('runCheckNow')}
+              </span>
+            </SpecularButton>
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            {quickActions.map((q) => {
+            {quickActions.filter((q) => q.label !== tr('runCheckNow')).map((q) => {
               const Icon = q.icon
               return (
                 <button

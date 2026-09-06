@@ -241,7 +241,8 @@ export class EmailService {
 
   async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig, recipients?: string[]): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    const recipientList = recipients?.length ? recipients : resolveRecipients(cfg.testRecipient || cfg.username)
+    const fallback = resolveRecipients(cfg.testRecipient || cfg.username)
+    const recipientList = recipients?.length ? recipients : fallback
     const recipient = recipientList.join(', ')
     if (!cfg.enabled || !recipient) {
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }

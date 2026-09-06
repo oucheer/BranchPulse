@@ -26,14 +26,16 @@ export default function Monitoring(): JSX.Element {
     setDraft(monitoring)
   }, [monitoring])
 
-  const notifySelf = draft.notifyTarget === 'self' || draft.notifyTarget === 'both' || (typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@'))
+  const notifySelf = draft.notifyTarget === 'self' || draft.notifyTarget === 'both'
   const notifyCreator = draft.notifyTarget === 'creator' || draft.notifyTarget === 'both'
+  const customRecipients = notifyTargetValue(draft.notifyTarget)
 
-  const applyNotify = (self: boolean, creator: boolean, email: string): NotifyTarget => {
+  const applyNotify = (self: boolean, creator: boolean, recipients: string): NotifyTarget => {
+    const hasRecipients = recipients.trim().length > 0
     if (self && creator) return 'both'
     if (creator) return 'creator'
-    if (self && email.includes('@')) return email as NotifyTarget
     if (self) return 'self'
+    if (hasRecipients) return recipients.trim() as NotifyTarget
     return 'none'
   }
 
@@ -179,18 +181,19 @@ export default function Monitoring(): JSX.Element {
               <div className="label mb-1.5 flex items-center gap-1.5"><Mail size={13} /> 通知填写收件人</div>
               <input
                 className="input"
-                type="email"
-                placeholder="you@example.com"
-                value={typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : ''}
-                onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value.trim()) })}
+                type="text"
+                placeholder="you@example.com, team@example.com 或分组名"
+                value={customRecipients}
+                onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value) })}
               />
+              <p className="mt-1 text-xs text-muted">填写的收件人会直接接收邮件；若未填写且勾选“通知自己”，将发送到设置中配置的发件邮箱。</p>
               <div className="mt-2 flex items-center gap-2">
                 <select
                   className="input max-w-[12rem]"
                   value=""
                   onChange={(e) => {
                     if (!e.target.value) return
-                    const current = notifyTargetValue(typeof draft.notifyTarget === 'string' ? draft.notifyTarget : '')
+                    const current = customRecipients
                     const next = current ? `${current}, ${e.target.value}` : e.target.value
                     setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, next) })
                   }}
@@ -210,7 +213,7 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle
                 checked={notifySelf}
-                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(v, notifyCreator, typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : '') })}
+                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(v, notifyCreator, customRecipients) })}
               />
             </div>
             <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
@@ -223,7 +226,7 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle
                 checked={notifyCreator}
-                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, v, typeof draft.notifyTarget === 'string' && draft.notifyTarget.includes('@') ? draft.notifyTarget : '') })}
+                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, v, customRecipients) })}
               />
             </div>
             <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(false)}>
