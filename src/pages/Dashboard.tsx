@@ -241,7 +241,7 @@ export default function Dashboard(): JSX.Element {
   const alerts = useMemo(() => {
     const list: { severity: 'warn' | 'danger' | 'info'; title: string; desc: string; to: string }[] = []
     if (violations > 0) list.push({ severity: 'danger', title: `${violations} ${zh ? '命名违规' : 'Naming Violations'}`, desc: zh ? '分支命名不符合规则' : 'Branches fail naming rules', to: '/naming-rules' })
-    if (staleCount > 0) list.push({ severity: 'warn', title: `${staleCount} ${zh ? '陈旧分支' : 'Stale Branches'}`, desc: zh ? '超过阈值未更新' : 'Beyond stale threshold', to: '/branches' })
+    if (staleCount > 0) list.push({ severity: 'warn', title: `${staleCount} ${zh ? '已停更分支' : 'Stale Branches'}`, desc: zh ? '超过阈值未更新' : 'Beyond stale threshold', to: '/branches' })
     if (expiredCount > 0) list.push({ severity: 'danger', title: `${expiredCount} ${zh ? '宽限到期' : 'Grace Expired'}`, desc: zh ? '需要处理' : 'Requires action', to: '/branches' })
     if (!lastRun) list.push({ severity: 'info', title: zh ? '仓库未巡检' : 'Repository Not Scanned', desc: zh ? '运行第一次巡检' : 'Run first inspection', to: '/monitoring' })
     return list
@@ -390,7 +390,6 @@ export default function Dashboard(): JSX.Element {
       <div className="flex flex-wrap items-center gap-4 rounded-card border border-line bg-surface px-4 py-2.5" style={{ boxShadow: shadow.sm }}>
         {[
           { label: tr('active'), value: activeCount, color: 'rgb(var(--ok))' },
-          { label: tr('stale'), value: staleCount, color: 'rgb(var(--warn))' },
           { label: tr('gracePeriod'), value: graceCount, color: 'rgb(var(--warn))' },
           { label: tr('graceExpired'), value: expiredCount, color: 'rgb(var(--danger))' },
           { label: tr('merged'), value: mergedCount, color: 'rgb(var(--secondary))' },
@@ -520,8 +519,8 @@ export default function Dashboard(): JSX.Element {
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                 <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
-                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.stale ? 'text-warn' : 'text-danger'}`}>
-                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : b.stale ? (zh ? '已停更' : 'Stale') : stateLabel(b.state, language)}
+                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.state === 'grace_expired' ? 'text-danger' : 'text-warn'}`}>
+                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
                 </span>
               </button>
             ))}

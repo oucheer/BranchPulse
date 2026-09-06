@@ -303,7 +303,7 @@ export default function Branches(): JSX.Element {
     }
     if (stateFilter) list = list.filter((b) => b.state === stateFilter)
     if (typeFilter) list = list.filter((b) => b.type === typeFilter)
-    return list
+    return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
   }, [branches, search, effectiveRepo, stateFilter, typeFilter])
 
   const attention = useMemo(() =>

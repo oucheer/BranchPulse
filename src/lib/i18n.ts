@@ -200,7 +200,7 @@ const dictionaries = {
     pickFolder: '选择文件夹',
     totalBranches: '分支总数',
     active: '活跃',
-    stale: '陈旧',
+    stale: '已停更',
     gracePeriod: '宽限期',
     graceExpired: '宽限到期',
     merged: '已合并',

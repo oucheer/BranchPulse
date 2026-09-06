@@ -8,7 +8,7 @@ import { useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import AeroShards from './shell/AeroShards'
 import MoltenMetal from './components/MoltenMetal'
-import Ballpit from './components/Ballpit'
+import LightPillar from './components/LightPillar'
 import Sidebar from './shell/Sidebar'
 import Topbar from './shell/Topbar'
 import CommandPalette from './shell/CommandPalette'
@@ -76,13 +76,23 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           backgroundColor={'#07090e'}
           />
         ) : (
-          <Ballpit
-            count={200}
-            gravity={0.7}
-            friction={0.8}
-            wallBounce={0.95}
-            followCursor={true}
-          />
+          <div style={{ opacity: 0.35 }}>
+            <LightPillar
+              topColor="#5227FF"
+              bottomColor="#FF9FFC"
+              intensity={1.0}
+              rotationSpeed={0.3}
+              glowAmount={0.005}
+              pillarWidth={3.0}
+              pillarHeight={0.4}
+              noiseIntensity={0.5}
+              pillarRotation={0}
+              interactive={false}
+              mixBlendMode="normal"
+              quality="high"
+              lightMode={true}
+            />
+          </div>
         )}
       </div>
       {/* Layer 3: Sidebar */}

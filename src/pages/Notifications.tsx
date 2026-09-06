@@ -77,7 +77,7 @@ export default function Notifications(): JSX.Element {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Badge tone={notificationTone(n.type)}>
-                    {n.type === 'stale' ? '陈旧分支' : n.type === 'grace_period' ? '宽限期' : n.type === 'grace_expired' ? '宽限到期' : n.type === 'naming_violation' ? '命名违规' : n.type === 'cleanup_candidate' ? '清理候选' : n.type}
+                    {n.type === 'stale' ? '已停更分支' : n.type === 'grace_period' ? '宽限期' : n.type === 'grace_expired' ? '宽限到期' : n.type === 'naming_violation' ? '命名违规' : n.type === 'cleanup_candidate' ? '清理候选' : n.type}
                   </Badge>
                   {!n.read ? <span className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
                 </div>

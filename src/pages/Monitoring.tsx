@@ -97,7 +97,7 @@ export default function Monitoring(): JSX.Element {
                 <select
                   className="input"
                   value={draft.staleThresholdUnit}
-                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days' })}
+                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days', gracePeriodUnit: e.target.value as 'hours' | 'days' })}
                 >
                   <option value="days">天</option>
                   <option value="hours">小时</option>
@@ -120,8 +120,8 @@ export default function Monitoring(): JSX.Element {
                 <div className="label mb-1.5">单位</div>
                 <select
                   className="input"
-                  value={draft.gracePeriodUnit}
-                  onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as 'hours' | 'days' })}
+                  value={draft.staleThresholdUnit}
+                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days', gracePeriodUnit: e.target.value as 'hours' | 'days' })}
                 >
                   <option value="days">天</option>
                   <option value="hours">小时</option>
