@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore } from './stores/appStore'
 import { Toasts } from './components/ui'
 import ParticleText from './components/ParticleText'
@@ -141,22 +140,13 @@ export default function App(): JSX.Element {
 
   return (
     <Layout>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={location.pathname}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.15 }}
-          className="h-full overflow-auto"
-        >
-          <Routes location={location}>
-            {pages.map((p) => (
-              <Route key={p.path} path={p.path} element={p.element} />
-            ))}
-          </Routes>
-        </motion.div>
-      </AnimatePresence>
+      <div className="h-full overflow-auto">
+        <Routes location={location}>
+          {pages.map((p) => (
+            <Route key={p.path} path={p.path} element={p.element} />
+          ))}
+        </Routes>
+      </div>
       <Toasts />
     </Layout>
   )

@@ -1,32 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bell, Mail, Play, Save, Scale, Timer, Trash2, UserRound } from 'lucide-react'
+import { Activity, Bell, Mail, Play, Save, Scale, Timer, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
-import type { NotifyTarget } from '@shared/types'
+import RecipientPicker from '../components/RecipientPicker'
+import type { MonitoringConfig, NotifyTarget } from '@shared/types'
 
-function parseNotifyDraft(target: string | null): { self: boolean; creator: boolean; recipients: string } {
-  const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
-  let self = false
-  let creator = false
-  const rest: string[] = []
-  for (const token of tokens) {
-    if (token === 'self') self = true
-    else if (token === 'creator') creator = true
-    else if (token === 'both') { self = true; creator = true }
-    else if (token !== 'none') rest.push(token)
-  }
-  return { self, creator, recipients: rest.join(', ') }
-}
-
-function applyNotifyDraft(self: boolean, creator: boolean, recipients: string): NotifyTarget {
-  const parts: string[] = []
-  if (self) parts.push('self')
-  if (creator) parts.push('creator')
-  for (const token of recipients.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)) {
-    if (token !== 'self' && token !== 'creator' && token !== 'none' && !parts.includes(token)) parts.push(token)
-  }
-  return (parts.join(', ') || 'none') as NotifyTarget
-}
+type ThresholdUnit = MonitoringConfig['staleThresholdUnit']
 
 export default function Monitoring(): JSX.Element {
   const monitoring = useAppStore((s) => s.monitoring)
@@ -39,6 +18,7 @@ export default function Monitoring(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const settings = useAppStore((s) => s.settings)
   const emailGroups = useAppStore((s) => s.emailGroups)
+  const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
 
@@ -46,27 +26,7 @@ export default function Monitoring(): JSX.Element {
     setDraft(monitoring)
   }, [monitoring])
 
-  const parsedNotify = parseNotifyDraft(draft.notifyTarget)
-  const notifySelf = parsedNotify.self
-  const notifyCreator = parsedNotify.creator
-  const customRecipients = parsedNotify.recipients
-
-  const groupRecipientsPreview = (() => {
-    const tokens = customRecipients.split(/[,;\s]+/).map((t) => t.trim().toLowerCase()).filter(Boolean)
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const token of tokens) {
-      const group = emailGroups.find((g) => g.name.trim().toLowerCase() === token)
-      if (group) {
-        for (const r of group.recipients.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)) {
-          if (!seen.has(r.toLowerCase())) { seen.add(r.toLowerCase()); out.push(r) }
-        }
-      }
-    }
-    return out
-  })()
-
-  const applyNotify = applyNotifyDraft
+  const emailDisabled = !emailConfig?.enabled
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -125,7 +85,7 @@ export default function Monitoring(): JSX.Element {
                 <input
                   type="number"
                   min={1}
-                  max={draft.staleThresholdUnit === 'hours' ? 8760 : 365}
+                  max={draft.staleThresholdUnit === 'minutes' ? 525600 : draft.staleThresholdUnit === 'hours' ? 8760 : 365}
                   className="input"
                   value={draft.staleThresholdDays}
                   onChange={(e) => setDraft({ ...draft, staleThresholdDays: Math.max(1, Number(e.target.value) || 1) })}
@@ -136,8 +96,9 @@ export default function Monitoring(): JSX.Element {
                 <select
                   className="input"
                   value={draft.staleThresholdUnit}
-                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days', gracePeriodUnit: e.target.value as 'hours' | 'days' })}
+                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as ThresholdUnit })}
                 >
+                  <option value="minutes">分钟</option>
                   <option value="days">天</option>
                   <option value="hours">小时</option>
                 </select>
@@ -149,7 +110,7 @@ export default function Monitoring(): JSX.Element {
                 <input
                   type="number"
                   min={0}
-                  max={draft.gracePeriodUnit === 'hours' ? 8760 : 365}
+                  max={draft.gracePeriodUnit === 'minutes' ? 525600 : draft.gracePeriodUnit === 'hours' ? 8760 : 365}
                   className="input"
                   value={draft.gracePeriodDays}
                   onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
@@ -159,9 +120,10 @@ export default function Monitoring(): JSX.Element {
                 <div className="label mb-1.5">单位</div>
                 <select
                   className="input"
-                  value={draft.staleThresholdUnit}
-                  onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as 'hours' | 'days', gracePeriodUnit: e.target.value as 'hours' | 'days' })}
+                  value={draft.gracePeriodUnit}
+                  onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as ThresholdUnit })}
                 >
+                  <option value="minutes">分钟</option>
                   <option value="days">天</option>
                   <option value="hours">小时</option>
                 </select>
@@ -179,7 +141,7 @@ export default function Monitoring(): JSX.Element {
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Bell size={13} /> {tr('notificationsEnabled')}</div>
                 <div className="text-xs text-muted">生成巡检提醒记录，并按通知方式发送邮件</div>
               </div>
-              <Toggle checked={draft.notificationEnabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
+              <Toggle checked={draft.notificationEnabled} disabled={emailDisabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -206,65 +168,16 @@ export default function Monitoring(): JSX.Element {
           </div>
           <p className="mb-4 text-sm text-muted">{tr('runCheckDescription')}</p>
           <div className="space-y-3">
-            <div>
-              <div className="label mb-1.5 flex items-center gap-1.5"><Mail size={13} /> 通知填写收件人</div>
-              <input
-                className="input"
-                type="text"
-                placeholder="you@example.com, team@example.com 或分组名"
-                value={customRecipients}
-                onChange={(e) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, e.target.value) })}
-              />
-              <p className="mt-1 text-xs text-muted">填写的收件人直接接收邮件；勾选“通知自己”时发送到设置中配置的个人邮箱，两者可同时生效。</p>
-              <div className="mt-2 flex items-center gap-2">
-                <select
-                  className="input max-w-[12rem]"
-                  value=""
-                  onChange={(e) => {
-                    if (!e.target.value) return
-                    const current = customRecipients
-                    const next = current ? `${current}, ${e.target.value}` : e.target.value
-                    setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, notifyCreator, next) })
-                  }}
-                >
-                  <option value="">选择邮箱分组</option>
-                  {emailGroups.map((group) => (
-                    <option key={group.id} value={group.name}>{group.name}</option>
-                  ))}
-                </select>
-              </div>
-              <p className="mt-1 text-xs text-muted">可选择全局邮箱分组，巡检汇总将展开发送给组内全部邮箱。</p>
-              {groupRecipientsPreview.length > 0 ? (
-                <div className="mt-2 rounded-md border border-line bg-surface/60 px-3 py-2">
-                  <div className="text-xs font-medium text-muted">分组收件人（只读）</div>
-                  <div className="mt-1 break-all text-xs text-canvas-fg">{groupRecipientsPreview.join(', ')}</div>
-                </div>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Bell size={13} className="text-primary" />
-                <div className="text-sm text-canvas-fg">通知自己</div>
-              </div>
-              <Toggle
-                checked={notifySelf}
-                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(v, notifyCreator, customRecipients) })}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-              <div className="flex items-center gap-2">
-                <UserRound size={13} className="text-secondary" />
-                <div>
-                  <div className="text-sm text-canvas-fg">通知分支创始人</div>
-                  <div className="text-xs text-muted">勾选后过期的分支将邮件通知对应创始人</div>
-                </div>
-              </div>
-              <Toggle
-                checked={notifyCreator}
-                onChange={(v) => setDraft({ ...draft, notifyTarget: applyNotify(notifySelf, v, customRecipients) })}
-              />
-            </div>
-            <button className="btn w-full justify-center" disabled={scanning} onClick={() => void runCheck(false)}>
+            <RecipientPicker
+              value={draft.notifyTarget}
+              onChange={(value: NotifyTarget) => setDraft({ ...draft, notifyTarget: value })}
+              groups={emailGroups}
+              selfEmail={emailConfig?.selfEmail ?? ''}
+              disabled={emailDisabled}
+              allowSelf
+              allowCreator
+            />
+            <button className="btn btn-primary w-full justify-center" disabled={scanning || emailDisabled} onClick={() => void runCheck(false)}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>
             <button className="btn w-full justify-center" disabled={scanning || settings.deletionDisabled} onClick={() => void runCheck(true)}>

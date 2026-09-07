@@ -1,6 +1,7 @@
-import { ScrollText } from 'lucide-react'
+import { Download, ScrollText } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState } from '../components/ui'
+import { useState } from 'react'
 import { timeAgo } from '../lib/format'
 
 export default function Audit(): JSX.Element {
@@ -8,6 +9,9 @@ export default function Audit(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const repositories = useAppStore((s) => s.repositories)
+  const toast = useAppStore((s) => s.toast)
+  const refresh = useAppStore((s) => s.refresh)
+  const [exporting, setExporting] = useState(false)
 
   const repoNames = new Map(repositories.map((r) => [r.id, r.name]))
   const visibleAudit = activeRepositoryId
@@ -46,6 +50,18 @@ export default function Audit(): JSX.Element {
       email_creator_sent: '发送创建人邮件',
       email_test_sent: '发送测试邮件',
       email_connection_test: '测试邮件连接'
+      ,
+      email_config_updated: '更新邮件配置',
+      email_config_save_failed: '保存邮件配置失败',
+      settings_save_failed: '保存设置失败',
+      notification_marked_read: '标记通知已读',
+      notification_mark_read_failed: '标记通知失败',
+      notifications_cleared: '清空通知',
+      notifications_clear_failed: '清空通知失败',
+      check_requested: '触发巡检',
+      check_failed: '巡检失败',
+      audit_exported: '导出审计日志',
+      audit_export_failed: '导出审计日志失败'
     }
     return language === 'zh' ? (zhLabels[action] ?? action) : action.replace(/_/g, ' ')
   }
@@ -62,12 +78,37 @@ export default function Audit(): JSX.Element {
     return parts.filter(Boolean).join(' · ') || '应用操作已完成'
   }
 
+  const exportLogs = async (format: 'csv' | 'json'): Promise<void> => {
+    setExporting(true)
+    try {
+      const result = await window.branchpulse.exportAuditLogs(format)
+      if (!result.ok) {
+        toast(result.error || '审计日志导出失败', 'error')
+        return
+      }
+      toast(`已导出 ${result.count} 条审计日志`, 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('auditLog')}</h1>
           <div className="text-xs text-muted">{visibleAudit.length} {tr('entries') ?? 'entries'}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="btn" disabled={exporting} onClick={() => void exportLogs('csv')}>
+            <Download size={14} /> 导出 CSV
+          </button>
+          <button className="btn" disabled={exporting} onClick={() => void exportLogs('json')}>
+            <Download size={14} /> 导出 JSON
+          </button>
         </div>
       </div>
 

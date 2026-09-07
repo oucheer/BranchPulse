@@ -21,7 +21,7 @@ function rowToJob(row: Record<string, unknown>): SchedulerJob {
     name: String(row.name),
     kind: (row.kind === 'calendar' ? 'calendar' : 'interval') as SchedulerJob['kind'],
     enabled: Number(row.enabled ?? 1) === 1,
-    intervalHours: Number(row.interval_hours ?? 24),
+    intervalMinutes: Number(row.interval_minutes ?? Number(row.interval_hours ?? 24) * 60),
     daysOfWeek: days,
     time: String(row.time ?? '09:00'),
     startDate: (row.start_date as string | null) ?? null,
@@ -45,7 +45,7 @@ function startOfDay(date: Date): Date {
 export function computeNextRunAt(job: SchedulerJob, from: Date = new Date()): string {
   if (job.kind === 'interval') {
     const base = job.lastRunAt ? new Date(job.lastRunAt) : from
-    const next = new Date(base.getTime() + Math.max(1, job.intervalHours) * 3600 * 1000)
+    const next = new Date(base.getTime() + Math.max(1, job.intervalMinutes) * 60 * 1000)
     return next.toISOString()
   }
   const [hour, minute] = (job.time || '09:00').split(':').map(Number)
@@ -84,7 +84,7 @@ export class SchedulerService {
       name: job.name ?? existing?.name ?? 'Monitoring job',
       kind: job.kind ?? existing?.kind ?? 'interval',
       enabled: job.enabled ?? existing?.enabled ?? true,
-      intervalHours: job.intervalHours ?? existing?.intervalHours ?? 24,
+      intervalMinutes: job.intervalMinutes ?? existing?.intervalMinutes ?? 1440,
       daysOfWeek: job.daysOfWeek ?? existing?.daysOfWeek ?? [],
       time: job.time ?? existing?.time ?? '09:00',
       startDate: job.startDate !== undefined ? job.startDate : existing?.startDate ?? null,
@@ -107,7 +107,8 @@ export class SchedulerService {
           name: merged.name,
           kind: merged.kind,
           enabled: merged.enabled ? 1 : 0,
-          interval_hours: merged.intervalHours,
+          interval_hours: Math.max(1, Math.ceil(merged.intervalMinutes / 60)),
+          interval_minutes: merged.intervalMinutes,
           days_json: JSON.stringify(merged.daysOfWeek),
           time: merged.time,
           start_date: merged.startDate,
@@ -130,7 +131,8 @@ export class SchedulerService {
         name: merged.name,
         kind: merged.kind,
         enabled: merged.enabled ? 1 : 0,
-        interval_hours: merged.intervalHours,
+        interval_hours: Math.max(1, Math.ceil(merged.intervalMinutes / 60)),
+        interval_minutes: merged.intervalMinutes,
         days_json: JSON.stringify(merged.daysOfWeek),
         time: merged.time,
         start_date: merged.startDate,

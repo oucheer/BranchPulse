@@ -89,6 +89,12 @@ function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protec
   return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
 }
 
+function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdUnit']): number {
+  if (unit === 'minutes') return value / 60
+  if (unit === 'hours') return value
+  return value * 24
+}
+
 export interface RepositoryScanOptions {
   fetch?: boolean
   force?: boolean
@@ -401,8 +407,8 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(facts.lastCommitAt, now)
     const ageDays = elapsedDays(facts.createdAt, now)
-    const thresholdHours = monitoring.staleThresholdUnit === 'hours' ? monitoring.staleThresholdDays : monitoring.staleThresholdDays * 24
-    const graceHours = monitoring.gracePeriodUnit === 'hours' ? monitoring.gracePeriodDays : monitoring.gracePeriodDays * 24
+    const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
+    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(facts.lastCommitAt, now)
     const stale = inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
@@ -412,8 +418,8 @@ export class BranchService {
     const protection: ProtectionInfo = this.protection.evaluate(facts.name, isDefault)
     const health: HealthResult = this.health.compute({
       inactiveDays,
-      staleThresholdDays: monitoring.staleThresholdDays,
-      gracePeriodDays: monitoring.gracePeriodDays,
+      staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
+      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       merged: facts.merged,
@@ -465,8 +471,8 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
-    const thresholdHours = monitoring.staleThresholdUnit === 'hours' ? monitoring.staleThresholdDays : monitoring.staleThresholdDays * 24
-    const graceHours = monitoring.gracePeriodUnit === 'hours' ? monitoring.gracePeriodDays : monitoring.gracePeriodDays * 24
+    const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
+    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(cached.lastCommitAt, now)
     const stale = inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
@@ -476,8 +482,8 @@ export class BranchService {
     const protection: ProtectionInfo = this.protection.evaluate(cached.name, isDefault, cached.repositoryId)
     const health: HealthResult = this.health.compute({
       inactiveDays,
-      staleThresholdDays: monitoring.staleThresholdDays,
-      gracePeriodDays: monitoring.gracePeriodDays,
+      staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
+      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       merged: cached.merged,

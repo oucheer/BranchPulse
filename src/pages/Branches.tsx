@@ -288,6 +288,7 @@ export default function Branches(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
+  const emailConfig = useAppStore((s) => s.emailConfig)
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const zh = language === 'zh'
@@ -362,6 +363,7 @@ export default function Branches(): JSX.Element {
   const clearSelection = (): void => setSelectedIds(new Set())
 
   const notifyCreatorsBulk = async (pred: (b: BranchSummary) => boolean, label: string): Promise<void> => {
+    if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
     const targets = selectedBranches.filter(pred)
     if (targets.length === 0) { toast('没有符合条件的分支: ' + label, 'warn'); return }
     try {
@@ -372,6 +374,7 @@ export default function Branches(): JSX.Element {
   }
 
   const notifySelfBulk = async (): Promise<void> => {
+    if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
     if (selectedBranches.length === 0) { toast('请先勾选分支', 'warn'); return }
     try {
       const r = await window.branchpulse.notifySelfEmail(selectedBranches)
@@ -591,7 +594,7 @@ export default function Branches(): JSX.Element {
             <div className="flex-1" />
             <button
               className="btn text-xs"
-              disabled={batchBusy}
+              disabled={batchBusy || !emailConfig?.enabled}
               onClick={() => void notifySelfBulk()}
               title={zh ? '将选中分支信息汇总通知给自己' : 'Notify self with summary'}
             >
@@ -599,7 +602,7 @@ export default function Branches(): JSX.Element {
             </button>
             <button
               className="btn text-xs"
-              disabled={batchBusy}
+              disabled={batchBusy || !emailConfig?.enabled}
               onClick={() => void notifyCreatorsBulk((b) => b.stale, '过期')}
               title={zh ? '通知选中的过期分支创始人' : 'Notify stale branch creators'}
             >
@@ -607,7 +610,7 @@ export default function Branches(): JSX.Element {
             </button>
             <button
               className="btn text-xs"
-              disabled={batchBusy}
+              disabled={batchBusy || !emailConfig?.enabled}
               onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
               title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
             >

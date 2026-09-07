@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
+import RecipientPicker from '../components/RecipientPicker'
+import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import type { ReportScheduleFrequency } from '@shared/types'
 
@@ -34,9 +36,11 @@ export default function Reports(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const emailGroups = useAppStore((s) => s.emailGroups)
+  const emailConfig = useAppStore((s) => s.emailConfig)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
   const [draft, setDraft] = useState(emptySchedule())
+  const emailDisabled = !emailConfig?.enabled
 
   const reports = activeRepositoryId
     ? allReports.filter((report) => report.repositoryId === activeRepositoryId)
@@ -176,30 +180,16 @@ export default function Reports(): JSX.Element {
             />
           </div>
           <div className="lg:col-span-4">
-            <div className="label mb-1.5">收件邮箱 / 邮箱分组</div>
-            <textarea
-              className="input min-h-[120px] font-mono text-sm"
-              rows={5}
-              placeholder="多个邮箱或分组用逗号、分号或换行分隔"
+            <RecipientPicker
               value={draft.recipients}
-              onChange={(e) => setDraft({ ...draft, recipients: e.target.value })}
+              onChange={(value) => setDraft({ ...draft, recipients: value })}
+              groups={emailGroups}
+              selfEmail={emailConfig?.selfEmail ?? ''}
+              disabled={emailDisabled}
+              allowSelf
+              manualPlaceholder="多个邮箱或分组用逗号、分号或换行分隔"
+              rows={5}
             />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <select
-                className="input max-w-[12rem]"
-                value=""
-                onChange={(e) => {
-                  if (!e.target.value) return
-                  const current = draft.recipients.trim()
-                  setDraft({ ...draft, recipients: current ? `${current}, ${e.target.value}` : e.target.value })
-                }}
-              >
-                <option value="">选择邮箱分组</option>
-                {emailGroups.map((group) => (
-                  <option key={group.id} value={group.name}>{group.name}</option>
-                ))}
-              </select>
-            </div>
           </div>
         </div>
         {draft.frequency === 'weekly' ? (
@@ -234,7 +224,9 @@ export default function Reports(): JSX.Element {
                   </div>
                   <div className="text-xs text-muted">
                     {schedule.nextRunAt ? `下次：${new Date(schedule.nextRunAt).toLocaleString('zh-CN')}` : '已完成或未启用'}
-                    {schedule.recipients ? ` · 发送到 ${schedule.recipients}` : ' · 不发送邮件'}
+                    {schedule.recipients
+                      ? ` · 发送到 ${resolveRecipientDisplay(schedule.recipients, emailGroups, emailConfig?.selfEmail).join(', ') || schedule.recipients}`
+                      : ' · 不发送邮件'}
                   </div>
                 </div>
                 <Toggle checked={schedule.enabled} onChange={(v) => void toggleSchedule(schedule.id, v)} />

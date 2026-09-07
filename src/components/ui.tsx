@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 
@@ -79,33 +78,23 @@ export function Modal({ open, title, onClose, children, footer, width = 480 }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
   return (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+    open ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div
+          className="rounded-card border border-line bg-surface shadow-panel"
+          style={{ width }}
         >
-          <motion.div
-            className="rounded-card border border-line bg-surface shadow-panel"
-            style={{ width }}
-            initial={{ scale: 0.96, y: 8, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.97, y: 6, opacity: 0 }}
-          >
-            <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-              <div className="text-sm font-semibold text-canvas-fg">{title}</div>
-              <button className="rounded-md p-1 text-muted hover:bg-line/40 hover:text-canvas-fg" onClick={onClose} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="px-5 py-4">{children}</div>
-            {footer ? <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div> : null}
-          </motion.div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+            <div className="text-sm font-semibold text-canvas-fg">{title}</div>
+            <button className="rounded-md p-1 text-muted hover:bg-line/40 hover:text-canvas-fg" onClick={onClose} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-5 py-4">{children}</div>
+          {footer ? <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div> : null}
+        </div>
+      </div>
+    ) : null
   )
 }
 
@@ -154,32 +143,27 @@ export function Toasts(): JSX.Element {
   const dismissToast = useAppStore((s) => s.dismissToast)
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
-      <AnimatePresence>
-        {toasts.map((toast) => (
-          <motion.div
-            key={toast.id}
-            className={`pointer-events-auto rounded-card border px-4 py-3 text-sm shadow-panel ${
-              toast.level === 'error'
-                ? 'border-danger/40 bg-danger/10 text-danger'
-                : toast.level === 'success'
-                  ? 'border-ok/40 bg-ok/10 text-ok'
-                  : toast.level === 'warn'
-                    ? 'border-warn/40 bg-warn/10 text-warn'
-                    : 'border-line bg-surface text-canvas-fg'
-            }`}
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>{toast.message}</div>
-              <button className="text-muted hover:text-canvas-fg" onClick={() => dismissToast(toast.id)}>
-                <X size={14} />
-              </button>
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`pointer-events-auto rounded-card border px-4 py-3 text-sm shadow-panel ${
+            toast.level === 'error'
+              ? 'border-danger/40 bg-danger/10 text-danger'
+              : toast.level === 'success'
+                ? 'border-ok/40 bg-ok/10 text-ok'
+                : toast.level === 'warn'
+                  ? 'border-warn/40 bg-warn/10 text-warn'
+                  : 'border-line bg-surface text-canvas-fg'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>{toast.message}</div>
+            <button className="text-muted hover:text-canvas-fg" onClick={() => dismissToast(toast.id)}>
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

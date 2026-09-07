@@ -287,7 +287,7 @@ export default function Settings(): JSX.Element {
               <button className="btn btn-primary" disabled={savingEmail} onClick={() => void saveEmail()}>
                 <Save size={14} /> {tr('saveConfig')}
               </button>
-              <button className="btn" disabled={testing || !emailDraft.username} onClick={() => void sendTest()}>
+              <button className="btn" disabled={testing || !emailDraft.enabled || !emailDraft.username} onClick={() => void sendTest()}>
                 <CheckCircle2 size={14} /> {tr('testEmail')}
               </button>
             </div>

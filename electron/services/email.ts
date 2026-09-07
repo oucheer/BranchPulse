@@ -9,6 +9,7 @@ import { logger } from '../utils/logger'
 import { newId, nowIso } from '../utils/ids'
 
 const PLAIN_PREFIX = 'plain:'
+const OUTLOOK_TIMEOUT_MS = 120_000
 
 export interface EmailIssueRow {
   repository: string
@@ -73,6 +74,36 @@ export function parseNotifyTarget(target: string | null | undefined): ParsedNoti
     else if (token !== 'none') rest.push(token)
   }
   return { self, creator, recipients: rest.join(', ') }
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function textToHtml(subject: string, body: string): string {
+  const content = body
+    .split(/\r?\n/)
+    .map((line) => `<p style="margin:0 0 7px">${escapeHtml(line) || '&nbsp;'}</p>`)
+    .join('')
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"></head>
+<body style="font-family:'Microsoft YaHei',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
+  <div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
+    <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
+    ${content}
+    <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
+    <div style="color:#98a2b3;font-size:11px">由 BranchPulse 自动发送 · ${new Date().toLocaleString()}</div>
+  </div>
+</body></html>`
+}
+
+function validRecipients(recipients: string[]): string[] {
+  return [...new Set(recipients.map((recipient) => recipient.trim()).filter(Boolean))]
 }
 
 export class EmailService {
@@ -193,25 +224,43 @@ export class EmailService {
     return { subject: render(template.subject), body: render(template.body) }
   }
 
-  private async runOutlookScript(script: string, args: string[] = []): Promise<string> {
+  private async runOutlookScript(script: string, payload?: Record<string, unknown>): Promise<string> {
     if (process.platform !== 'win32') throw new Error('本机 Outlook 发送仅支持 Windows。')
     const scriptPath = path.join(app.getPath('temp'), 'branchpulse-outlook.ps1')
+    const payloadPath = payload ? path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.json`) : ''
+    if (payload) fs.writeFileSync(payloadPath, JSON.stringify(payload, null, 2), { encoding: 'utf8' })
+    const args = payload ? [payloadPath] : []
     fs.writeFileSync(scriptPath, script, { encoding: 'utf8' })
     try {
       return await new Promise<string>((resolve, reject) => {
         const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...args], { windowsHide: true })
         let stdout = ''
         let stderr = ''
+        let settled = false
+        const timer = setTimeout(() => {
+          settled = true
+          child.kill()
+          reject(new Error('Outlook 发送超时。请确认 Outlook 已启动并允许程序发送邮件。'))
+        }, OUTLOOK_TIMEOUT_MS)
         child.stdout.on('data', (chunk) => { stdout += String(chunk) })
         child.stderr.on('data', (chunk) => { stderr += String(chunk) })
-        child.on('error', (err) => reject(err instanceof Error ? err : new Error(String(err))))
+        child.on('error', (err) => {
+          if (settled) return
+          clearTimeout(timer)
+          settled = true
+          reject(err instanceof Error ? err : new Error(String(err)))
+        })
         child.on('close', (code) => {
+          if (settled) return
+          clearTimeout(timer)
+          settled = true
           if (code === 0) resolve(stdout.trim())
           else reject(new Error(stderr.trim() || `本机 Outlook 操作失败，退出码 ${code ?? 'unknown'}。`))
         })
       })
     } finally {
       fs.rmSync(scriptPath, { force: true })
+      if (payloadPath) fs.rmSync(payloadPath, { force: true })
     }
   }
 
@@ -229,18 +278,27 @@ export class EmailService {
     ].join("\r\n"))
   }
 
-  private async sendWithOutlook(input: { to: string; subject: string; body: string; attachments?: string[] }): Promise<void> {
-    const to = input.to.trim()
-    if (!to) throw new Error('收件人为空。')
+  private async sendWithOutlook(input: { to: string[]; subject: string; body: string; attachments?: string[] }): Promise<void> {
+    const recipients = validRecipients(input.to)
+    if (recipients.length === 0) throw new Error('收件人为空。')
     const script = [
       "$ErrorActionPreference = 'Stop'",
       'try {',
       '  $outlook = New-Object -ComObject Outlook.Application',
       '  $mail = $outlook.CreateItem(0)',
-      '  [void]$mail.Recipients.Add($args[0])',
-      '  $mail.Subject = $args[1]',
-      '  $mail.Body = $args[2]',
-      '  foreach ($path in $args[3].Split(";")) { if ($path) { [void]$mail.Attachments.Add($path) } }',
+      '  $payload = Get-Content -LiteralPath $args[0] -Raw -Encoding UTF8 | ConvertFrom-Json',
+      '  $recipients = @($payload.recipients | Where-Object { $_ -and $_.Trim() })',
+      '  if ($recipients.Count -eq 0) { throw "收件人为空。" }',
+      '  $mail.To = ($recipients -join "; ")',
+      '  $mail.Subject = [string]$payload.subject',
+      '  $mail.HTMLBody = [string]$payload.htmlBody',
+      '  if ($payload.attachments) {',
+      '    foreach ($path in @($payload.attachments)) {',
+      '      if ($path -and (Test-Path -LiteralPath $path)) {',
+      '        [void]$mail.Attachments.Add((Resolve-Path -LiteralPath $path).Path)',
+      '      }',
+      '    }',
+      '  }',
       '  $mail.Send()',
       '  exit 0',
       '} catch {',
@@ -248,7 +306,12 @@ export class EmailService {
       '  exit 1',
       '}'
     ].join("\r\n")
-    await this.runOutlookScript(script, [to, input.subject, input.body, (input.attachments ?? []).join(";")])
+    await this.runOutlookScript(script, {
+      recipients,
+      subject: input.subject,
+      htmlBody: textToHtml(input.subject, input.body),
+      attachments: input.attachments ?? []
+    })
   }
 
   async testConnection(config?: EmailConfig): Promise<EmailSendResult> {
@@ -275,7 +338,7 @@ export class EmailService {
     }
     try {
       await this.sendWithOutlook({
-        to: cfg.testRecipient,
+        to: [cfg.testRecipient],
         subject: 'BranchPulse Test Email',
         body: 'This is a test email from BranchPulse. Local Outlook delivery is working.'
       })
@@ -303,7 +366,7 @@ export class EmailService {
     const rendered = this.renderTemplate('summary', { ...data, recipient })
     try {
       await this.sendWithOutlook({
-        to: recipient,
+        to: recipientList,
         subject: rendered.subject,
         body: rendered.body
       })
@@ -351,7 +414,7 @@ export class EmailService {
         .join('\n\n---\n\n')
       try {
         await this.sendWithOutlook({
-          to,
+          to: [to],
           subject: `BranchPulse: ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention`,
           body
         })
@@ -400,7 +463,7 @@ export class EmailService {
     try {
       if (!fs.existsSync(input.attachmentPath)) throw new Error(`Report file not found: ${input.attachmentPath}`)
       await this.sendWithOutlook({
-        to: input.to.join(', '),
+        to: input.to,
         subject: input.subject,
         body: input.body,
         attachments: [input.attachmentPath]
@@ -415,8 +478,6 @@ export class EmailService {
     }
   }
 }
-
-void app
 
 
 

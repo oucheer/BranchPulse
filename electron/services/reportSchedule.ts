@@ -3,6 +3,7 @@ import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
+import { parseNotifyTarget, resolveRecipients } from './email'
 import { newId } from '../utils/ids'
 
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
@@ -135,8 +136,28 @@ export class ReportScheduleService {
       for (const schedule of due) {
         try {
           const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryId)
-          const recipients = schedule.recipients.split(/[,;\s]+/).filter(Boolean)
-          if (recipients.length > 0) {
+          const emailConfig = this.emailService.getConfig()
+          const parsedNotify = parseNotifyTarget(schedule.recipients)
+          const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
+          const targetRecipients: string[] = []
+          if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
+          if (parsedNotify.recipients) {
+            targetRecipients.push(...resolveRecipients(parsedNotify.recipients, this.emailService.listGroups()))
+          }
+          const recipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
+
+          if (!emailConfig.enabled) {
+            this.audit.record('report_schedule_email_skipped', {
+              id: schedule.id, name: schedule.name, reason: 'email_disabled'
+            }, 'failure')
+          } else if (recipients.length === 0) {
+            this.audit.record('report_schedule_email_skipped', {
+              id: schedule.id,
+              name: schedule.name,
+              reason: parsedNotify.self && !selfAddress ? 'self_email_missing' : 'recipients_empty',
+              input: schedule.recipients
+            }, 'failure')
+          } else {
             await this.emailService.sendReportEmail({
               to: recipients,
               subject: `BranchPulse ${schedule.name}`,

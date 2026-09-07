@@ -4,8 +4,6 @@
  * Fixed sidebar + fixed topbar + scrollable workspace.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import AeroShards from './shell/AeroShards'
 import MoltenMetal from './components/MoltenMetal'
 import LightPillar from './components/LightPillar'
@@ -13,14 +11,12 @@ import Sidebar from './shell/Sidebar'
 import Topbar from './shell/Topbar'
 import CommandPalette from './shell/CommandPalette'
 import { useAppStore } from './stores/appStore'
-import { motion as motionToken } from './design-system/tokens'
 export default function Layout({ children }: { children: ReactNode }): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const setProgress = useAppStore((s) => s.setProgress)
   const refresh = useAppStore((s) => s.refresh)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isDark, setIsDark] = useState(true)
-  const { pathname } = useLocation()
   useEffect(() => {
     const checkDark = (): void => setIsDark(document.documentElement.classList.contains('dark'))
     checkDark()
@@ -101,18 +97,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <Topbar onOpenPalette={() => setPaletteOpen(true)} />
         <main className="relative min-h-0 flex-1 overflow-auto p-6">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: motionToken.fast.duration, ease: motionToken.fast.ease }}
-              className="h-full"
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+          <div className="h-full">{children}</div>
         </main>
       </div>
       {/* Layer 7: Command Palette */}

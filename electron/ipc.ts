@@ -1,7 +1,9 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { app } from 'electron'
 import type {
   AppSettings,
   AuditEntry,
+  AuditExportResult,
   BranchCriteria,
   BranchSummary,
   DashboardSnapshot,
@@ -26,6 +28,7 @@ import type {
   ScanRun,
   SchedulerJob
 } from '@shared/types'
+import { exportAuditLogs } from './services/audit-export'
 import type { StorageService } from './services/storage'
 import type { GitService } from './services/git'
 import type { RepositoryService } from './services/repository'
@@ -100,6 +103,8 @@ export function registerIpc(services: AppServices): void {
   }
 
   ipcMain.handle('branchpulse:init', async (): Promise<DashboardSnapshot> => {
+    const currentSettings = settings.get()
+    const activeRepositoryId = currentSettings.activeRepositoryId
     const scanRuns = storage
       .all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 50')
       .map(scanRunFromRow)
@@ -109,8 +114,8 @@ export function registerIpc(services: AppServices): void {
       scanRuns,
       notifications: monitoring.listNotifications(),
       settings: settings.get(),
-      monitoring: await getMonitoring(),
-      activeRepositoryId: settings.get().activeRepositoryId
+      monitoring: await getMonitoring(activeRepositoryId),
+      activeRepositoryId
     }
   })
 
@@ -280,8 +285,19 @@ export function registerIpc(services: AppServices): void {
       audit.record('repository_scanned', { repository: repo?.name ?? id, branches: run.branches, stale: run.stale })
       return run
     }))
-  ipcMain.handle('branchpulse:runCheckNow', (_e, options: RunCheckOptions = {}): Promise<ScanRun> =>
-    monitoring.runCheckNow(options))
+  ipcMain.handle('branchpulse:runCheckNow', async (_e, options: RunCheckOptions = {}): Promise<ScanRun> => {
+    try {
+      const run = await monitoring.runCheckNow(options)
+      audit.record('check_requested', { trigger: options.trigger ?? 'manual', branches: run.branches, emailsSent: run.emailsSent })
+      return run
+    } catch (err) {
+      audit.record('check_failed', {
+        trigger: options.trigger ?? 'manual',
+        error: err instanceof Error ? err.message : String(err)
+      }, 'failure')
+      throw err
+    }
+  })
   ipcMain.handle('branchpulse:listBranches', (): BranchSummary[] => branch.listBranches())
   ipcMain.handle('branchpulse:getBranch', (_e, criteria: BranchCriteria): Promise<BranchSummary | null> => branch.getBranch(criteria))
   ipcMain.handle('branchpulse:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
@@ -372,11 +388,42 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:calendarRuns', (): { date: string; status: ScanRun['status']; runs: number }[] => scheduler.calendarRuns())
 
   ipcMain.handle('branchpulse:listNotifications', (): NotificationRecord[] => monitoring.listNotifications())
-  ipcMain.handle('branchpulse:markNotificationRead', (_e, id: string): NotificationRecord[] => monitoring.markNotificationRead(id))
-  ipcMain.handle('branchpulse:clearNotifications', (): void => monitoring.clearNotifications())
+  ipcMain.handle('branchpulse:markNotificationRead', (_e, id: string): NotificationRecord[] => {
+    try {
+      const notifications = monitoring.markNotificationRead(id)
+      audit.record('notification_marked_read', { id })
+      return notifications
+    } catch (err) {
+      audit.record('notification_mark_read_failed', { id, error: err instanceof Error ? err.message : String(err) }, 'failure')
+      throw err
+    }
+  })
+  ipcMain.handle('branchpulse:clearNotifications', (): void => {
+    try {
+      monitoring.clearNotifications()
+      audit.record('notifications_cleared', {})
+    } catch (err) {
+      audit.record('notifications_clear_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
+      throw err
+    }
+  })
 
   ipcMain.handle('branchpulse:getEmailConfig', (): EmailConfig => email.getConfig())
-  ipcMain.handle('branchpulse:saveEmailConfig', (_e, config: EmailConfig & { password?: string }): EmailConfig => email.saveConfig(config))
+  ipcMain.handle('branchpulse:saveEmailConfig', (_e, config: EmailConfig & { password?: string }): EmailConfig => {
+    try {
+      const saved = email.saveConfig(config)
+      audit.record('email_config_updated', {
+        enabled: saved.enabled,
+        username: saved.username,
+        selfEmail: saved.selfEmail,
+        testRecipient: saved.testRecipient
+      })
+      return saved
+    } catch (err) {
+      audit.record('email_config_save_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
+      throw err
+    }
+  })
   ipcMain.handle('branchpulse:testEmailConnection', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.testConnection(config))
   ipcMain.handle('branchpulse:sendTestEmail', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.sendTestEmail(config))
 
@@ -391,8 +438,46 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
 
   ipcMain.handle('branchpulse:listAudit', (): AuditEntry[] => audit.list())
+  ipcMain.handle('branchpulse:exportAuditLogs', async (_e, format: 'csv' | 'json' = 'csv'): Promise<AuditExportResult> => {
+    try {
+      const selected = await dialog.showOpenDialog({
+        title: 'Select audit export folder',
+        defaultPath: app.getPath('documents'),
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (selected.canceled || selected.filePaths.length === 0) {
+        return { ok: false, path: '', count: 0 }
+      }
+      const result = await exportAuditLogs(audit, selected.filePaths[0], format)
+      if (result.ok) audit.record('audit_exported', { path: result.path, count: result.count, format })
+      else audit.record('audit_export_failed', { error: result.error, format }, 'failure')
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      audit.record('audit_export_failed', { error: message }, 'failure')
+      return { ok: false, path: '', count: 0, error: message }
+    }
+  })
 
   ipcMain.handle('branchpulse:getSettings', (): AppSettings => settings.get())
-  ipcMain.handle('branchpulse:saveSettings', (_e, s: AppSettings): AppSettings => settings.save(s))
+  ipcMain.handle('branchpulse:saveSettings', (_e, s: AppSettings): AppSettings => {
+    try {
+      const saved = settings.save(s)
+      audit.record('settings_updated', {
+        theme: saved.theme,
+        language: saved.language,
+        trayEnabled: saved.trayEnabled,
+        launchMinimized: saved.launchMinimized,
+        startWithWindows: saved.startWithWindows,
+        gitPath: saved.gitPath,
+        activeRepositoryId: saved.activeRepositoryId,
+        deletionDisabled: saved.deletionDisabled
+      })
+      return saved
+    } catch (err) {
+      audit.record('settings_save_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
+      throw err
+    }
+  })
 
 }

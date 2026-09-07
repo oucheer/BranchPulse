@@ -25,6 +25,17 @@ export class AuditService {
       result: (r.result as 'success' | 'failure') ?? 'success'
     }))
   }
+
+  listAll(): AuditEntry[] {
+    const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM audit_logs ORDER BY at DESC')
+    return rows.map((r) => ({
+      id: String(r.id),
+      at: String(r.at),
+      action: String(r.action),
+      detail: safeJson(r.detail_json),
+      result: (r.result as 'success' | 'failure') ?? 'success'
+    }))
+  }
 }
 
 function safeJson(value: unknown): Record<string, unknown> {

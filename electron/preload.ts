@@ -85,6 +85,7 @@ const api: BranchApi = {
   deleteReportSchedule: (id: string) => ipcRenderer.invoke('branchpulse:deleteReportSchedule', id),
 
   listAudit: () => ipcRenderer.invoke('branchpulse:listAudit'),
+  exportAuditLogs: (format: 'csv' | 'json') => ipcRenderer.invoke('branchpulse:exportAuditLogs', format),
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('branchpulse:saveSettings', settings),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {

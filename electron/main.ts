@@ -25,6 +25,10 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let services: AppServices | null = null
 
+if (process.env.BRANCHPULSE_USER_DATA_DIR) {
+  app.setPath('userData', path.resolve(process.env.BRANCHPULSE_USER_DATA_DIR))
+}
+
 function iconPath(): string {
   if (app.isPackaged) {
     const packaged = path.join(process.resourcesPath, 'icon.ico')

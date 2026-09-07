@@ -3,6 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 function appDataRoot(): string {
+  if (process.env.BRANCHPULSE_DATA_DIR) {
+    return ensureDir(path.resolve(process.env.BRANCHPULSE_DATA_DIR))
+  }
   if (process.env.BRANCHPULSE_PORTABLE === '1') {
     return path.join(app.getAppPath(), 'data')
   }

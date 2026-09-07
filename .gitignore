@@ -10,6 +10,8 @@ dist/
 .clean-*
 .dbg-*
 .tst-*
+.smoke-data-*
+.smoke-profile-*
 .branchpulse.pid
 .electron_appinfo.cc
 .electron_appinfo.h

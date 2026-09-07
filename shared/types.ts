@@ -136,8 +136,8 @@ export interface ProtectionEntry {
 export interface MonitoringConfig {
   staleThresholdDays: number
   gracePeriodDays: number
-  staleThresholdUnit: 'hours' | 'days'
-  gracePeriodUnit: 'hours' | 'days'
+  staleThresholdUnit: 'minutes' | 'hours' | 'days'
+  gracePeriodUnit: 'minutes' | 'hours' | 'days'
   fetchEnabled: boolean
   namingEnabled: boolean
   emailPolicy: EmailPolicy
@@ -152,7 +152,7 @@ export interface SchedulerJob {
   name: string
   kind: 'interval' | 'calendar'
   enabled: boolean
-  intervalHours: number
+  intervalMinutes: number
   daysOfWeek: number[]
   time: string
   startDate: string | null
@@ -297,6 +297,13 @@ export interface AuditEntry {
   action: string
   detail: Record<string, unknown>
   result: 'success' | 'failure'
+}
+
+export interface AuditExportResult {
+  ok: boolean
+  path: string
+  count: number
+  error?: string
 }
 
 export interface AppSettings {
@@ -492,6 +499,7 @@ export interface BranchApi {
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
+  exportAuditLogs(format: 'csv' | 'json'): Promise<AuditExportResult>
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>

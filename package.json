@@ -9,12 +9,13 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/prepare-runtime.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "build:icon": "node scripts/generate-icon.mjs",
-    "package": "electron-vite build && electron-builder",
-    "package:dir": "electron-vite build && electron-builder --dir"
+    "package": "electron-vite build && node scripts/prepare-runtime.mjs && electron-builder",
+    "package:dir": "electron-vite build && node scripts/prepare-runtime.mjs && electron-builder --dir",
+    "package:portable": "electron-vite build && node scripts/prepare-runtime.mjs && electron-builder --win portable --x64"
   },
   "dependencies": {
     "@types/three": "^0.185.4",
@@ -66,14 +67,7 @@
     },
     "files": [
       "out/**",
-      "package.json",
-      {
-        "from": "node_modules/call-bind-apply-helpers",
-        "to": "node_modules/call-bind-apply-helpers",
-        "filter": [
-          "**/*"
-        ]
-      }
+      "package.json"
     ],
     "extraResources": [
       {

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CalendarClock, Play, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
+import RecipientPicker from '../components/RecipientPicker'
 import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
 
@@ -14,36 +15,12 @@ function notifyLabel(target: string): string {
   return `通知 ${target}`
 }
 
-function parseNotifyDraft(target: string | null): { self: boolean; creator: boolean; recipients: string } {
-  const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
-  let self = false
-  let creator = false
-  const rest: string[] = []
-  for (const token of tokens) {
-    if (token === 'self') self = true
-    else if (token === 'creator') creator = true
-    else if (token === 'both') { self = true; creator = true }
-    else if (token !== 'none') rest.push(token)
-  }
-  return { self, creator, recipients: rest.join(', ') }
-}
-
-function applyNotifyDraft(self: boolean, creator: boolean, recipients: string): NotifyTarget {
-  const parts: string[] = []
-  if (self) parts.push('self')
-  if (creator) parts.push('creator')
-  for (const token of recipients.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)) {
-    if (token !== 'self' && token !== 'creator' && token !== 'none' && !parts.includes(token)) parts.push(token)
-  }
-  return (parts.join(', ') || 'none') as NotifyTarget
-}
-
 const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
   repositoryId,
   name: '',
   kind: 'interval',
   enabled: true,
-  intervalHours: 24,
+  intervalMinutes: 1440,
   daysOfWeek: [1, 2, 3, 4, 5],
   time: '09:00',
   startDate: null,
@@ -63,14 +40,12 @@ export default function Scheduler(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
   const emailGroups = useAppStore((s) => s.emailGroups)
+  const emailConfig = useAppStore((s) => s.emailConfig)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
-  const parsedNotify = parseNotifyDraft(editJob?.notifyTarget ?? null)
-  const notifySelf = parsedNotify.self
-  const notifyCreator = parsedNotify.creator
-  const customRecipients = parsedNotify.recipients
+  const emailDisabled = !emailConfig?.enabled
 
   const visibleJobs = activeRepositoryId ? jobs.filter((job) => job.repositoryId === activeRepositoryId || job.repositoryId === null) : jobs
 
@@ -146,7 +121,7 @@ export default function Scheduler(): JSX.Element {
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
                     {job.kind === 'interval' ? (
-                      <span>每 {job.intervalHours} 小时</span>
+                      <span>每 {job.intervalMinutes} 分钟</span>
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
@@ -156,7 +131,12 @@ export default function Scheduler(): JSX.Element {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button className="btn px-2" onClick={() => void run(job.id)}><Play size={13} /></button>
+                  <button
+                    className="btn px-2"
+                    disabled={emailDisabled && job.notifyTarget !== 'none'}
+                    title={emailDisabled && job.notifyTarget !== 'none' ? '邮件发送未启用' : '立即执行'}
+                    onClick={() => void run(job.id)}
+                  ><Play size={13} /></button>
                   <button className="btn px-2" onClick={() => setEditJob({ ...job })}>编辑</button>
                   <button className="btn px-2" onClick={() => void remove(job.id)}><Trash2 size={13} className="text-danger" /></button>
                 </div>
@@ -256,8 +236,8 @@ export default function Scheduler(): JSX.Element {
             </div>
             {editJob?.kind === 'interval' ? (
               <div>
-                <div className="label mb-1">{tr('intervalHours')}</div>
-                <input type="number" min={1} className="input" value={editJob?.intervalHours ?? 24} onChange={(e) => setEditJob({ ...editJob, intervalHours: Math.max(1, Number(e.target.value) || 1) })} />
+                <div className="label mb-1">{tr('intervalMinutes')}</div>
+                <input type="number" min={1} className="input" value={editJob?.intervalMinutes ?? 1440} onChange={(e) => setEditJob({ ...editJob, intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
               </div>
             ) : null}
           </div>
@@ -305,62 +285,17 @@ export default function Scheduler(): JSX.Element {
               onChange={(v) => setEditJob({ ...editJob, autoDeleteEnabled: v })}
             />
           </div>
-          <div>
-            <div className="label mb-1">收件人</div>
-            <input
-              className="input"
-              type="email"
-              placeholder="you@example.com 或分组名"
-              value={customRecipients}
-              onChange={(e) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, notifyCreator, e.target.value) })}
+            <RecipientPicker
+              value={editJob?.notifyTarget ?? 'none'}
+              onChange={(value: NotifyTarget) => setEditJob({ ...editJob, notifyTarget: value })}
+              groups={emailGroups}
+              selfEmail={emailConfig?.selfEmail ?? ''}
+              disabled={emailDisabled}
+              allowSelf
+              allowCreator
+              label="收件人"
+              manualPlaceholder="you@example.com, team@example.com"
             />
-            <div className="mt-2 flex items-center gap-2">
-              <select
-                className="input max-w-[12rem]"
-                value=""
-                onChange={(e) => {
-                  if (!e.target.value) return
-                  const next = customRecipients ? `${customRecipients}, ${e.target.value}` : e.target.value
-                  setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, notifyCreator, next) })
-                }}
-              >
-                <option value="">选择邮箱分组</option>
-                {emailGroups.map((group) => (
-                  <option key={group.id} value={group.name}>{group.name}</option>
-                ))}
-              </select>
-            </div>
-            {(() => {
-              const tokens = customRecipients.split(/[,;\s]+/).map((t) => t.trim().toLowerCase()).filter(Boolean)
-              const seen = new Set<string>()
-              const out: string[] = []
-              for (const token of tokens) {
-                const group = emailGroups.find((g) => g.name.trim().toLowerCase() === token)
-                if (group) {
-                  for (const r of group.recipients.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)) {
-                    if (!seen.has(r.toLowerCase())) { seen.add(r.toLowerCase()); out.push(r) }
-                  }
-                }
-              }
-              return out.length > 0 ? (
-                <div className="mt-2 rounded-md border border-line bg-surface/60 px-3 py-2">
-                  <div className="text-xs font-medium text-muted">分组收件人（只读）</div>
-                  <div className="mt-1 break-all text-xs text-canvas-fg">{out.join(', ')}</div>
-                </div>
-              ) : null
-            })()}
-            <div className="mt-2 space-y-2">
-              <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-                <span className="text-sm text-canvas-fg">通知自己</span>
-                <Toggle checked={notifySelf} onChange={(v) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(v, notifyCreator, customRecipients) })} />
-              </div>
-              <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-                <span className="text-sm text-canvas-fg">通知分支创始人</span>
-                <Toggle checked={notifyCreator} onChange={(v) => setEditJob({ ...editJob, notifyTarget: applyNotifyDraft(notifySelf, v, customRecipients) })} />
-              </div>
-            </div>
-            <p className="mt-1 text-xs text-muted">支持填写邮箱或全局邮箱分组，多个用逗号分隔；勾选“通知自己”发送到设置中的个人邮箱，可同时生效。</p>
-          </div>
         </div>
       </Modal>
     </div>

@@ -39,7 +39,7 @@ class Logger {
   }
 
   error(msg: string, err?: unknown): void {
-    const detail = err instanceof Error ? ` ${err.message}` : ''
+    const detail = err instanceof Error ? ` ${err.stack || err.message}` : ''
     this.write('error', msg + detail)
   }
 }

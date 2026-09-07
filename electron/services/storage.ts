@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
   kind TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   interval_hours INTEGER NOT NULL DEFAULT 24,
+  interval_minutes INTEGER NOT NULL DEFAULT 1440,
   days_json TEXT,
   time TEXT,
   start_date TEXT,
@@ -152,8 +153,7 @@ CREATE TABLE IF NOT EXISTS report_schedules (
   enabled INTEGER NOT NULL DEFAULT 1,
   last_run_at TEXT,
   next_run_at TEXT,
-  created_at TEXT NOT NULL,
-  repository_id TEXT
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
@@ -285,13 +285,18 @@ export class StorageService {
   }
 
   async init(): Promise<void> {
-    const require = createRequire(path.join(__dirname, 'noop.js'))
+    const require = createRequire(path.join(__dirname, 'index.js'))
     let wasmBinary: ArrayBuffer | null = null
     try {
       const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
       wasmBinary = fs.readFileSync(wasmPath) as unknown as ArrayBuffer
     } catch (err) {
       logger.warn(`sql.js wasm not resolved from node_modules: ${String(err)}`)
+      const packagedWasmPath = path.join(__dirname, 'sql-wasm.wasm')
+      if (fs.existsSync(packagedWasmPath)) {
+        wasmBinary = fs.readFileSync(packagedWasmPath) as unknown as ArrayBuffer
+        logger.info('Loaded sql.js wasm from packaged runtime.')
+      }
     }
     const SQL = await initSqlJs({ wasmBinary: wasmBinary ?? undefined })
     if (fs.existsSync(this.file)) {
@@ -320,6 +325,14 @@ export class StorageService {
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
+    this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
+    this.db.run(`
+      UPDATE scheduler_jobs
+      SET interval_minutes = CAST(interval_hours * 60 AS INTEGER)
+      WHERE interval_minutes = 1440
+        AND interval_hours IS NOT NULL
+        AND interval_hours <> 24
+    `)
     this.ensureColumn('email_config', 'self_email', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_url', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')

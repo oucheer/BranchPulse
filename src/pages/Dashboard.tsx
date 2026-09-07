@@ -118,7 +118,7 @@ function ActivityChart({ runs }: { runs: ScanRun[] }): JSX.Element {
       const d = new Date(Date.now() - i * 86400000)
       const key = d.toISOString().slice(0, 10)
       const dayRuns = runs.filter((r) => r.finishedAt?.slice(0, 10) === key)
-      const total = dayRuns.reduce((s, r) => s + (r.activity?.length ?? 0), 0)
+      const total = dayRuns.reduce((s, r) => Math.max(s, r.active), 0)
       arr.push({ date: key, label: `${d.getMonth() + 1}/${d.getDate()}`, total })
     }
     return arr
