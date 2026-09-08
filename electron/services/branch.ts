@@ -42,6 +42,7 @@ interface AnalysisFacts {
   mergedInto: string | null
   baseBranch: string
   gracePeriodDays: number
+  recentCommits: CommitInfo[]
 }
 
 function remoteBranchConfig(repo: Repository, apiKey?: string): GitLabConnectionConfig {
@@ -230,7 +231,7 @@ export class BranchService {
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    const cacheContentKey = `v2|${latestCommit?.id ?? ''}|${fp}`
+    const cacheContentKey = `v3|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -239,6 +240,22 @@ export class BranchService {
         return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
       } catch {
         /* fall through */
+      }
+    }
+
+    const recentCommits = [...commits]
+    if (commits.length === 100) {
+      const oldestDate = commits[commits.length - 1]?.committed_date ?? commits[commits.length - 1]?.authored_date ?? commits[commits.length - 1]?.created_at
+      const cutoff = Date.now() - 8 * DAY_MS
+      if (oldestDate && new Date(oldestDate).getTime() > cutoff) {
+        for (let page = 2; page <= 5; page += 1) {
+          const more = await this.gitlab.listCommits(projectId, branch.name, page, 100, config)
+          if (!more.length) break
+          recentCommits.push(...more)
+          if (more.length < 100) break
+          const lastDate = more[more.length - 1]?.committed_date ?? more[more.length - 1]?.authored_date ?? more[more.length - 1]?.created_at
+          if (!lastDate || new Date(lastDate).getTime() <= cutoff) break
+        }
       }
     }
 
@@ -292,7 +309,8 @@ export class BranchService {
       merged: branch.merged === true || unique.length === 0,
       mergedInto: branch.merged || unique.length === 0 ? defaultBranch : null,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays
+      gracePeriodDays: monitoring.gracePeriodDays,
+      recentCommits: recentCommits.map((c) => this.gitLabCommitToInfo(c))
     }
     void commitSet
     const result = this.buildFromFacts(facts, ref, repo.id, monitoring)
@@ -321,7 +339,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `${ref.sha}|${fp}`
+    const cacheContentKey = `v3|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -360,7 +378,13 @@ export class BranchService {
     const countPromise = this.git.countCommits(repoPath, fullRef)
     const aheadBehindPromise = this.git.aheadBehind(repoPath, defaultRef, fullRef)
     const mergeBasePromise = this.git.mergeBase(repoPath, defaultRef, fullRef)
-    const [commitCount, aheadBehind, mergeBase] = await Promise.all([countPromise, aheadBehindPromise, mergeBasePromise])
+    const recentCommitsPromise = this.git.lastCommits(repoPath, fullRef, 100)
+    const [commitCount, aheadBehind, mergeBase, recentCommits] = await Promise.all([
+      countPromise,
+      aheadBehindPromise,
+      mergeBasePromise,
+      recentCommitsPromise
+    ])
 
     const firstCommit = await this.git.firstDivergentCommit(repoPath, defaultRef, fullRef, mergeBase)
     const isHead = type === 'local' && ref.name === currentBranch
@@ -395,7 +419,8 @@ export class BranchService {
       merged: aheadBehind.ahead === 0,
       mergedInto,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays
+      gracePeriodDays: monitoring.gracePeriodDays,
+      recentCommits
     }
   }
 
@@ -463,7 +488,7 @@ export class BranchService {
       gracePeriodDays: monitoring.gracePeriodDays,
       graceExpired,
       cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
-      recentCommits: [],
+      recentCommits: facts.recentCommits,
       lastScannedAt: new Date().toISOString()
     }
   }

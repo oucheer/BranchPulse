@@ -181,6 +181,9 @@ export interface ScanRun {
   finishedAt: string | null
   status: ScanStatus
   trigger: 'manual' | 'scheduler' | 'scan_repository' | 'startup'
+  healthAvg?: number | null
+  healthBest?: number | null
+  healthWorst?: number | null
   repositories: number
   branches: number
   active: number

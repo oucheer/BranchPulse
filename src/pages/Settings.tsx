@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
+import type { EffectsMode } from '../lib/effects'
 import type { AppSettings, BackgroundTheme, ColorTheme, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
 
 export default function Settings(): JSX.Element {
@@ -9,9 +10,12 @@ export default function Settings(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const language = useAppStore((s) => s.language)
+  const effectsMode = useAppStore((s) => s.effectsMode)
   const setLanguage = useAppStore((s) => s.setLanguage)
+  const setEffectsMode = useAppStore((s) => s.setEffectsMode)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const zh = language === 'zh'
 
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [emailDraft, setEmailDraft] = useState<EmailConfig & { password?: string }>({
@@ -44,6 +48,10 @@ export default function Settings(): JSX.Element {
   const backgroundThemes: Array<{ value: BackgroundTheme; label: string }> = [
     { value: 'dark', label: '深色' },
     { value: 'light', label: '浅色' }
+  ]
+  const effectsModes: Array<{ value: EffectsMode; label: string }> = [
+    { value: 'auto', label: zh ? '自动' : 'Auto' },
+    { value: 'off', label: zh ? '关闭' : 'Off' }
   ]
 
   useEffect(() => {
@@ -182,6 +190,27 @@ export default function Settings(): JSX.Element {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <div className="label mb-1.5">{zh ? '动态背景' : 'Animated background'}</div>
+              <div className="flex gap-2">
+                {effectsModes.map((mode) => (
+                  <button
+                    key={mode.value}
+                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                      effectsMode === mode.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
+                    }`}
+                    onClick={() => setEffectsMode(mode.value)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {zh
+                  ? '自动模式会在低性能设备、系统减少动态效果或软件渲染时自动关闭动画。'
+                  : 'Auto disables animations on low-power devices, reduced-motion systems, or software rendering.'}
+              </p>
             </div>
             <div>
               <div className="label mb-1.5">{tr('language')}</div>

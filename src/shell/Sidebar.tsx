@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
+import { useEffectsEnabled } from '../lib/effects'
+import DepthText from '../components/DepthText'
 
 interface NavItem {
   to: string
@@ -64,6 +66,8 @@ export default function Sidebar(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
+  const effectsMode = useAppStore((s) => s.effectsMode)
+  const effectsEnabled = useEffectsEnabled(effectsMode)
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const navRef = useRef<HTMLElement | null>(null)
@@ -111,7 +115,26 @@ export default function Sidebar(): JSX.Element {
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary to-secondary">
           <GitBranch size={15} className="text-white" />
         </div>
-        <div className="text-sm font-bold text-canvas-fg">BranchPulse</div>
+        {effectsEnabled ? (
+          <DepthText
+            text="BranchPulse"
+            layers={12}
+            depth={0.9}
+            faceColor="rgb(var(--fg))"
+            depthColor="rgb(var(--secondary))"
+            tilt={6}
+            smoothing={0.16}
+            perspective={700}
+            autoOrbit
+            orbitSpeed={0.2}
+            pointerTracking={false}
+            fontSize="clamp(16px, 1.5vw, 21px)"
+            fontWeight={800}
+            shadow
+          />
+        ) : (
+          <div className="text-sm font-bold text-canvas-fg">BranchPulse</div>
+        )}
       </div>
 
       {/* Navigation */}

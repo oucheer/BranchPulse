@@ -228,6 +228,9 @@ CREATE TABLE IF NOT EXISTS scan_runs (
   finished_at TEXT,
   status TEXT NOT NULL,
   trigger TEXT NOT NULL,
+  health_avg REAL,
+  health_best REAL,
+  health_worst REAL,
   repositories INTEGER NOT NULL DEFAULT 0,
   branches INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 0,
@@ -328,6 +331,9 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
     this.ensureColumn('scan_runs', 'deleted', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('scan_runs', 'health_avg', 'REAL')
+    this.ensureColumn('scan_runs', 'health_best', 'REAL')
+    this.ensureColumn('scan_runs', 'health_worst', 'REAL')
     this.db.run(`
       UPDATE scheduler_jobs
       SET interval_minutes = CAST(interval_hours * 60 AS INTEGER)
@@ -352,6 +358,8 @@ export class StorageService {
     this.ensureColumn('protected_branches', 'repository_id', 'TEXT')
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
     this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
+    this.run(`DELETE FROM whitelist WHERE pattern = 'whitelisted-feature' AND type = 'exact' AND note = 'Demo whitelisted branch'`)
+    this.run(`DELETE FROM protected_branches WHERE pattern = 'hotfix/*' AND type = 'glob' AND note = 'Demo protected hotfix branches'`)
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {
@@ -475,26 +483,6 @@ export class StorageService {
       for (const t of templates) {
         this.insert('email_templates', { id: newId(), kind: t.kind, subject: t.subject, body: t.body })
       }
-    }
-    const whitelistCount = this.get<{ n: number }>('SELECT COUNT(*) AS n FROM whitelist')?.n ?? 0
-    if (whitelistCount === 0) {
-      this.insert('whitelist', {
-        id: newId(),
-        pattern: 'whitelisted-feature',
-        type: 'exact',
-        note: 'Demo whitelisted branch',
-        created_at: nowIso()
-      })
-    }
-    const protectedCount = this.get<{ n: number }>('SELECT COUNT(*) AS n FROM protected_branches')?.n ?? 0
-    if (protectedCount === 0) {
-      this.insert('protected_branches', {
-        id: newId(),
-        pattern: 'hotfix/*',
-        type: 'glob',
-        note: 'Demo protected hotfix branches',
-        created_at: nowIso()
-      })
     }
   }
 

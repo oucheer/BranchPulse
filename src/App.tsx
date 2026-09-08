@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
+import { useEffectsEnabled } from './lib/effects'
 import { Toasts } from './components/ui'
 import ParticleText from './components/ParticleText'
 import Layout from './Layout'
@@ -37,12 +38,14 @@ export default function App(): JSX.Element {
   const startupError = useAppStore((s) => s.startupError)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
+  const effectsMode = useAppStore((s) => s.effectsMode)
+  const effectsEnabled = useEffectsEnabled(effectsMode)
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
-  const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
+    if (!effectsEnabled) return
     const onPointerMove = (e: PointerEvent): void => {
       document.querySelectorAll<HTMLElement>('.btn').forEach((el) => {
         const rect = el.getBoundingClientRect()
@@ -54,18 +57,10 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('pointermove', onPointerMove, { passive: true })
     return () => window.removeEventListener('pointermove', onPointerMove)
-  }, [])
+  }, [effectsEnabled])
 
   useEffect(() => {
-    if (!ready || splashDone) return
-    const elapsed = Date.now() - splashStartedAt
-    const remaining = Math.max(0, 2600 - elapsed)
-    const timer = window.setTimeout(() => setSplashDone(true), remaining)
-    return () => window.clearTimeout(timer)
-  }, [ready, splashDone, splashStartedAt])
-
-  useEffect(() => {
-  if (desktopAvailable) void refresh()
+    if (desktopAvailable) void refresh()
   }, [desktopAvailable, refresh])
 
   useEffect(() => {
@@ -77,16 +72,14 @@ export default function App(): JSX.Element {
   }, [settings.backgroundTheme, settings.colorTheme])
 
   useEffect(() => {
-    document.documentElement.style.colorScheme = settings.backgroundTheme
-  }, [settings.backgroundTheme])
+    if (!ready || splashDone) return
+    const timer = window.setTimeout(() => setSplashDone(true), effectsEnabled ? 650 : 200)
+    return () => window.clearTimeout(timer)
+  }, [ready, splashDone, effectsEnabled])
 
   useEffect(() => {
-    if (!ready || splashDone) return
-    const elapsed = Date.now() - splashStartedAt
-    const remaining = Math.max(0, 2600 - elapsed)
-    const timer = window.setTimeout(() => setSplashDone(true), remaining)
-    return () => window.clearTimeout(timer)
-  }, [ready, splashDone, splashStartedAt])
+    document.documentElement.style.colorScheme = settings.backgroundTheme
+  }, [settings.backgroundTheme])
 
   if (!desktopAvailable) {
     return (
@@ -105,9 +98,33 @@ export default function App(): JSX.Element {
   if (showSplash && !startupError) {
     return (
       <div className="relative h-screen overflow-hidden bg-canvas">
-        <div className="absolute inset-0">
-          <ParticleText text="BranchPulse" onComplete={() => setSplashDone(true)} />
-        </div>
+        {effectsEnabled ? (
+          <>
+            <div className="absolute inset-0">
+              <ParticleText
+                text="BranchPulse"
+                duration={1400}
+                onComplete={() => {
+                  if (ready) setSplashDone(true)
+                }}
+              />
+            </div>
+            {!ready ? (
+              <div className="pointer-events-none absolute inset-x-0 top-12 text-center">
+                <div className="inline-block rounded-md border border-line bg-surface/70 px-2.5 py-1 text-xs font-medium text-muted">
+                  Loading...
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+            {!ready ? (
+              <div className="mt-4 text-sm font-medium text-muted">Loading...</div>
+            ) : null}
+          </div>
+        )}
         <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
           <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
         </div>

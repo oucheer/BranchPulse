@@ -19,6 +19,7 @@ module.exports = {
       },
       fontFamily: {
         sans: [
+          'Inter Variable',
           'Inter',
           'Segoe UI',
           'PingFang SC',

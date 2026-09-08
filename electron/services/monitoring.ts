@@ -194,6 +194,9 @@ export class MonitoringService {
       finishedAt,
       status: 'completed',
       trigger: options.trigger ?? 'manual',
+      healthAvg: summary.healthAvg,
+      healthBest: summary.healthBest,
+      healthWorst: summary.healthWorst,
       repositories: targets.length,
       branches: summary.branches,
       active: summary.active,
@@ -215,6 +218,9 @@ export class MonitoringService {
       finished_at: finishedAt,
       status: run.status,
       trigger: run.trigger,
+      health_avg: run.healthAvg ?? null,
+      health_best: run.healthBest ?? null,
+      health_worst: run.healthWorst ?? null,
       repositories: run.repositories,
       branches: run.branches,
       active: run.active,
@@ -256,6 +262,10 @@ export class MonitoringService {
 
   private summarize(branches: BranchSummary[], repositoryCount: number) {
     const count = (fn: (b: BranchSummary) => boolean): number => branches.filter(fn).length
+    const scores = branches.map((b) => b.health.score).filter((score) => Number.isFinite(score))
+    const healthAvg = scores.length
+      ? Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10
+      : null
     return {
       branches: branches.length,
       active: count((b) => b.state === 'active'),
@@ -265,7 +275,10 @@ export class MonitoringService {
       merged: count((b) => b.merged),
       namingInvalid: count((b) => b.naming.status === 'invalid'),
       cleanupCandidates: count((b) => b.cleanupCandidate),
-      repositories: repositoryCount
+      repositories: repositoryCount,
+      healthAvg,
+      healthBest: scores.length ? Math.max(...scores) : null,
+      healthWorst: scores.length ? Math.min(...scores) : null
     }
   }
 

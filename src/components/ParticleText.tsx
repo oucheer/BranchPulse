@@ -67,7 +67,7 @@ export default function ParticleText({ text, duration = 3400, onComplete }: Part
       if (!offContext) return
       const fontSize = Math.min(offWidth / (text.length * 0.72), offHeight * 0.66, 132)
       offContext.fillStyle = '#fff'
-      offContext.font = `800 ${fontSize}px Inter, "Segoe UI", system-ui, sans-serif`
+      offContext.font = `800 ${fontSize}px "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif`
       offContext.textAlign = 'center'
       offContext.textBaseline = 'middle'
       offContext.fillText(text, offWidth / 2, offHeight / 2)
@@ -159,6 +159,9 @@ export default function ParticleText({ text, duration = 3400, onComplete }: Part
     }
 
     resize()
+    void document.fonts?.load('800 64px "Inter Variable"').then(() => {
+      if (!finished) resize()
+    })
     window.addEventListener('resize', resize)
     canvas.addEventListener('pointermove', onPointerMove)
     raf = requestAnimationFrame(draw)

@@ -89,28 +89,94 @@ function Donut({ segments, size = 80, stroke = 9, center }: { segments: { label:
   )
 }
 
-function Sparkline({ data, color, height = 40 }: { data: number[]; color: string; height?: number }): JSX.Element | null {
-  if (data.length < 2) return null
+function Sparkline({ data, color, height = 40 }: { data: Array<number | null>; color: string; height?: number }): JSX.Element {
+  const numeric = data.filter((value): value is number => value != null)
   const w = 100
-  const min = Math.min(...data)
-  const max = Math.max(...data)
-  const range = max - min || 1
-  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${height - 4 - ((v - min) / range) * (height - 8)}`)
-  const path = points.join(' ')
+  const max = Math.max(...numeric, 1)
+  let path = ''
+  const dots: Array<{ x: number; y: number }> = []
+  let penDown = false
+  data.forEach((value, index) => {
+    if (value == null) {
+      penDown = false
+      return
+    }
+    const x = ((index + 0.5) / data.length) * w
+    const y = height - 4 - (Math.max(0, value) / max) * (height - 8)
+    dots.push({ x, y })
+    path += penDown ? ` L${x.toFixed(2)},${y.toFixed(2)}` : ` M${x.toFixed(2)},${y.toFixed(2)}`
+    penDown = true
+  })
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className="block">
-      <motion.polyline
-        points={path}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: 1 }}
-        transition={{ duration: 0.7, ease: 'easeOut' }}
-      />
+      <line x1="0" y1={height - 4} x2={w} y2={height - 4} stroke="rgb(var(--line))" strokeWidth="1" strokeDasharray="2 3" opacity="0.6" />
+      {path ? (
+        <motion.path
+          d={path}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 0.7, ease: 'easeOut' }}
+        />
+      ) : null}
+      {dots.map((dot, index) => (
+        <circle key={index} cx={dot.x} cy={dot.y} r="2" fill={color} />
+      ))}
     </svg>
+  )
+}
+
+function MiniBars({
+  data,
+  color,
+  height = 44,
+  emptyLabel,
+  maxValue,
+  labels = []
+}: {
+  data: Array<number | null>
+  color: string
+  height?: number
+  emptyLabel?: string
+  maxValue?: number
+  labels?: string[]
+}): JSX.Element {
+  const numeric = data.filter((value): value is number => value != null)
+  const max = maxValue ?? Math.max(...numeric, 1)
+  if (numeric.length === 0) {
+    return (
+      <div className="flex items-center justify-center rounded-md border border-dashed border-line/70 text-[10px] text-muted" style={{ height }}>
+        {emptyLabel ?? '--'}
+      </div>
+    )
+  }
+  return (
+    <div className="flex gap-1" style={{ height }}>
+      {data.map((value, index) => (
+        <div key={index} className="group relative flex flex-1 flex-col justify-end">
+          {value == null ? null : (
+            <>
+              <motion.div
+                className="mx-auto w-full max-w-[14px] rounded-t-sm opacity-80 transition-opacity group-hover:opacity-100"
+                style={{ background: color }}
+                initial={{ height: 0 }}
+                animate={{ height: Math.max(2, (Math.max(0, value) / max) * (height - 8)) }}
+                transition={{ delay: index * 0.04, duration: 0.45, ease: 'easeOut' }}
+              />
+              {labels[index] ? (
+                <div className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                  {labels[index]}: {value}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -135,30 +201,36 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
     return arr
   }, [branches])
   const max = Math.max(...days.map((d) => d.total), 1)
-
+  const yTicks = [max, Math.round(max / 2), 0]
   return (
     <Card className="self-start p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支活跃度' : 'Branch Activity'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
       </div>
-      <div className="flex items-end gap-1.5" style={{ height: 56 }}>
-        {days.map((d, i) => (
-          <div key={d.date} className="group relative flex-1">
-            <motion.div
-              className="w-full rounded-t-sm bg-primary/60 transition-colors group-hover:bg-primary"
-              initial={{ height: 0 }}
-              animate={{ height: Math.max(3, (d.total / max) * 48) }}
-              transition={{ delay: i * 0.06, duration: 0.5, ease: 'easeOut' }}
-            />
-            <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-              {d.label}: {d.total}
+      <div className="flex gap-1.5">
+        <div className="flex w-6 shrink-0 flex-col items-end justify-between pb-[3px] text-[9px] tabular-nums leading-none text-muted opacity-70" style={{ height: 56 }}>
+          {yTicks.map((tick) => <span key={tick}>{tick}</span>)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="relative border-b border-line/60" style={{ height: 56 }}>
+            <div className="pointer-events-none absolute inset-x-0 top-[4px] border-t border-dashed border-line/40" />
+            <div className="pointer-events-none absolute inset-x-0 top-[28px] border-t border-dashed border-line/40" />
+            <Sparkline data={days.map((d) => d.total)} color="rgb(var(--primary))" height={56} />
+            <div className="absolute inset-0 flex">
+              {days.map((d) => (
+                <div key={d.date} className="group relative flex-1">
+                  <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                    {d.label}: {d.total}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
-      <div className="mt-1 flex gap-1.5 text-[9px] text-muted opacity-60">
-        {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
+          <div className="mt-1 flex text-[9px] text-muted opacity-60">
+            {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
+          </div>
+        </div>
       </div>
     </Card>
   )
@@ -183,12 +255,12 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
       date: string
       label: string
       inspections: number
-      branches: number
-      active: number
-      stale: number
-      expired: number
-      invalid: number
-      health: number
+      branches: number | null
+      active: number | null
+      stale: number | null
+      expired: number | null
+      invalid: number | null
+      health: number | null
     }> = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
@@ -196,29 +268,27 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
       const key = localDayKey(d)
       const dayRuns = runs.filter((run) => run.status === 'completed' && localDayKey(run.finishedAt ?? run.startedAt) === key)
       const latestRun = dayRuns[0]
-      const total = latestRun?.branches ?? 0
-      const penalty = latestRun
-        ? latestRun.namingInvalid * 10 + latestRun.stale * 3 + latestRun.graceExpired * 5
-        : 0
+      const hasRun = Boolean(latestRun)
       arr.push({
         date: key,
         label: `${d.getMonth() + 1}/${d.getDate()}`,
         inspections: dayRuns.length,
-        branches: total,
-        active: latestRun?.active ?? 0,
-        stale: latestRun?.stale ?? 0,
-        expired: latestRun?.graceExpired ?? 0,
-        invalid: latestRun?.namingInvalid ?? 0,
-        health: latestRun ? clampScore(100 - penalty) : current
+        branches: hasRun ? latestRun.branches : null,
+        active: hasRun ? latestRun.active : null,
+        stale: hasRun ? latestRun.stale : null,
+        expired: hasRun ? latestRun.graceExpired : null,
+        invalid: hasRun ? latestRun.namingInvalid : null,
+        health: hasRun && latestRun.healthAvg != null ? clampScore(Math.round(latestRun.healthAvg)) : null
       })
     }
     return arr
-  }, [runs, current])
+  }, [runs])
 
-  const metrics = [
-    { label: zh ? '平均健康' : 'Average', value: snapshot.average, tone: healthColor(snapshot.average) },
-    { label: zh ? '最佳' : 'Best', value: snapshot.best, tone: 'rgb(var(--ok))' },
-    { label: zh ? '最差' : 'Worst', value: snapshot.worst, tone: healthColor(snapshot.worst) },
+  const hasBranches = snapshot.total > 0
+  const metrics: Array<{ label: string; value: number | string; tone: string }> = [
+    { label: zh ? '平均健康' : 'Average', value: hasBranches ? snapshot.average : '--', tone: hasBranches ? healthColor(snapshot.average) : 'rgb(var(--muted))' },
+    { label: zh ? '最佳' : 'Best', value: hasBranches ? snapshot.best : '--', tone: hasBranches ? 'rgb(var(--ok))' : 'rgb(var(--muted))' },
+    { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))' },
     { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))' },
     { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))' },
     { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))' },
@@ -249,10 +319,28 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
           </div>
         ))}
       </div>
-      <div className="mt-2">
-        <Sparkline data={days.map((day) => day.health)} color="rgb(var(--secondary))" height={44} />
+      <div className="mt-2 flex gap-1.5">
+        <div className="flex w-6 shrink-0 flex-col items-end justify-between pb-[2px] text-[9px] tabular-nums leading-none text-muted opacity-70" style={{ height: 44 }}>
+          <span>100</span>
+          <span>50</span>
+          <span>0</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="relative border-b border-line/60">
+            <MiniBars
+              data={days.map((day) => day.health)}
+              color="rgb(var(--secondary))"
+              height={44}
+              maxValue={100}
+              labels={days.map((day) => day.label)}
+              emptyLabel={zh ? '暂无健康数据' : 'No health data yet'}
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-[8px] border-t border-dashed border-line/40" />
+            <div className="pointer-events-none absolute inset-x-0 top-[26px] border-t border-dashed border-line/40" />
+          </div>
+        </div>
       </div>
-      <div className="mt-1 flex text-[9px] text-muted opacity-70">
+      <div className="mt-1 flex pl-[30px] text-[9px] text-muted opacity-70">
         {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
       </div>
       <div className="mt-2 overflow-hidden rounded-md border border-line">
@@ -264,7 +352,7 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
           <div key={row.label} className="grid grid-cols-8 border-b border-line/50 text-[10px] tabular-nums last:border-0">
             <div className="truncate px-2 py-1 text-muted">{row.label}</div>
             {row.values.map((value, index) => (
-              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1 text-center text-canvas-fg">{value}</div>
+              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1 text-center text-canvas-fg">{value == null ? '-' : value}</div>
             ))}
           </div>
         ))}
@@ -459,84 +547,91 @@ export default function Dashboard(): JSX.Element {
         ))}
       </div>
 
-      {/* ─── Layer 2: Activity + Trend ────────────────────────────── */}
+      {/* ─── Layer 2: Activity rail + Health Trend ──────────────── */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <ActivityChart branches={visibleBranches} />
-        <div className="md:col-span-2">
+        {/* Left rail: Activity → Naming Compliance → Status Distribution */}
+        <div className="flex h-full min-w-0 flex-col gap-3 md:col-span-1">
+          <div className="w-full">
+            <ActivityChart branches={visibleBranches} />
+          </div>
+
+          {/* Compliance Donut */}
+          <Card className="p-3.5">
+            <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('namingCompliance')}</div>
+            <div className="flex items-center gap-3">
+              <Donut
+                size={76} stroke={8}
+                segments={[
+                  { label: 'valid', value: validBranches + excludedBranches, color: 'rgb(var(--ok))' },
+                  { label: 'invalid', value: violations, color: 'rgb(var(--danger))' }
+                ]}
+                center={
+                  <div className="text-center">
+                    <div className="text-sm font-bold tabular-nums text-canvas-fg">{compliance}%</div>
+                  </div>
+                }
+              />
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-ok" />
+                  <span className="text-muted">{zh ? '合规' : 'Compliant'}</span>
+                  <span className="ml-auto font-semibold tabular-nums">{validBranches + excludedBranches}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-danger" />
+                  <span className="text-muted">{zh ? '违规' : 'Violations'}</span>
+                  <span className="ml-auto font-semibold tabular-nums">{violations}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-info" />
+                  <span className="text-muted">{zh ? '排除' : 'Excluded'}</span>
+                  <span className="ml-auto font-semibold tabular-nums">{excludedBranches}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Status Distribution Donut */}
+          <Card className="p-3.5">
+            <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '分支状态分布' : 'Branch Status'}</div>
+            {statusDistribution.length === 0 ? (
+              <div className="flex items-center justify-center py-6 text-xs text-muted">{tr('noBranches')}</div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Donut
+                  size={76} stroke={8}
+                  segments={statusDistribution}
+                  center={
+                    <div className="text-center">
+                      <div className="text-sm font-bold tabular-nums text-canvas-fg">{visibleBranches.length}</div>
+                      <div className="text-[8px] text-muted">{zh ? '总数' : 'Total'}</div>
+                    </div>
+                  }
+                />
+                <div className="flex-1 space-y-1 text-xs">
+                  {statusDistribution.map((s) => (
+                    <div key={s.label} className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+                      <span className="truncate text-muted">{s.label}</span>
+                      <span className="ml-auto font-semibold tabular-nums">{s.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Health Trend */}
+        <div className="h-full md:col-span-2">
           <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
         </div>
       </div>
 
-      {/* ─── Distribution + Inspections ─────────────────────────── */}
+      {/* ─── Recent Inspections + Attention Required ───────────── */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {/* Compliance Donut */}
-        <Card className="p-3.5">
-          <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('namingCompliance')}</div>
-          <div className="flex items-center gap-3">
-            <Donut
-              size={76} stroke={8}
-              segments={[
-                { label: 'valid', value: validBranches + excludedBranches, color: 'rgb(var(--ok))' },
-                { label: 'invalid', value: violations, color: 'rgb(var(--danger))' }
-              ]}
-              center={
-                <div className="text-center">
-                  <div className="text-sm font-bold tabular-nums text-canvas-fg">{compliance}%</div>
-                </div>
-              }
-            />
-            <div className="space-y-1 text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-ok" />
-                <span className="text-muted">{zh ? '合规' : 'Compliant'}</span>
-                <span className="ml-auto font-semibold tabular-nums">{validBranches + excludedBranches}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-danger" />
-                <span className="text-muted">{zh ? '违规' : 'Violations'}</span>
-                <span className="ml-auto font-semibold tabular-nums">{violations}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-info" />
-                <span className="text-muted">{zh ? '排除' : 'Excluded'}</span>
-                <span className="ml-auto font-semibold tabular-nums">{excludedBranches}</span>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Status Distribution Donut */}
-        <Card className="p-3.5">
-          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '分支状态分布' : 'Branch Status'}</div>
-          {statusDistribution.length === 0 ? (
-            <div className="flex items-center justify-center py-6 text-xs text-muted">{tr('noBranches')}</div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <Donut
-                size={76} stroke={8}
-                segments={statusDistribution}
-                center={
-                  <div className="text-center">
-                    <div className="text-sm font-bold tabular-nums text-canvas-fg">{visibleBranches.length}</div>
-                    <div className="text-[8px] text-muted">{zh ? '总数' : 'Total'}</div>
-                  </div>
-                }
-              />
-              <div className="flex-1 space-y-1 text-xs">
-                {statusDistribution.map((s) => (
-                  <div key={s.label} className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
-                    <span className="truncate text-muted">{s.label}</span>
-                    <span className="ml-auto font-semibold tabular-nums">{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-
         {/* Recent Inspections */}
-        <Card className="p-3.5 md:col-span-2 xl:col-span-1">
+        <Card className={`order-2 p-3.5 ${attention.length > 0 ? '' : 'md:col-span-2 xl:col-span-3'}`}>
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-canvas-fg">{zh ? '最近巡检' : 'Recent Inspections'}</div>
             <button onClick={() => navigate('/monitoring')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
@@ -556,34 +651,34 @@ export default function Dashboard(): JSX.Element {
             </div>
           )}
         </Card>
-      </div>
 
-      {/* ─── Attention Required ─────────────────────────────────── */}
-      {attention.length > 0 ? (
-        <Card className="p-3.5">
-          <div className="mb-2 flex items-center gap-2">
-            <AlertTriangle size={15} className="text-warn" />
-            <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Attention Required'}</span>
-            <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
-          </div>
-          <div className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
-            {attention.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
-                className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
-              >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
-                <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
-                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.state === 'grace_expired' ? 'text-danger' : 'text-warn'}`}>
-                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Card>
-      ) : null}
+        {/* Attention Required */}
+        {attention.length > 0 ? (
+          <Card className="order-1 p-3.5 md:col-span-1 xl:col-span-2">
+            <div className="mb-2 flex items-center gap-2">
+              <AlertTriangle size={15} className="text-warn" />
+              <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Attention Required'}</span>
+              <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
+            </div>
+            <div className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
+              {attention.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                  className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
+                  <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
+                  <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.state === 'grace_expired' ? 'text-danger' : 'text-warn'}`}>
+                    {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+      </div>
 
       {/* ─── Active Alerts ──────────────────────────────────────── */}
       <div>

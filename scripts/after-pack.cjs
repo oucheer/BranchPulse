@@ -1,4 +1,5 @@
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
 
 async function flipFusesForExe(exePath) {
@@ -15,6 +16,10 @@ async function flipFusesForExe(exePath) {
 
 exports.default = async function afterPack(context) {
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`)
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.ico')
+  const rceditPath = path.join(__dirname, '..', 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe')
+  execFileSync(rceditPath, [exePath, '--set-icon', iconPath], { stdio: 'ignore' })
+  console.log(`[branchpulse] set exe icon: ${exePath}`)
   await flipFusesForExe(exePath)
   console.log(`[branchpulse] flipped Electron fuses: ${exePath}`)
 }
