@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bell, Mail, Play, Save, Scale, Timer, Trash2 } from 'lucide-react'
+import { Activity, Bell, Mail, Play, Save, Scale, Timer } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
@@ -16,7 +16,6 @@ export default function Monitoring(): JSX.Element {
   const scanRuns = useAppStore((s) => s.scanRuns)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const repositories = useAppStore((s) => s.repositories)
-  const settings = useAppStore((s) => s.settings)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
@@ -31,7 +30,7 @@ export default function Monitoring(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
+      await window.branchpulse.saveMonitoring({ ...draft, autoDeleteEnabled: false }, activeRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -41,27 +40,15 @@ export default function Monitoring(): JSX.Element {
     }
   }
 
-  const runCheck = async (autoDelete: boolean): Promise<void> => {
+  const runCheck = async (): Promise<void> => {
     setScanning(true)
     try {
-      const run = await window.branchpulse.runCheckNow({ notifyTarget: draft.notifyTarget, autoDelete, trigger: 'manual' })
-      const baseMessage = `Check complete: ${run.branches} branches, ${run.notifications} notifications`
-      if (autoDelete) {
-        if (run.deleted > 0) {
-          toast(`${baseMessage}; deleted ${run.deleted} expired remote branch${run.deleted === 1 ? '' : 'es'}`, 'success')
-        } else {
-          const gracePeriod = run.gracePeriod
-          const graceExpired = run.graceExpired
-          const reason = graceExpired > 0
-            ? `${graceExpired} grace-expired branch${graceExpired === 1 ? ' is' : 'es are'} protected or unavailable`
-            : gracePeriod > 0
-              ? `${gracePeriod} branch${gracePeriod === 1 ? ' is' : 'es are'} still within the grace period`
-              : 'no branches have passed the grace period'
-          toast(`${baseMessage}; deleted 0 branches because ${reason}`, 'warn')
-        }
-      } else {
-        toast(baseMessage, 'success')
-      }
+      const run = await window.branchpulse.runCheckNow({
+        notifyTarget: draft.notifyTarget,
+        autoDelete: false,
+        trigger: 'manual'
+      })
+      toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -159,19 +146,6 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle checked={draft.notificationEnabled} disabled={emailDisabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-canvas-fg">{tr('autoDeleteEnabled')}</div>
-                <div className="text-xs text-muted">
-                  {settings.deletionDisabled ? '全局禁止删除分支已开启，自动删除被禁用。' : tr('autoDeleteHint')}
-                </div>
-              </div>
-              <Toggle
-                checked={settings.deletionDisabled ? false : draft.autoDeleteEnabled}
-                disabled={settings.deletionDisabled}
-                onChange={(v) => setDraft({ ...draft, autoDeleteEnabled: v })}
-              />
-            </div>
             <button className="btn btn-primary w-full justify-center" disabled={saving || scanning} onClick={() => void save()}>
               <Save size={14} /> 保存设置并生效
             </button>
@@ -193,20 +167,15 @@ export default function Monitoring(): JSX.Element {
               allowSelf
               allowCreator
             />
-            <button className="btn btn-primary w-full justify-center" disabled={scanning || emailDisabled} onClick={() => void runCheck(false)}>
+            <button className="btn btn-primary w-full justify-center" disabled={scanning || emailDisabled} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
-            </button>
-            <button className="btn w-full justify-center" disabled={scanning || settings.deletionDisabled} onClick={() => void runCheck(true)}>
-              <Trash2 size={14} /> {tr('checkAndDelete')}
             </button>
           </div>
           <div className="mt-4 flex items-center gap-2 text-xs text-muted">
             <Badge tone={monitoring.notificationEnabled ? 'ok' : 'warn'}>
               {monitoring.notificationEnabled ? 'notifications on' : 'notifications off'}
             </Badge>
-            <Badge tone={monitoring.autoDeleteEnabled ? 'danger' : 'secondary'}>
-              {monitoring.autoDeleteEnabled ? tr('checkAndDelete') : tr('inspectionOnly')}
-            </Badge>
+            <Badge tone="secondary">{tr('inspectionOnly')}</Badge>
           </div>
         </Card>
 

@@ -296,7 +296,7 @@ export default function Branches(): JSX.Element {
   const [search, setSearch] = useState('')
   const [repoFilter, setRepoFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
+  const [issueFilter, setIssueFilter] = useState('')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
@@ -319,9 +319,12 @@ export default function Branches(): JSX.Element {
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
     if (stateFilter) list = list.filter((b) => b.state === stateFilter)
-    if (typeFilter) list = list.filter((b) => b.type === typeFilter)
+    if (issueFilter === 'stale') list = list.filter((b) => b.stale)
+    else if (issueFilter === 'grace_expired') list = list.filter((b) => b.state === 'grace_expired')
+    else if (issueFilter === 'invalid') list = list.filter((b) => b.naming.status === 'invalid')
+    else if (issueFilter === 'merged') list = list.filter((b) => b.merged)
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [branches, search, effectiveRepo, stateFilter, typeFilter])
+  }, [branches, search, effectiveRepo, stateFilter, issueFilter])
 
   const attention = useMemo(() =>
     filtered
@@ -522,9 +525,9 @@ export default function Branches(): JSX.Element {
   const isProtected = (b: BranchSummary): boolean => b.protection.protected || b.protection.isDefault || b.protection.whitelisted
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex shrink-0 items-start justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('branches')}</h1>
           <p className="mt-0.5 text-xs text-muted">{zh ? '查看和管理仓库分支' : 'Visualize and manage repository branches'}</p>
@@ -540,7 +543,7 @@ export default function Branches(): JSX.Element {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <select
           value={effectiveRepo}
           onChange={(e) => setRepoFilter(e.target.value)}
@@ -559,174 +562,6 @@ export default function Branches(): JSX.Element {
           />
           {search ? (
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
-          ) : null}
-        </div>
-        <select
-          value={stateFilter}
-          onChange={(e) => setStateFilter(e.target.value)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '所有状态' : 'All states'}</option>
-          {states.map((s) => <option key={s} value={s}>{stateLabel(s, language)}</option>)}
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '所有类型' : 'All types'}</option>
-          <option value="local">{zh ? '本地' : 'Local'}</option>
-          <option value="remote">{zh ? '远程' : 'Remote'}</option>
-        </select>
-        <div className="text-xs tabular-nums text-muted">
-          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
-        </div>
-      </div>
-
-      {/* Batch Actions Bar */}
-        <Card className="border-danger/30 bg-danger/5 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={selectedIds.size > 0 ? 'text-sm font-semibold text-danger' : 'text-sm font-semibold text-muted'}>
-              {selectedIds.size > 0
-                ? (zh ? '已选中' : 'Selected') + ' ' + selectedIds.size + ' ' + (zh ? '个分支' : 'branches')
-                : (zh ? '未选择分支' : 'No branches selected')}
-            </span>
-            <div className="flex-1" />
-            <button
-              className="btn text-xs"
-              disabled={batchBusy || !emailConfig?.enabled}
-              onClick={() => void notifySelfBulk()}
-              title={zh ? '将选中分支信息汇总通知给自己' : 'Notify self with summary'}
-            >
-              <Mail size={12} /> {zh ? '汇总通知给自己' : 'Notify self'}
-            </button>
-            <button
-              className="btn text-xs"
-              disabled={batchBusy || !emailConfig?.enabled}
-              onClick={() => void notifyCreatorsBulk((b) => b.stale, '过期')}
-              title={zh ? '通知选中的过期分支创始人' : 'Notify stale branch creators'}
-            >
-              <Bell size={12} /> {zh ? '通知过期分支创始人' : 'Notify stale creators'}
-            </button>
-            <button
-              className="btn text-xs"
-              disabled={batchBusy || !emailConfig?.enabled}
-              onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
-              title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
-            >
-              <Bell size={12} /> {zh ? '通知命名不规范创始人' : 'Notify invalid creators'}
-            </button>
-            <button
-              className="btn border-danger/40 bg-danger/10 text-xs font-semibold text-danger hover:bg-danger/20"
-              disabled={batchBusy || settings.deletionDisabled}
-              onClick={() => void openBatchDelete()}
-              title={zh ? '删除选中的分支' : 'Delete selected branches'}
-            >
-              <Trash2 size={12} /> {zh ? '一键删除' : 'Delete selected'}
-            </button>
-          </div>
-        </Card>
-
-      {/* Workspace: Explorer + Details */}
-      <div className="flex gap-4">
-        <Card className="min-w-0 flex-1 overflow-hidden p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
-            <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
-            <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
-              <span className="tabular-nums text-muted">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted transition-colors hover:border-line hover:text-canvas-fg" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
-            </div>
-            <span className="text-[10px] text-muted">{filtered.length}</span>
-          </div>
-          <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
-            <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
-            <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '停更' : 'Idle'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
-            <div className="flex shrink-0 items-center gap-0.5"><span className="text-[10px]">{zh ? '操作' : 'Actions'}</span></div>
-          </div>
-          <div className="max-h-96 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <div className="py-10 text-center">
-                <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
-                <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
-                <button
-                  onClick={() => { setSearch(''); setStateFilter(''); setTypeFilter('') }}
-                  className="mt-3 text-xs font-medium text-primary hover:underline"
-                >
-                  {zh ? '清除筛选' : 'Clear Filters'}
-                </button>
-              </div>
-            ) : (
-              filtered.slice(0, 50).map((b) => (
-                <ExplorerRow
-                  key={`${b.id}-${b.type}`}
-                  b={b}
-                  selected={selectedBranch?.id === b.id}
-                  checked={selectedIds.has(b.id + '-' + b.type)}
-                  onToggle={() => toggleSelect(b)}
-                  onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
-                  onHover={(v) => setHoveredBranch(v ? b : null)}
-                  onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
-                  onNotify={() => void handleNotify(b)}
-                  onDelete={() => void handleBeginDelete(b, 'remote')}
-                  protected_={isProtected(b)}
-                  deletionDisabled={settings.deletionDisabled}
-                />
-              ))
-            )}
-          </div>
-        </Card>
-
-        {/* Details Drawer */}
-        <AnimatePresence mode="wait">
-          {selectedBranch ? (
-            <DetailsDrawer
-              key={selectedBranch.id}
-              b={selectedBranch}
-              onClose={() => setSelectedBranch(null)}
-              onNotify={() => void handleNotify(selectedBranch)}
-              onDeleteBegin={() => void handleBeginDelete(selectedBranch, 'remote')}
-              protected_={isProtected(selectedBranch)}
-              deletionDisabled={settings.deletionDisabled}
-              deleting={deleting}
-              loading={loadingDetails}
-            />
-          ) : null}
-        </AnimatePresence>
-      </div>
-
-      {/* Attention */}
-      {attention.length > 0 ? (
-        <Card className="p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <AlertTriangle size={14} className="text-warn" />
-            <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Needs Attention'}</span>
-            <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
-          </div>
-          <div className="space-y-1.5">
-            {attention.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => setSelectedBranch(b)}
-                className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
-              >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
-                <span className="shrink-0 text-xs tabular-nums text-muted">{b.inactiveDays}d</span>
-                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>
-                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Card>
       ) : null}
 
       {/* Delete Modal */}
@@ -786,6 +621,177 @@ export default function Branches(): JSX.Element {
           <ConfirmCheckbox label={tr('understand')} checked={batchConfirm} onChange={setBatchConfirm} />
         </div>
       </Modal>
+    </div>
+        <select
+          value={stateFilter}
+          onChange={(e) => setStateFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+        >
+          <option value="">{zh ? '所有状态' : 'All states'}</option>
+          {states.map((s) => <option key={s} value={s}>{stateLabel(s, language)}</option>)}
+        </select>
+        <select
+          value={issueFilter}
+          onChange={(e) => setIssueFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+        >
+          <option value="">{zh ? '所有问题' : 'All issues'}</option>
+          <option value="stale">{zh ? '过期分支' : 'Stale branches'}</option>
+          <option value="grace_expired">{zh ? '宽限到期' : 'Grace expired'}</option>
+          <option value="invalid">{zh ? '命名不规范' : 'Invalid names'}</option>
+          <option value="merged">{zh ? '已合并' : 'Merged'}</option>
+        </select>
+        <div className="text-xs tabular-nums text-muted">
+          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
+        </div>
+      </div>
+
+      {/* Batch Actions Bar */}
+        <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={selectedIds.size > 0 ? 'text-sm font-semibold text-danger' : 'text-sm font-semibold text-muted'}>
+              {selectedIds.size > 0
+                ? (zh ? '已选中' : 'Selected') + ' ' + selectedIds.size + ' ' + (zh ? '个分支' : 'branches')
+                : (zh ? '未选择分支' : 'No branches selected')}
+            </span>
+            <div className="flex-1" />
+            <button
+              className="btn text-xs"
+              disabled={batchBusy || !emailConfig?.enabled}
+              onClick={() => void notifySelfBulk()}
+              title={zh ? '将选中分支信息汇总通知给自己' : 'Notify self with summary'}
+            >
+              <Mail size={12} /> {zh ? '汇总通知给自己' : 'Notify self'}
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={batchBusy || !emailConfig?.enabled}
+              onClick={() => void notifyCreatorsBulk((b) => b.stale, '过期')}
+              title={zh ? '通知选中的过期分支创始人' : 'Notify stale branch creators'}
+            >
+              <Bell size={12} /> {zh ? '通知过期分支创始人' : 'Notify stale creators'}
+            </button>
+            <button
+              className="btn text-xs"
+              disabled={batchBusy || !emailConfig?.enabled}
+              onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
+              title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
+            >
+              <Bell size={12} /> {zh ? '通知命名不规范创始人' : 'Notify invalid creators'}
+            </button>
+            <button
+              className="btn border-danger/40 bg-danger/10 text-xs font-semibold text-danger hover:bg-danger/20"
+              disabled={batchBusy || settings.deletionDisabled}
+              onClick={() => void openBatchDelete()}
+              title={zh ? '删除选中的分支' : 'Delete selected branches'}
+            >
+              <Trash2 size={12} /> {zh ? '一键删除' : 'Delete selected'}
+            </button>
+          </div>
+        </Card>
+
+      {/* Workspace: Explorer + Details */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
+        <Card className="flex min-h-64 min-w-0 flex-1 flex-col overflow-hidden p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '分支列表' : 'Branch Explorer'}</span>
+            <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
+              <span className="tabular-nums text-muted">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted transition-colors hover:border-line hover:text-canvas-fg" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
+            </div>
+            <span className="text-[10px] text-muted">{filtered.length}</span>
+          </div>
+          <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
+            <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
+            <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '停更' : 'Idle'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
+            <div className="flex shrink-0 items-center gap-0.5"><span className="text-[10px]">{zh ? '操作' : 'Actions'}</span></div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="py-10 text-center">
+                <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
+                <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
+                <button
+                  onClick={() => { setSearch(''); setStateFilter(''); setIssueFilter('') }}
+                  className="mt-3 text-xs font-medium text-primary hover:underline"
+                >
+                  {zh ? '清除筛选' : 'Clear Filters'}
+                </button>
+              </div>
+            ) : (
+              filtered.slice(0, 200).map((b) => (
+                <ExplorerRow
+                  key={`${b.id}-${b.type}`}
+                  b={b}
+                  selected={selectedBranch?.id === b.id}
+                  checked={selectedIds.has(b.id + '-' + b.type)}
+                  onToggle={() => toggleSelect(b)}
+                  onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                  onHover={(v) => setHoveredBranch(v ? b : null)}
+                  onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                  onNotify={() => void handleNotify(b)}
+                  onDelete={() => void handleBeginDelete(b, 'remote')}
+                  protected_={isProtected(b)}
+                  deletionDisabled={settings.deletionDisabled}
+                />
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Details Drawer */}
+        <AnimatePresence mode="wait">
+          {selectedBranch ? (
+            <DetailsDrawer
+              key={selectedBranch.id}
+              b={selectedBranch}
+              onClose={() => setSelectedBranch(null)}
+              onNotify={() => void handleNotify(selectedBranch)}
+              onDeleteBegin={() => void handleBeginDelete(selectedBranch, 'remote')}
+              protected_={isProtected(selectedBranch)}
+              deletionDisabled={settings.deletionDisabled}
+              deleting={deleting}
+              loading={loadingDetails}
+            />
+          ) : null}
+        </AnimatePresence>
+      </div>
+
+      {/* Attention */}
+      {attention.length > 0 ? (
+        <Card className="shrink-0 overflow-hidden p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle size={14} className="text-warn" />
+            <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Needs Attention'}</span>
+            <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
+          </div>
+          <div className="max-h-32 space-y-1.5 overflow-y-auto pr-1">
+            {attention.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => setSelectedBranch(b)}
+                className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted">{b.inactiveDays}d</span>
+                <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>
+                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
     </div>
   )
 }
