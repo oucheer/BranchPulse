@@ -9,6 +9,8 @@ export class SettingsService {
     const row = this.storage.get<Record<string, unknown>>('SELECT * FROM app_settings WHERE id = 1')
     return {
       theme: (row?.theme as AppSettings['theme']) ?? 'dark',
+      colorTheme: ((row?.color_theme as AppSettings['colorTheme']) ?? 'default'),
+      backgroundTheme: ((row?.background_theme as AppSettings['backgroundTheme']) ?? 'dark'),
       language: (row?.language as AppSettings['language']) ?? 'en',
       notificationsEnabled: Number(row?.notifications_enabled ?? 1) === 1,
       trayEnabled: Number(row?.tray_enabled ?? 1) === 1,
@@ -34,6 +36,8 @@ export class SettingsService {
       'app_settings',
       {
         theme: settings.theme,
+        color_theme: settings.colorTheme,
+        background_theme: settings.backgroundTheme,
         language: settings.language,
         notifications_enabled: settings.notificationsEnabled ? 1 : 0,
         tray_enabled: settings.trayEnabled ? 1 : 0,

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
-import type { AppSettings, EmailConfig, EmailGroup, LanguageCode, ThemeMode } from '@shared/types'
+import type { AppSettings, BackgroundTheme, ColorTheme, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
 
 export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -33,6 +33,18 @@ export default function Settings(): JSX.Element {
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
+  const colorThemes: Array<{ value: ColorTheme; label: string; dot: string }> = [
+    { value: 'default', label: '默认橙', dot: 'rgb(255 122 24)' },
+    { value: 'ocean', label: '海洋蓝', dot: 'rgb(59 130 246)' },
+    { value: 'forest', label: '森林绿', dot: 'rgb(52 199 123)' },
+    { value: 'violet', label: '雅紫', dot: 'rgb(139 92 246)' },
+    { value: 'rose', label: '玫瑰红', dot: 'rgb(244 63 94)' },
+    { value: 'cyan', label: '青碧', dot: 'rgb(34 211 238)' }
+  ]
+  const backgroundThemes: Array<{ value: BackgroundTheme; label: string }> = [
+    { value: 'dark', label: '深色' },
+    { value: 'light', label: '浅色' }
+  ]
 
   useEffect(() => {
     setDraft(settings)
@@ -42,23 +54,11 @@ export default function Settings(): JSX.Element {
     if (emailConfig) setEmailDraft(emailConfig)
   }, [emailConfig])
 
-  const applyTheme = (theme: ThemeMode): void => {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    const dark = theme === 'dark' || (theme === 'system' && prefersDark)
-    document.documentElement.classList.toggle('light', !dark)
-    document.documentElement.classList.toggle('dark', dark)
-  }
-
-  useEffect(() => {
-    applyTheme(settings.theme)
-  }, [settings.theme])
-
   const saveApp = async (): Promise<void> => {
     setSavingApp(true)
     try {
       const saved = await window.branchpulse.saveSettings(draft)
       setDraft(saved)
-      applyTheme(saved.theme)
       setLanguage(saved.language)
       toast(tr('saved'), 'success')
       void refresh()
@@ -151,17 +151,34 @@ export default function Settings(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div>
-              <div className="label mb-1.5">{tr('theme')}</div>
-              <div className="flex gap-2">
-                {(['dark', 'light', 'system'] as ThemeMode[]).map((theme) => (
+              <div className="label mb-1.5">颜色主题</div>
+              <div className="grid grid-cols-3 gap-2">
+                {colorThemes.map((ct) => (
                   <button
-                    key={theme}
-                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                      draft.theme === theme ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
+                    key={ct.value}
+                    className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs font-medium transition-colors ${
+                      draft.colorTheme === ct.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
                     }`}
-                    onClick={() => setDraft({ ...draft, theme })}
+                    onClick={() => setDraft({ ...draft, colorTheme: ct.value })}
                   >
-                    {theme[0].toUpperCase() + theme.slice(1)}
+                    <span className="h-3 w-3 shrink-0 rounded-full border border-line" style={{ background: ct.dot }} />
+                    {ct.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="label mb-1.5">背景主题</div>
+              <div className="flex gap-2">
+                {backgroundThemes.map((bt) => (
+                  <button
+                    key={bt.value}
+                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                      draft.backgroundTheme === bt.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
+                    }`}
+                    onClick={() => setDraft({ ...draft, backgroundTheme: bt.value })}
+                  >
+                    {bt.label}
                   </button>
                 ))}
               </div>

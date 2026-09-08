@@ -249,16 +249,13 @@ function defaultNamingRules(): Array<Record<string, unknown>> {
   const rules: Array<Record<string, unknown>> = [
     { name: 'feature/*', pattern: 'feature/*', type: 'glob', mode: 'allow', description: 'Feature branches', priority: 10 },
     { name: 'bugfix/*', pattern: 'bugfix/*', type: 'glob', mode: 'allow', description: 'Bugfix branches', priority: 20 },
-    { name: 'fix/*', pattern: 'fix/*', type: 'glob', mode: 'allow', description: 'Fix branches', priority: 30 },
     { name: 'hotfix/*', pattern: 'hotfix/*', type: 'glob', mode: 'allow', description: 'Hotfix branches', priority: 40 },
     { name: 'release/*', pattern: 'release/*', type: 'glob', mode: 'allow', description: 'Release branches', priority: 50 },
-    { name: 'refactor/*', pattern: 'refactor/*', type: 'glob', mode: 'allow', description: 'Refactor branches', priority: 60 },
     { name: 'docs/*', pattern: 'docs/*', type: 'glob', mode: 'allow', description: 'Documentation branches', priority: 70 },
-    { name: 'test/*', pattern: 'test/*', type: 'glob', mode: 'allow', description: 'Test branches', priority: 80 },
     { name: 'chore/*', pattern: 'chore/*', type: 'glob', mode: 'allow', description: 'Chore branches', priority: 90 },
     {
       name: 'Conventional prefix',
-      pattern: '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$',
+      pattern: '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$',
       type: 'regex',
       mode: 'allow',
       description: 'Conventional branch naming',
@@ -344,6 +341,8 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
     this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('app_settings', 'color_theme', "TEXT NOT NULL DEFAULT 'default'")
+    this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
@@ -351,6 +350,8 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'repository_id', 'TEXT')
     this.ensureColumn('whitelist', 'repository_id', 'TEXT')
     this.ensureColumn('protected_branches', 'repository_id', 'TEXT')
+    this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
+    this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
   }
 
   private ensureColumn(table: string, column: string, ddl: string): void {

@@ -70,16 +70,15 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     const root = document.documentElement
-    const resolvedTheme = settings.theme === 'system'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-      : settings.theme
-    root.classList.toggle('dark', resolvedTheme === 'dark')
-    root.classList.toggle('light', resolvedTheme === 'light')
-  }, [settings.theme])
+    root.classList.toggle('dark', settings.backgroundTheme === 'dark')
+    root.classList.toggle('light', settings.backgroundTheme === 'light')
+    root.dataset.colorTheme = settings.colorTheme
+    root.dataset.bgTheme = settings.backgroundTheme
+  }, [settings.backgroundTheme, settings.colorTheme])
 
   useEffect(() => {
-    document.documentElement.style.colorScheme = settings.theme === 'system' ? '' : settings.theme
-  }, [settings.theme])
+    document.documentElement.style.colorScheme = settings.backgroundTheme
+  }, [settings.backgroundTheme])
 
   useEffect(() => {
     if (!ready || splashDone) return

@@ -78,6 +78,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRepositoryId: null,
   settings: {
     theme: 'dark',
+    colorTheme: 'default',
+    backgroundTheme: 'dark',
     language: 'en',
     notificationsEnabled: true,
     trayEnabled: true,

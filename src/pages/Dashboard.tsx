@@ -137,18 +137,18 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
   const max = Math.max(...days.map((d) => d.total), 1)
 
   return (
-    <Card className="flex h-full flex-col p-3.5">
+    <Card className="self-start p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支活跃度' : 'Branch Activity'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
       </div>
-      <div className="flex min-h-[96px] flex-1 items-end gap-1.5">
+      <div className="flex items-end gap-1.5" style={{ height: 56 }}>
         {days.map((d, i) => (
-          <div key={d.date} className="group relative flex h-full flex-1 items-end">
+          <div key={d.date} className="group relative flex-1">
             <motion.div
               className="w-full rounded-t-sm bg-primary/60 transition-colors group-hover:bg-primary"
               initial={{ height: 0 }}
-              animate={{ height: `${Math.max(4, (d.total / max) * 100)}%` }}
+              animate={{ height: Math.max(3, (d.total / max) * 48) }}
               transition={{ delay: i * 0.06, duration: 0.5, ease: 'easeOut' }}
             />
             <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
@@ -159,14 +159,6 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
       </div>
       <div className="mt-1 flex gap-1.5 text-[9px] text-muted opacity-60">
         {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
-      </div>
-      <div className="mt-2 grid grid-cols-7 gap-1 border-t border-line pt-2">
-        {days.map((d) => (
-          <div key={d.date} className="rounded-md bg-surface-elevated px-1 py-1 text-center">
-            <div className="text-[9px] text-muted opacity-60">{d.label}</div>
-            <div className={`text-xs font-bold tabular-nums ${d.total > 0 ? 'text-canvas-fg' : 'text-muted opacity-40'}`}>{d.total}</div>
-          </div>
-        ))}
       </div>
     </Card>
   )
@@ -468,9 +460,11 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Layer 2: Activity + Trend ────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <ActivityChart branches={visibleBranches} />
-        <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
+        <div className="md:col-span-2">
+          <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
+        </div>
       </div>
 
       {/* ─── Distribution + Inspections ─────────────────────────── */}

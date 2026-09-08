@@ -38,6 +38,49 @@ html.light {
   --muted: 96 104 122;
 }
 
+/* ─── Color themes (accent palettes) ─────────────────────────────────────── */
+html[data-color-theme='ocean'] {
+  --primary: 59 130 246;
+  --secondary: 14 165 233;
+}
+html[data-color-theme='forest'] {
+  --primary: 52 199 123;
+  --secondary: 20 184 166;
+}
+html[data-color-theme='violet'] {
+  --primary: 139 92 246;
+  --secondary: 236 72 153;
+}
+html[data-color-theme='rose'] {
+  --primary: 244 63 94;
+  --secondary: 251 113 133;
+}
+html[data-color-theme='cyan'] {
+  --primary: 34 211 238;
+  --secondary: 45 212 191;
+}
+
+html.light[data-color-theme='ocean'] {
+  --primary: 29 96 211;
+  --secondary: 2 132 199;
+}
+html.light[data-color-theme='forest'] {
+  --primary: 16 140 82;
+  --secondary: 13 148 136;
+}
+html.light[data-color-theme='violet'] {
+  --primary: 124 58 237;
+  --secondary: 219 39 119;
+}
+html.light[data-color-theme='rose'] {
+  --primary: 225 29 72;
+  --secondary: 244 63 94;
+}
+html.light[data-color-theme='cyan'] {
+  --primary: 8 145 178;
+  --secondary: 13 148 136;
+}
+
 * {
   letter-spacing: 0;
   box-sizing: border-box;

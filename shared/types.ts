@@ -7,6 +7,8 @@ export type EmailPolicy = 'none' | 'summary' | 'creators'
 export type NotifyTarget = 'none' | 'self' | 'creator' | 'both' | (string & {})
 export type RepositorySource = 'local' | 'gitlab' | 'github' | 'gitee'
 export type ThemeMode = 'dark' | 'light' | 'system'
+export type ColorTheme = 'default' | 'ocean' | 'forest' | 'violet' | 'rose' | 'cyan'
+export type BackgroundTheme = 'dark' | 'light'
 export type LanguageCode = 'en' | 'zh'
 
 export interface CreatorInfo {
@@ -310,6 +312,8 @@ export interface AuditExportResult {
 
 export interface AppSettings {
   theme: ThemeMode
+  colorTheme: ColorTheme
+  backgroundTheme: BackgroundTheme
   language: LanguageCode
   notificationsEnabled: boolean
   trayEnabled: boolean
