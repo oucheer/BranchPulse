@@ -105,6 +105,9 @@ describe('base naming rules', () => {
     expect(baseNamingIssue('feature/')).toBe('不能以 / 结尾')
     expect(baseNamingIssue('xyz/foo')).toBe('前缀不在允许的前缀内')
     expect(baseNamingIssue('admin/config')).toBe('前缀不在允许的前缀内')
+    expect(baseNamingIssue('fix/login')).toBe('前缀不在允许的前缀内')
+    expect(baseNamingIssue('refactor/core')).toBe('前缀不在允许的前缀内')
+    expect(baseNamingIssue('test/unit')).toBe('前缀不在允许的前缀内')
   })
 
   it('allows conventional branches and direct main/develop branches', () => {

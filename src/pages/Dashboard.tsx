@@ -137,18 +137,18 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
   const max = Math.max(...days.map((d) => d.total), 1)
 
   return (
-    <Card className="p-4">
+    <Card className="flex h-full flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支活跃度' : 'Branch Activity'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
       </div>
-      <div className="flex items-end gap-1.5" style={{ height: 64 }}>
+      <div className="flex min-h-[96px] flex-1 items-end gap-1.5">
         {days.map((d, i) => (
-          <div key={d.date} className="group relative flex-1">
+          <div key={d.date} className="group relative flex h-full flex-1 items-end">
             <motion.div
               className="w-full rounded-t-sm bg-primary/60 transition-colors group-hover:bg-primary"
               initial={{ height: 0 }}
-              animate={{ height: Math.max(3, (d.total / max) * 56) }}
+              animate={{ height: `${Math.max(4, (d.total / max) * 100)}%` }}
               transition={{ delay: i * 0.06, duration: 0.5, ease: 'easeOut' }}
             />
             <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
@@ -159,6 +159,14 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
       </div>
       <div className="mt-1 flex gap-1.5 text-[9px] text-muted opacity-60">
         {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-1 border-t border-line pt-2">
+        {days.map((d) => (
+          <div key={d.date} className="rounded-md bg-surface-elevated px-1 py-1 text-center">
+            <div className="text-[9px] text-muted opacity-60">{d.label}</div>
+            <div className={`text-xs font-bold tabular-nums ${d.total > 0 ? 'text-canvas-fg' : 'text-muted opacity-40'}`}>{d.total}</div>
+          </div>
+        ))}
       </div>
     </Card>
   )
@@ -236,7 +244,7 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
   ]
 
   return (
-    <Card className="p-4">
+    <Card className="flex h-full flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '健康趋势' : 'Health Trend'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
@@ -249,22 +257,22 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
           </div>
         ))}
       </div>
-      <div className="mt-3">
+      <div className="mt-2">
         <Sparkline data={days.map((day) => day.health)} color="rgb(var(--secondary))" height={44} />
       </div>
       <div className="mt-1 flex text-[9px] text-muted opacity-70">
         {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
       </div>
-      <div className="mt-3 overflow-hidden rounded-md border border-line">
+      <div className="mt-2 overflow-hidden rounded-md border border-line">
         <div className="grid grid-cols-8 border-b border-line bg-surface-elevated text-[10px] text-muted">
-          <div className="px-2 py-1.5">7D</div>
-          {days.map((day) => <div key={day.date} className="px-1 py-1.5 text-center">{day.label}</div>)}
+            <div className="px-2 py-1">7D</div>
+          {days.map((day) => <div key={day.date} className="px-1 py-1 text-center">{day.label}</div>)}
         </div>
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-8 border-b border-line/50 text-[10px] tabular-nums last:border-0">
-            <div className="truncate px-2 py-1.5 text-muted">{row.label}</div>
+            <div className="truncate px-2 py-1 text-muted">{row.label}</div>
             {row.values.map((value, index) => (
-              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1.5 text-center text-canvas-fg">{value}</div>
+              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1 text-center text-canvas-fg">{value}</div>
             ))}
           </div>
         ))}
@@ -349,7 +357,7 @@ export default function Dashboard(): JSX.Element {
   ]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* ─── Header ─────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
@@ -378,10 +386,10 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Layer 1: Health Summary ───────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         {/* Primary Health Card */}
         <motion.div
-          className="col-span-2 flex items-center gap-5 rounded-card border border-line bg-surface p-5 md:col-span-2"
+          className="col-span-2 flex items-center gap-5 rounded-card border border-line bg-surface p-4 md:col-span-2"
           style={{ boxShadow: shadow.md }}
           whileHover={{ translateY: -1 }}
           transition={{ duration: 0.15 }}
@@ -422,7 +430,7 @@ export default function Dashboard(): JSX.Element {
             <motion.button
               key={m.label}
               onClick={() => navigate(m.to)}
-              className="flex flex-col justify-between rounded-card border border-line bg-surface p-4 text-left transition-colors hover:border-primary/30"
+              className="flex flex-col justify-between rounded-card border border-line bg-surface p-3.5 text-left transition-colors hover:border-primary/30"
               style={{ boxShadow: shadow.sm }}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -442,7 +450,7 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Status Summary Bar ──────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-4 rounded-card border border-line bg-surface px-4 py-2.5" style={{ boxShadow: shadow.sm }}>
+      <div className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface px-4 py-2.5" style={{ boxShadow: shadow.sm }}>
         {[
           { label: tr('active'), value: activeCount, color: 'rgb(var(--ok))' },
           { label: tr('gracePeriod'), value: graceCount, color: 'rgb(var(--warn))' },
@@ -460,17 +468,17 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Layer 2: Activity + Trend ────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <ActivityChart branches={visibleBranches} />
         <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
       </div>
 
       {/* ─── Distribution + Inspections ─────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {/* Compliance Donut */}
-        <Card className="p-4">
+        <Card className="p-3.5">
           <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('namingCompliance')}</div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Donut
               size={76} stroke={8}
               segments={[
@@ -504,12 +512,12 @@ export default function Dashboard(): JSX.Element {
         </Card>
 
         {/* Status Distribution Donut */}
-        <Card className="p-4">
+        <Card className="p-3.5">
           <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '分支状态分布' : 'Branch Status'}</div>
           {statusDistribution.length === 0 ? (
             <div className="flex items-center justify-center py-6 text-xs text-muted">{tr('noBranches')}</div>
           ) : (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <Donut
                 size={76} stroke={8}
                 segments={statusDistribution}
@@ -534,7 +542,7 @@ export default function Dashboard(): JSX.Element {
         </Card>
 
         {/* Recent Inspections */}
-        <Card className="p-4 md:col-span-2 xl:col-span-1">
+        <Card className="p-3.5 md:col-span-2 xl:col-span-1">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-canvas-fg">{zh ? '最近巡检' : 'Recent Inspections'}</div>
             <button onClick={() => navigate('/monitoring')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
@@ -558,7 +566,7 @@ export default function Dashboard(): JSX.Element {
 
       {/* ─── Attention Required ─────────────────────────────────── */}
       {attention.length > 0 ? (
-        <Card className="p-4">
+        <Card className="p-3.5">
           <div className="mb-2 flex items-center gap-2">
             <AlertTriangle size={15} className="text-warn" />
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Attention Required'}</span>
@@ -585,7 +593,7 @@ export default function Dashboard(): JSX.Element {
 
       {/* ─── Active Alerts ──────────────────────────────────────── */}
       <div>
-        <Card className="p-4">
+        <Card className="p-3.5">
           <div className="mb-2 flex items-center gap-2">
             <Info size={15} className="text-info" />
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '活跃提醒' : 'Active Alerts'}</span>
@@ -624,7 +632,7 @@ export default function Dashboard(): JSX.Element {
 
       {/* ─── Repository Overview (compact, only if repo exists) ── */}
       {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).length > 0 ? (
-        <Card className="p-4">
+        <Card className="p-3.5">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
             <button onClick={() => navigate('/repositories')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>

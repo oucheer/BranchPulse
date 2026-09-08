@@ -502,7 +502,7 @@ export interface BranchApi {
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
-  exportAuditLogs(format: 'csv' | 'json'): Promise<AuditExportResult>
+  exportAuditLogs(format: 'csv' | 'json' | 'txt'): Promise<AuditExportResult>
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>

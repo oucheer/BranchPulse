@@ -96,7 +96,7 @@ export default function Audit(): JSX.Element {
     return parts.filter(Boolean).join(' · ') || '应用操作已完成'
   }
 
-  const exportLogs = async (format: 'csv' | 'json'): Promise<void> => {
+  const exportLogs = async (format: 'csv' | 'json' | 'txt'): Promise<void> => {
     setExporting(true)
     try {
       const result = await window.branchpulse.exportAuditLogs(format)
@@ -123,6 +123,9 @@ export default function Audit(): JSX.Element {
         <div className="flex items-center gap-2">
           <button className="btn" disabled={exporting} onClick={() => void exportLogs('csv')}>
             <Download size={14} /> 导出 CSV
+          </button>
+          <button className="btn" disabled={exporting} onClick={() => void exportLogs('txt')}>
+            <Download size={14} /> 导出 TXT
           </button>
           <button className="btn" disabled={exporting} onClick={() => void exportLogs('json')}>
             <Download size={14} /> 导出 JSON

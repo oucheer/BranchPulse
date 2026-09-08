@@ -52,7 +52,7 @@ export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', 
   }
 }
 
-const allowedPrefixes = new Set(['feature', 'bugfix', 'fix', 'hotfix', 'release', 'refactor', 'docs', 'test', 'chore'])
+const allowedPrefixes = new Set(['feature', 'bugfix', 'hotfix', 'release', 'chore', 'docs'])
 
 export function baseNamingIssue(name: string): string | null {
   if (name.endsWith('/')) return '不能以 / 结尾'

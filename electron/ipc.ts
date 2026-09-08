@@ -339,12 +339,25 @@ export function registerIpc(services: AppServices): void {
         description: rule.description ?? '', enabled: rule.enabled !== false ? 1 : 0, priority: rule.priority ?? 50
       })
     }
-    audit.record('naming_rule_saved', { id: rule.id })
+    audit.record('naming_rule_saved', {
+      id: rule.id,
+      name: rule.name ?? 'Rule',
+      pattern: rule.pattern ?? '',
+      type: rule.type ?? 'glob',
+      mode: rule.mode ?? 'allow',
+      priority: rule.priority ?? 50,
+      repositoryId: rule.repositoryId ?? null
+    })
     return naming.listRules(rule.repositoryId ?? null)
   })
   ipcMain.handle('branchpulse:deleteNamingRule', (_e, id: string, repositoryId?: string | null): NamingRule[] => {
+    const removedRule = storage.get<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE id = ?', [id])
     storage.delete('branch_naming_rules', 'id = ?', [id])
-    audit.record('naming_rule_deleted', { id })
+    audit.record('naming_rule_deleted', {
+      id,
+      name: String(removedRule?.name ?? ''),
+      pattern: String(removedRule?.pattern ?? '')
+    })
     return naming.listRules(repositoryId)
   })
   ipcMain.handle('branchpulse:reorderNamingRule', (_e, id: string, direction: -1 | 1, repositoryId?: string | null): NamingRule[] => {
@@ -364,20 +377,22 @@ export function registerIpc(services: AppServices): void {
 
   ipcMain.handle('branchpulse:listWhitelist', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listWhitelist(repositoryId))
   ipcMain.handle('branchpulse:addWhitelist', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
-    audit.record('whitelist_added', { pattern: entry.pattern })
+    audit.record('whitelist_added', { pattern: entry.pattern, type: entry.type, repositoryId: entry.repositoryId ?? null })
     return protection.addWhitelist(entry, entry.repositoryId ?? null)
   })
   ipcMain.handle('branchpulse:removeWhitelist', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
-    audit.record('whitelist_removed', { id })
+    const removed = storage.get<Record<string, unknown>>('SELECT * FROM whitelist WHERE id = ?', [id])
+    audit.record('whitelist_removed', { id, pattern: String(removed?.pattern ?? '') })
     return protection.removeWhitelist(id, repositoryId)
   })
   ipcMain.handle('branchpulse:listProtected', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listProtected(repositoryId))
   ipcMain.handle('branchpulse:addProtected', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
-    audit.record('protected_added', { pattern: entry.pattern })
+    audit.record('protected_added', { pattern: entry.pattern, type: entry.type, repositoryId: entry.repositoryId ?? null })
     return protection.addProtected(entry, entry.repositoryId ?? null)
   })
   ipcMain.handle('branchpulse:removeProtected', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
-    audit.record('protected_removed', { id })
+    const removed = storage.get<Record<string, unknown>>('SELECT * FROM protected_branches WHERE id = ?', [id])
+    audit.record('protected_removed', { id, pattern: String(removed?.pattern ?? '') })
     return protection.removeProtected(id, repositoryId)
   })
 
@@ -411,7 +426,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:clearNotifications', (): void => {
     try {
       monitoring.clearNotifications()
-      audit.record('notifications_cleared', {})
+      audit.record('notifications_cleared', { count: monitoring.listNotifications().length })
     } catch (err) {
       audit.record('notifications_clear_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
       throw err
@@ -448,7 +463,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
 
   ipcMain.handle('branchpulse:listAudit', (): AuditEntry[] => audit.list())
-  ipcMain.handle('branchpulse:exportAuditLogs', async (_e, format: 'csv' | 'json' = 'csv'): Promise<AuditExportResult> => {
+  ipcMain.handle('branchpulse:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv'): Promise<AuditExportResult> => {
     try {
       const selected = await dialog.showOpenDialog({
         title: 'Select audit export folder',
