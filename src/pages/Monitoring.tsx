@@ -45,7 +45,23 @@ export default function Monitoring(): JSX.Element {
     setScanning(true)
     try {
       const run = await window.branchpulse.runCheckNow({ notifyTarget: draft.notifyTarget, autoDelete, trigger: 'manual' })
-      toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
+      const baseMessage = `Check complete: ${run.branches} branches, ${run.notifications} notifications`
+      if (autoDelete) {
+        if (run.deleted > 0) {
+          toast(`${baseMessage}; deleted ${run.deleted} expired remote branch${run.deleted === 1 ? '' : 'es'}`, 'success')
+        } else {
+          const gracePeriod = run.gracePeriod
+          const graceExpired = run.graceExpired
+          const reason = graceExpired > 0
+            ? `${graceExpired} grace-expired branch${graceExpired === 1 ? ' is' : 'es are'} protected or unavailable`
+            : gracePeriod > 0
+              ? `${gracePeriod} branch${gracePeriod === 1 ? ' is' : 'es are'} still within the grace period`
+              : 'no branches have passed the grace period'
+          toast(`${baseMessage}; deleted 0 branches because ${reason}`, 'warn')
+        }
+      } else {
+        toast(baseMessage, 'success')
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {

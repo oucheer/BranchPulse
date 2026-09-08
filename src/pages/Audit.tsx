@@ -14,8 +14,18 @@ export default function Audit(): JSX.Element {
   const [exporting, setExporting] = useState(false)
 
   const repoNames = new Map(repositories.map((r) => [r.id, r.name]))
+  // Global actions (report schedules, emails, settings) are not repository-scoped and must
+  // stay visible even when a repository filter is active.
+  const globalActions = new Set([
+    'report_schedule_saved', 'report_schedule_deleted', 'report_schedule_run',
+    'report_schedule_email_skipped', 'email_report_sent', 'email_sent', 'email_summary_sent',
+    'email_summary_skipped', 'email_creator_sent', 'email_test_sent', 'email_connection_test',
+    'email_config_updated', 'email_config_save_failed', 'settings_updated', 'settings_save_failed',
+    'scheduler_job_ran', 'scheduler_job_failed'
+  ])
   const visibleAudit = activeRepositoryId
     ? audit.filter((entry) => {
+        if (globalActions.has(entry.action)) return true
         const detail = entry.detail as Record<string, unknown>
         const repository = String(detail.repository ?? detail.repositoryName ?? '')
         return repository === activeRepositoryId || repository === repoNames.get(activeRepositoryId)
@@ -44,13 +54,14 @@ export default function Audit(): JSX.Element {
       scheduler_job_added: '添加定时任务',
       scheduler_job_updated: '更新定时任务',
       scheduler_job_removed: '删除定时任务',
-      scheduler_job_run: '执行定时任务',
+      scheduler_job_ran: '执行定时任务',
+      scheduler_job_failed: '定时任务失败',
       email_sent: '发送邮件',
       email_summary_sent: '发送汇总邮件',
+      email_summary_skipped: '汇总邮件未发送',
       email_creator_sent: '发送创建人邮件',
       email_test_sent: '发送测试邮件',
-      email_connection_test: '测试邮件连接'
-      ,
+      email_connection_test: '测试邮件连接',
       email_config_updated: '更新邮件配置',
       email_config_save_failed: '保存邮件配置失败',
       settings_save_failed: '保存设置失败',
@@ -61,7 +72,12 @@ export default function Audit(): JSX.Element {
       check_requested: '触发巡检',
       check_failed: '巡检失败',
       audit_exported: '导出审计日志',
-      audit_export_failed: '导出审计日志失败'
+      audit_export_failed: '导出审计日志失败',
+      report_schedule_saved: '保存定时报告',
+      report_schedule_deleted: '删除定时报告',
+      report_schedule_run: '执行定时报告',
+      report_schedule_email_skipped: '定时报告未发送',
+      email_report_sent: '发送报告邮件'
     }
     return language === 'zh' ? (zhLabels[action] ?? action) : action.replace(/_/g, ' ')
   }
@@ -73,6 +89,8 @@ export default function Audit(): JSX.Element {
     const parts = [
       repository ? `仓库：${repoNames.get(repository) ?? repository}` : '',
       branch ? `分支：${branch}` : '',
+      detail.name ? `名称：${String(detail.name)}` : '',
+      detail.to || detail.recipients ? `收件人：${String(detail.to ?? (Array.isArray(detail.recipients) ? (detail.recipients as string[]).join(', ') : detail.recipients))}` : '',
       reason ? `说明：${reason}` : ''
     ]
     return parts.filter(Boolean).join(' · ') || '应用操作已完成'

@@ -86,6 +86,7 @@ function scanRunFromRow(row: Record<string, unknown>): ScanRun {
     merged: Number(row.merged ?? 0),
     namingInvalid: Number(row.naming_invalid ?? 0),
     cleanupCandidates: Number(row.cleanup_candidates ?? 0),
+    deleted: Number(row.deleted ?? 0),
     notifications: Number(row.notifications ?? 0),
     emailsSent: Number(row.emails_sent ?? 0),
     error: (row.error as string | null) ?? null,

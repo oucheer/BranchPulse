@@ -255,17 +255,6 @@ export default function Settings(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div>
-              <div className="label mb-1.5">通知邮箱（发件账号）</div>
-              <input
-                className="input"
-                type="email"
-                value={emailDraft.username}
-                onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })}
-                placeholder="you@example.com"
-              />
-              <p className="mt-1 text-xs text-muted">这是统一发件账号。用于登录邮箱服务发送邮件，不会自动同步为所有收件人。</p>
-            </div>
-            <div>
               <div className="label mb-1.5">我的个人邮箱</div>
               <input
                 className="input"
@@ -274,7 +263,7 @@ export default function Settings(): JSX.Element {
                 onChange={(e) => setEmailDraft({ ...emailDraft, selfEmail: e.target.value })}
                 placeholder="your@email.com"
               />
-              <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱，与其他收件人设置互不影响。</p>
+              <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱。邮件统一通过本机 Outlook 当前登录账户发送，无需在此配置发件账号或密码。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -287,7 +276,7 @@ export default function Settings(): JSX.Element {
               <button className="btn btn-primary" disabled={savingEmail} onClick={() => void saveEmail()}>
                 <Save size={14} /> {tr('saveConfig')}
               </button>
-              <button className="btn" disabled={testing || !emailDraft.enabled || !emailDraft.username} onClick={() => void sendTest()}>
+              <button className="btn" disabled={testing || !emailDraft.enabled || !emailDraft.selfEmail} onClick={() => void sendTest()}>
                 <CheckCircle2 size={14} /> {tr('testEmail')}
               </button>
             </div>

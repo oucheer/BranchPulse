@@ -105,12 +105,21 @@ export class MonitoringService {
       addActivity('Notifications are disabled.', 'warn')
     }
 
+    let deleted = 0
     if (autoDeleteEnabled) {
-      const deleted = await this.branchService.autoDeleteExpiredBranches(allBranches)
+      deleted = await this.branchService.autoDeleteExpiredBranches(allBranches)
       if (deleted > 0) {
         addActivity(`Auto cleanup removed ${deleted} expired remote branch${deleted === 1 ? '' : 'es'}.`, 'success')
       } else {
-        addActivity('Auto cleanup enabled, but no expired branches were eligible.')
+        const graceExpiredCount = allBranches.filter((b) => b.graceExpired).length
+        const whitelistedExpiredCount = allBranches.filter((b) => b.graceExpired && b.protection.whitelisted).length
+        const gracePeriodCount = allBranches.filter((b) => b.state === 'grace_period').length
+        const reason = whitelistedExpiredCount > 0
+          ? `${whitelistedExpiredCount} grace-expired branch${whitelistedExpiredCount === 1 ? ' is' : 'es are'} protected by the whitelist`
+          : graceExpiredCount === 0
+            ? `no branches have passed the threshold plus grace period${gracePeriodCount > 0 ? ` (${gracePeriodCount} in grace period)` : ''}`
+            : 'eligible branches are not available on the remote repository'
+        addActivity(`Auto cleanup checked, but no branches were eligible: ${reason}.`, 'warn')
       }
     } else {
       addActivity('Auto cleanup is disabled; this was an inspection-only check.')
@@ -191,6 +200,7 @@ export class MonitoringService {
       merged: summary.merged,
       namingInvalid: summary.namingInvalid,
       cleanupCandidates: summary.cleanupCandidates,
+      deleted,
       notifications: notifications.length,
       emailsSent,
       error: null,
@@ -211,6 +221,7 @@ export class MonitoringService {
       merged: run.merged,
       naming_invalid: run.namingInvalid,
       cleanup_candidates: run.cleanupCandidates,
+      deleted: run.deleted,
       notifications: run.notifications,
       emails_sent: run.emailsSent,
       error: null,
@@ -223,6 +234,7 @@ export class MonitoringService {
       stale: run.stale,
       namingInvalid: run.namingInvalid,
       merged: run.merged,
+      deleted: run.deleted,
       notifications: run.notifications,
       emailsSent: run.emailsSent
     })

@@ -65,6 +65,7 @@ function sampleRun(): ScanRun {
     merged: 1,
     namingInvalid: 1,
     cleanupCandidates: 1,
+    deleted: 0,
     notifications: 2,
     emailsSent: 0,
     error: null,

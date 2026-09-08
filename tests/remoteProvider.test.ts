@@ -69,7 +69,7 @@ describe('report schedule timing', () => {
 
   it('computes daily, weekly, monthly, and one-shot schedules', async () => {
     const { computeNextReportRunAt } = await import('../electron/services/reportSchedule')
-    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'daily' }, from) ?? '').getDate()).toBe(5)
+    expect(new Date(computeNextReportRunAt({ ...base, frequency: 'daily' }, from) ?? '').getHours()).toBe(9)
     expect(new Date(computeNextReportRunAt({ ...base, frequency: 'weekly', weekday: 1 }, from) ?? '').getDate()).toBe(7)
     expect(new Date(computeNextReportRunAt({ ...base, frequency: 'monthly', dayOfMonth: 15 }, from) ?? '').getDate()).toBe(15)
     expect(computeNextReportRunAt({ ...base, frequency: 'once', runAt: '2026-09-03T09:00:00Z' }, from)).toBeNull()

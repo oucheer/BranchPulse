@@ -88,6 +88,7 @@ export class ReportService {
       merged: Number(r.merged ?? 0),
       namingInvalid: Number(r.naming_invalid ?? 0),
       cleanupCandidates: Number(r.cleanup_candidates ?? 0),
+      deleted: Number(r.deleted ?? 0),
       notifications: Number(r.notifications ?? 0),
       emailsSent: Number(r.emails_sent ?? 0),
       error: (r.error as string | null) ?? null,

@@ -146,7 +146,7 @@ export class EmailService {
         from_address: config.from,
         secure: config.secure ? 1 : 0,
         tls: config.tls ? 1 : 0,
-        test_recipient: config.testRecipient || config.username,
+        test_recipient: config.testRecipient || config.selfEmail || config.username,
         self_email: config.selfEmail || '',
         enabled: config.enabled ? 1 : 0
       },
@@ -226,11 +226,12 @@ export class EmailService {
 
   private async runOutlookScript(script: string, payload?: Record<string, unknown>): Promise<string> {
     if (process.platform !== 'win32') throw new Error('本机 Outlook 发送仅支持 Windows。')
-    const scriptPath = path.join(app.getPath('temp'), 'branchpulse-outlook.ps1')
+    const scriptPath = path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.ps1`)
     const payloadPath = payload ? path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.json`) : ''
-    if (payload) fs.writeFileSync(payloadPath, JSON.stringify(payload, null, 2), { encoding: 'utf8' })
+    if (payload) fs.writeFileSync(payloadPath, Buffer.from(JSON.stringify(payload, null, 2), 'utf8'))
     const args = payload ? [payloadPath] : []
-    fs.writeFileSync(scriptPath, script, { encoding: 'utf8' })
+    // Windows PowerShell 5.1 requires UTF-8 BOM to parse non-ASCII content correctly.
+    fs.writeFileSync(scriptPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(script, 'utf8')]))
     try {
       return await new Promise<string>((resolve, reject) => {
         const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...args], { windowsHide: true })
@@ -289,7 +290,7 @@ export class EmailService {
       '  $payload = Get-Content -LiteralPath $args[0] -Raw -Encoding UTF8 | ConvertFrom-Json',
       '  $recipients = @($payload.recipients | Where-Object { $_ -and $_.Trim() })',
       '  if ($recipients.Count -eq 0) { throw "收件人为空。" }',
-      '  $mail.To = ($recipients -join "; ")',
+      '  $mail.To = (($recipients | ForEach-Object { [string]$_ }) -join "; ")',
       '  $mail.Subject = [string]$payload.subject',
       '  $mail.HTMLBody = [string]$payload.htmlBody',
       '  if ($payload.attachments) {',
@@ -333,17 +334,18 @@ export class EmailService {
 
   async sendTestEmail(config?: EmailConfig): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    if (!cfg.testRecipient) {
+    const testRecipient = cfg.testRecipient || cfg.selfEmail
+    if (!testRecipient) {
       return { ok: false, message: 'Set a test recipient before sending a test email.' }
     }
     try {
       await this.sendWithOutlook({
-        to: [cfg.testRecipient],
+        to: [testRecipient],
         subject: 'BranchPulse Test Email',
         body: 'This is a test email from BranchPulse. Local Outlook delivery is working.'
       })
-      this.audit.record('email_test_sent', { to: cfg.testRecipient }, 'success')
-      return { ok: true, message: 'Test email sent successfully.', recipients: [cfg.testRecipient], emailsSent: 1 }
+      this.audit.record('email_test_sent', { to: testRecipient }, 'success')
+      return { ok: true, message: 'Test email sent successfully.', recipients: [testRecipient], emailsSent: 1 }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this.audit.record('email_test_sent', { error: message }, 'failure')
@@ -357,10 +359,14 @@ export class EmailService {
 
   async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig, recipients?: string[]): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    const fallback = resolveRecipients(cfg.testRecipient || cfg.username)
+    const fallback = resolveRecipients(cfg.testRecipient || cfg.selfEmail || cfg.username)
     const recipientList = recipients?.length ? recipients : fallback
     const recipient = recipientList.join(', ')
     if (!cfg.enabled || !recipient) {
+      this.audit.record('email_summary_skipped', {
+        to: recipient || undefined,
+        reason: !cfg.enabled ? 'email_disabled' : 'recipients_empty'
+      }, 'failure')
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }
     }
     const rendered = this.renderTemplate('summary', { ...data, recipient })

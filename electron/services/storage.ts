@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS scan_runs (
   merged INTEGER NOT NULL DEFAULT 0,
   naming_invalid INTEGER NOT NULL DEFAULT 0,
   cleanup_candidates INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
   notifications INTEGER NOT NULL DEFAULT 0,
   emails_sent INTEGER NOT NULL DEFAULT 0,
   error TEXT,
@@ -326,6 +327,7 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
+    this.ensureColumn('scan_runs', 'deleted', 'INTEGER NOT NULL DEFAULT 0')
     this.db.run(`
       UPDATE scheduler_jobs
       SET interval_minutes = CAST(interval_hours * 60 AS INTEGER)

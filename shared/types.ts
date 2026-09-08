@@ -187,6 +187,7 @@ export interface ScanRun {
   merged: number
   namingInvalid: number
   cleanupCandidates: number
+  deleted: number
   notifications: number
   emailsSent: number
   error: string | null

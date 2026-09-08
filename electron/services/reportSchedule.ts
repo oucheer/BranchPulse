@@ -144,7 +144,11 @@ export class ReportScheduleService {
           if (parsedNotify.recipients) {
             targetRecipients.push(...resolveRecipients(parsedNotify.recipients, this.emailService.listGroups()))
           }
-          const recipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
+          const resolvedRecipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
+          // 未选择收件人时，默认发送到本机 Outlook 当前登录账户可配置的通知邮箱。
+          const recipients = resolvedRecipients.length > 0
+            ? resolvedRecipients
+            : selfAddress ? [selfAddress] : []
 
           if (!emailConfig.enabled) {
             this.audit.record('report_schedule_email_skipped', {
@@ -154,7 +158,7 @@ export class ReportScheduleService {
             this.audit.record('report_schedule_email_skipped', {
               id: schedule.id,
               name: schedule.name,
-              reason: parsedNotify.self && !selfAddress ? 'self_email_missing' : 'recipients_empty',
+              reason: !selfAddress ? 'self_email_missing' : 'recipients_empty',
               input: schedule.recipients
             }, 'failure')
           } else {

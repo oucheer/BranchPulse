@@ -208,7 +208,9 @@ export class SchedulerService {
         try {
           await this.runSchedulerJob(job.id)
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
           logger.error(`Scheduler job ${job.name} failed`, err)
+          this.audit.record('scheduler_job_failed', { id: job.id, name: job.name, error: message }, 'failure')
         }
       }
     }
