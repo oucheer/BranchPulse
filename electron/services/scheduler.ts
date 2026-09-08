@@ -156,9 +156,20 @@ export class SchedulerService {
     return this.listJobs()
   }
 
+  private monitoringEnabled(repositoryId?: string | null): boolean {
+    const row = repositoryId
+      ? (this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+        ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
+      : this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+    return Number(row?.enabled ?? 1) === 1
+  }
+
   async runSchedulerJob(id: string): Promise<ScanRun> {
     const job = this.listJobs().find((j) => j.id === id)
     if (!job) throw new Error('Scheduler job not found.')
+    if (!this.monitoringEnabled(job.repositoryId)) {
+      throw new Error('Monitoring is disabled.')
+    }
     const now = new Date()
     const run = await this.monitoring.runCheckNow({
       trigger: 'scheduler',
@@ -201,6 +212,7 @@ export class SchedulerService {
     const now = Date.now()
     for (const job of this.listJobs()) {
       if (!job.enabled) continue
+      if (!this.monitoringEnabled(job.repositoryId)) continue
       if (job.startDate && new Date(job.startDate).getTime() > now) continue
       if (job.endDate && new Date(job.endDate).getTime() < now) continue
       const next = job.nextRunAt ? new Date(job.nextRunAt).getTime() : 0

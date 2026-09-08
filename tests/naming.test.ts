@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NamingRule } from '@shared/types'
-import { globPatternToRegex, matchPattern, NamingService } from '../electron/services/naming'
+import { baseNamingIssue, globPatternToRegex, matchPattern, NamingService } from '../electron/services/naming'
 import type { StorageService } from '../electron/services/storage'
 
 const service = new NamingService({} as StorageService)
@@ -80,12 +80,37 @@ describe('NamingService.validate', () => {
   it('returns invalid when no rule matches', () => {
     const result = service.validate('random-name', [allowFeature])
     expect(result.status).toBe('invalid')
-    expect(result.reason).toContain('分支名称不符合')
+    expect(result.reason).toBe('不符合前缀规范')
   })
 
   it('ignores disabled rules', () => {
     const disabled = { ...allowFeature, enabled: false }
     const result = service.validate('feature/login', [disabled])
     expect(result.status).toBe('invalid')
+  })
+})
+
+describe('base naming rules', () => {
+  it('returns the first structural issue in the required order', () => {
+    expect(baseNamingIssue('feature//')).toBe('不能以 / 结尾')
+    expect(baseNamingIssue('feature//x')).toBe('不能包含连续 /')
+    expect(baseNamingIssue('a b')).toBe('不能包含空格')
+    expect(baseNamingIssue('Feature/login')).toBe('必须使用小写字母')
+    expect(baseNamingIssue('/feature/x')).toBe('不能以 / 或 - 开头')
+    expect(baseNamingIssue('-feature/x')).toBe('不能以 / 或 - 开头')
+    expect(baseNamingIssue('main2')).toBe('主分支必须直接为 main / develop')
+    expect(baseNamingIssue('develop2')).toBe('主分支必须直接为 main / develop')
+    expect(baseNamingIssue('main/foo')).toBe('主分支必须直接为 main / develop')
+    expect(baseNamingIssue('feature')).toBe('缺少具体功能描述')
+    expect(baseNamingIssue('feature/')).toBe('不能以 / 结尾')
+    expect(baseNamingIssue('xyz/foo')).toBe('前缀不在允许的前缀内')
+    expect(baseNamingIssue('admin/config')).toBe('前缀不在允许的前缀内')
+  })
+
+  it('allows conventional branches and direct main/develop branches', () => {
+    expect(baseNamingIssue('main')).toBeNull()
+    expect(baseNamingIssue('develop')).toBeNull()
+    expect(baseNamingIssue('feature/login')).toBeNull()
+    expect(baseNamingIssue('hotfix/security')).toBeNull()
   })
 })

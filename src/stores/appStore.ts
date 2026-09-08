@@ -91,6 +91,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     deletionDisabled: false
   },
   monitoring: {
+    enabled: true,
     staleThresholdDays: 14,
     gracePeriodDays: 7,
     staleThresholdUnit: 'days' as const,

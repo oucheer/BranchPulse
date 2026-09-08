@@ -126,6 +126,7 @@ export function registerIpc(services: AppServices): void {
         ?? storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
       : storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
     return {
+      enabled: Number(row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
@@ -141,6 +142,7 @@ export function registerIpc(services: AppServices): void {
 
   async function saveMonitoring(config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> {
     const values = {
+      enabled: config.enabled ? 1 : 0,
       stale_threshold_days: config.staleThresholdDays,
       grace_period_days: config.gracePeriodDays,
       stale_threshold_unit: config.staleThresholdUnit,
@@ -162,7 +164,14 @@ export function registerIpc(services: AppServices): void {
     } else {
       storage.update('monitoring_rules', values, 'id = 1')
     }
-    audit.record('monitoring_rules_updated', { repositoryId: repositoryId ?? null, staleThresholdDays: config.staleThresholdDays, gracePeriodDays: config.gracePeriodDays, staleThresholdUnit: config.staleThresholdUnit, gracePeriodUnit: config.gracePeriodUnit })
+    audit.record('monitoring_rules_updated', {
+      repositoryId: repositoryId ?? null,
+      enabled: config.enabled,
+      staleThresholdDays: config.staleThresholdDays,
+      gracePeriodDays: config.gracePeriodDays,
+      staleThresholdUnit: config.staleThresholdUnit,
+      gracePeriodUnit: config.gracePeriodUnit
+    })
     return getMonitoring(repositoryId)
   }
 
@@ -281,7 +290,7 @@ export function registerIpc(services: AppServices): void {
   })
   ipcMain.handle('branchpulse:listRepositories', (): Repository[] => repository.list())
   ipcMain.handle('branchpulse:scanRepository', (_e, id: string, fetch?: boolean): Promise<ScanRun> =>
-    monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository' }).then((run) => {
+    monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository', bypassEnabledCheck: true }).then((run) => {
       const repo = repository.get(id)
       audit.record('repository_scanned', { repository: repo?.name ?? id, branches: run.branches, stale: run.stale })
       return run

@@ -2,15 +2,13 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Activity, AlertTriangle, CheckCircle2, Clock, FileBarChart, FolderGit2, GitBranch,
-  GitMerge, RefreshCw, Scale, Search, ShieldCheck, Info
+  AlertTriangle, CheckCircle2, FolderGit2, GitBranch, RefreshCw, Scale, Info
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import SpecularButton from '../components/SpecularButton'
 import { Card } from '../components/ui'
 import { timeAgo, stateLabel } from '../lib/format'
 import { motion as motionToken, shadow } from '../design-system/tokens'
-import type { BranchSummary, ScanRun, NotificationRecord } from '@shared/types'
+import type { BranchSummary, ScanRun } from '@shared/types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +24,16 @@ function healthColor(score: number): string {
   if (score >= 60) return 'rgb(var(--warn))'
   if (score >= 40) return 'rgb(var(--warn))'
   return 'rgb(var(--danger))'
+}
+
+function localDayKey(value: string | Date): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)))
 }
 
 function CountUp({ value, duration = 0.6 }: { value: number; duration?: number }): JSX.Element {
@@ -108,21 +116,24 @@ function Sparkline({ data, color, height = 40 }: { data: number[]; color: string
 
 // ─── Mini Chart Components ──────────────────────────────────────────────────
 
-function ActivityChart({ runs }: { runs: ScanRun[] }): JSX.Element {
+function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
-  // Build last 7 days from real scanRuns
+  // Count branches that actually received a commit on each local calendar day.
   const days = useMemo(() => {
     const arr: { date: string; label: string; total: number }[] = []
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000)
-      const key = d.toISOString().slice(0, 10)
-      const dayRuns = runs.filter((r) => r.finishedAt?.slice(0, 10) === key)
-      const total = dayRuns.reduce((s, r) => Math.max(s, r.active), 0)
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const key = localDayKey(d)
+      const total = branches.filter((branch) =>
+        branch.recentCommits.some((commit) => localDayKey(commit.committedAt) === key) ||
+        (branch.lastCommitAt && localDayKey(branch.lastCommitAt) === key)
+      ).length
       arr.push({ date: key, label: `${d.getMonth() + 1}/${d.getDate()}`, total })
     }
     return arr
-  }, [runs])
+  }, [branches])
   const max = Math.max(...days.map((d) => d.total), 1)
 
   return (
@@ -153,25 +164,76 @@ function ActivityChart({ runs }: { runs: ScanRun[] }): JSX.Element {
   )
 }
 
-function HealthTrendCard({ runs, current }: { runs: ScanRun[]; current: number }): JSX.Element {
+function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[]; runs: ScanRun[]; current: number }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
-  // Derive per-day average from real scanRuns
-  const trend = useMemo(() => {
-    const arr: number[] = []
+  const snapshot = useMemo(() => ({
+    average: current,
+    best: branches.length ? Math.max(...branches.map((b) => b.health.score)) : 0,
+    worst: branches.length ? Math.min(...branches.map((b) => b.health.score)) : 0,
+    active: branches.filter((b) => b.state === 'active').length,
+    stale: branches.filter((b) => b.stale).length,
+    expired: branches.filter((b) => b.state === 'grace_expired').length,
+    invalid: branches.filter((b) => b.naming.status === 'invalid').length,
+    total: branches.length
+  }), [branches, current])
+
+  const days = useMemo(() => {
+    const arr: Array<{
+      date: string
+      label: string
+      inspections: number
+      branches: number
+      active: number
+      stale: number
+      expired: number
+      invalid: number
+      health: number
+    }> = []
     for (let i = 6; i >= 0; i--) {
-      const key = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
-      const dayRuns = runs.filter((r) => r.finishedAt?.slice(0, 10) === key && r.status === 'completed')
-      // Use branches active+merged ratio as proxy (real data)
-      const dayTotal = dayRuns.reduce((s, r) => s + r.branches, 0)
-      if (dayTotal > 0) {
-        const dayActive = dayRuns.reduce((s, r) => s + r.active + r.merged, 0)
-        arr.push(Math.round((dayActive / dayTotal) * 100))
-      }
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const key = localDayKey(d)
+      const dayRuns = runs.filter((run) => run.status === 'completed' && localDayKey(run.finishedAt ?? run.startedAt) === key)
+      const latestRun = dayRuns[0]
+      const total = latestRun?.branches ?? 0
+      const penalty = latestRun
+        ? latestRun.namingInvalid * 10 + latestRun.stale * 3 + latestRun.graceExpired * 5
+        : 0
+      arr.push({
+        date: key,
+        label: `${d.getMonth() + 1}/${d.getDate()}`,
+        inspections: dayRuns.length,
+        branches: total,
+        active: latestRun?.active ?? 0,
+        stale: latestRun?.stale ?? 0,
+        expired: latestRun?.graceExpired ?? 0,
+        invalid: latestRun?.namingInvalid ?? 0,
+        health: latestRun ? clampScore(100 - penalty) : current
+      })
     }
-    if (arr.length < 2) arr.push(current)
     return arr
   }, [runs, current])
+
+  const metrics = [
+    { label: zh ? '平均健康' : 'Average', value: snapshot.average, tone: healthColor(snapshot.average) },
+    { label: zh ? '最佳' : 'Best', value: snapshot.best, tone: 'rgb(var(--ok))' },
+    { label: zh ? '最差' : 'Worst', value: snapshot.worst, tone: healthColor(snapshot.worst) },
+    { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))' },
+    { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))' },
+    { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))' },
+    { label: zh ? '到期' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))' },
+    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))' }
+  ]
+
+  const rows = [
+    { label: zh ? '巡检' : 'Runs', values: days.map((day) => day.inspections) },
+    { label: zh ? '健康分' : 'Health', values: days.map((day) => day.health) },
+    { label: zh ? '活跃' : 'Active', values: days.map((day) => day.active) },
+    { label: zh ? '停更' : 'Stale', values: days.map((day) => day.stale) },
+    { label: zh ? '到期' : 'Expired', values: days.map((day) => day.expired) },
+    { label: zh ? '违规' : 'Naming', values: days.map((day) => day.invalid) }
+  ]
 
   return (
     <Card className="p-4">
@@ -179,15 +241,33 @@ function HealthTrendCard({ runs, current }: { runs: ScanRun[]; current: number }
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '健康趋势' : 'Health Trend'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
       </div>
-      {trend.length < 2 ? (
-        <div className="flex items-center justify-center text-xs text-muted" style={{ height: 64 }}>
-          {zh ? '暂无足够检查历史' : 'No inspection history'}
+      <div className="grid grid-cols-4 gap-1.5">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-md border border-line bg-surface-elevated px-2 py-1.5">
+            <div className="truncate text-[10px] text-muted">{metric.label}</div>
+            <div className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: metric.tone }}>{metric.value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3">
+        <Sparkline data={days.map((day) => day.health)} color="rgb(var(--secondary))" height={44} />
+      </div>
+      <div className="mt-1 flex text-[9px] text-muted opacity-70">
+        {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
+      </div>
+      <div className="mt-3 overflow-hidden rounded-md border border-line">
+        <div className="grid grid-cols-8 border-b border-line bg-surface-elevated text-[10px] text-muted">
+          <div className="px-2 py-1.5">7D</div>
+          {days.map((day) => <div key={day.date} className="px-1 py-1.5 text-center">{day.label}</div>)}
         </div>
-      ) : (
-        <Sparkline data={trend} color="rgb(var(--secondary))" height={64} />
-      )}
-      <div className="mt-1 text-[10px] tabular-nums text-muted">
-        {trend.length >= 2 ? `${trend[0]} → ${trend[trend.length - 1]}` : '—'}
+        {rows.map((row) => (
+          <div key={row.label} className="grid grid-cols-8 border-b border-line/50 text-[10px] tabular-nums last:border-0">
+            <div className="truncate px-2 py-1.5 text-muted">{row.label}</div>
+            {row.values.map((value, index) => (
+              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1.5 text-center text-canvas-fg">{value}</div>
+            ))}
+          </div>
+        ))}
       </div>
     </Card>
   )
@@ -199,14 +279,10 @@ export default function Dashboard(): JSX.Element {
   const branches = useAppStore((s) => s.branches)
   const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const notifications = useAppStore((s) => s.notifications)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
-  const monitoring = useAppStore((s) => s.monitoring)
   const language = useAppStore((s) => s.language)
   const refresh = useAppStore((s) => s.refresh)
-  const setScanning = useAppStore((s) => s.setScanning)
   const toast = useAppStore((s) => s.toast)
-  const scanning = useAppStore((s) => s.scanning)
   const navigate = useNavigate()
   const zh = language === 'zh'
   const [refreshing, setRefreshing] = useState(false)
@@ -216,7 +292,6 @@ export default function Dashboard(): JSX.Element {
     () => (activeRepositoryId ? scanRuns.filter((r) => r.repositories <= 1) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
     [scanRuns, activeRepositoryId]
   )
-  const visibleNotifications = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
   const lastRun = visibleScanRuns[0]
   const avgHealth = visibleBranches.length ? Math.round(visibleBranches.reduce((s, b) => s + b.health.score, 0) / visibleBranches.length) : 0
@@ -267,30 +342,10 @@ export default function Dashboard(): JSX.Element {
     }
   }
 
-  const handleRunCheck = async (): Promise<void> => {
-    setScanning(true)
-    try {
-      const run = await window.branchpulse.runCheckNow({ trigger: 'manual' })
-      toast(`${zh ? '巡检完成' : 'Check complete'}: ${run.branches}`, 'success')
-      void refresh()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    } finally {
-      setScanning(false)
-    }
-  }
-
   const compactMetrics = [
     { label: tr('repositories'), value: activeRepositoryId ? 1 : repositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
     { label: tr('totalBranches'), value: visibleBranches.length, icon: GitBranch, to: '/branches', tone: 'text-muted' },
     { label: tr('namingCompliance'), value: `${compliance}%`, icon: Scale, to: '/naming-rules', tone: compliance >= 90 ? 'text-ok' : compliance >= 70 ? 'text-warn' : 'text-danger' },
-    { label: zh ? '监控' : 'Monitoring', value: monitoring.notificationEnabled ? (zh ? '开启' : 'On') : (zh ? '关闭' : 'Off'), icon: Activity, to: '/monitoring', tone: monitoring.notificationEnabled ? 'text-ok' : 'text-muted' }
-  ]
-
-  const quickActions = [
-    { label: tr('runCheckNow'), icon: RefreshCw, action: () => void handleRunCheck() },
-    { label: zh ? '命名规则' : 'Naming Rules', icon: Search, action: () => navigate('/naming-rules') },
-    { label: tr('reports'), icon: FileBarChart, action: () => navigate('/reports') }
   ]
 
   return (
@@ -406,8 +461,8 @@ export default function Dashboard(): JSX.Element {
 
       {/* ─── Layer 2: Activity + Trend ────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ActivityChart runs={visibleScanRuns} />
-        <HealthTrendCard runs={completedRuns} current={avgHealth} />
+        <ActivityChart branches={visibleBranches} />
+        <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
       </div>
 
       {/* ─── Distribution + Inspections ─────────────────────────── */}
@@ -509,7 +564,7 @@ export default function Dashboard(): JSX.Element {
             <span className="text-sm font-semibold text-canvas-fg">{zh ? '需要关注' : 'Attention Required'}</span>
             <span className="rounded-full bg-warn/10 px-1.5 text-[10px] font-semibold text-warn">{attention.length}</span>
           </div>
-          <div className="space-y-1.5">
+          <div className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
             {attention.map((b) => (
               <button
                 key={b.id}
@@ -528,9 +583,8 @@ export default function Dashboard(): JSX.Element {
         </Card>
       ) : null}
 
-      {/* ─── Layer 3: Alerts + Quick Actions ───────────────────── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Active Alerts */}
+      {/* ─── Active Alerts ──────────────────────────────────────── */}
+      <div>
         <Card className="p-4">
           <div className="mb-2 flex items-center gap-2">
             <Info size={15} className="text-info" />
@@ -566,52 +620,6 @@ export default function Dashboard(): JSX.Element {
           )}
         </Card>
 
-        {/* Quick Actions */}
-        <Card className="p-4">
-          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '快捷操作' : 'Quick Actions'}</div>
-          <div className="mb-2">
-            <SpecularButton
-              size="sm"
-              radius={10}
-              tint="rgb(var(--primary))"
-              tintOpacity={1}
-              blur={0}
-              textColor="#ffffff"
-              lineColor="#ffd9a8"
-              baseColor="#b35810"
-              intensity={1}
-              shineSize={12}
-              shineFade={45}
-              thickness={1}
-              speed={0.35}
-              followMouse
-              proximity={220}
-              disabled={scanning}
-              onClick={() => void handleRunCheck()}
-              className="w-full"
-            >
-              <span className="flex items-center gap-2 text-sm">
-                <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
-                {tr('runCheckNow')}
-              </span>
-            </SpecularButton>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {quickActions.filter((q) => q.label !== tr('runCheckNow')).map((q) => {
-              const Icon = q.icon
-              return (
-                <button
-                  key={q.label}
-                  onClick={q.action}
-                  className="flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-2.5 text-xs font-medium text-muted transition-all hover:border-primary/40 hover:text-canvas-fg active:scale-[0.98]"
-                >
-                  <Icon size={14} />
-                  {q.label}
-                </button>
-              )
-            })}
-          </div>
-        </Card>
       </div>
 
       {/* ─── Repository Overview (compact, only if repo exists) ── */}

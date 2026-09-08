@@ -52,6 +52,31 @@ export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', 
   }
 }
 
+const allowedPrefixes = new Set(['feature', 'bugfix', 'fix', 'hotfix', 'release', 'refactor', 'docs', 'test', 'chore'])
+
+export function baseNamingIssue(name: string): string | null {
+  if (name.endsWith('/')) return '不能以 / 结尾'
+  if (name.includes('//')) return '不能包含连续 /'
+  if (/\s/.test(name)) return '不能包含空格'
+  if (/[A-Z]/.test(name)) return '必须使用小写字母'
+  if (name.startsWith('/') || name.startsWith('-')) return '不能以 / 或 - 开头'
+  if (/^(main|develop)(?:\/|[^a-z])/.test(name)) {
+    return '主分支必须直接为 main / develop'
+  }
+  if (name === 'main' || name === 'develop') return null
+
+  const separatorIndex = name.indexOf('/')
+  if (separatorIndex === -1) {
+    return allowedPrefixes.has(name) ? '缺少具体功能描述' : '不符合前缀规范'
+  }
+
+  const prefix = name.slice(0, separatorIndex)
+  const description = name.slice(separatorIndex + 1)
+  if (!description) return '缺少具体功能描述'
+  if (!allowedPrefixes.has(prefix)) return '前缀不在允许的前缀内'
+  return null
+}
+
 export class NamingService {
   constructor(private readonly storage: StorageService) {}
 
@@ -75,16 +100,20 @@ export class NamingService {
 
   validate(name: string, rules?: NamingRule[]): NamingResult {
     const list = rules ?? this.listRules()
-    for (const rule of list.filter((r) => r.enabled)) {
+    const baseIssue = baseNamingIssue(name)
+    for (const rule of list.filter((r) => r.enabled && !baseIssue)) {
       if (!matchPattern(rule.pattern, rule.type, name)) continue
       if (rule.mode === 'exclude') {
         return { status: 'excluded', ruleName: rule.name, reason: `由规则「${rule.name}」排除` }
       }
       return { status: 'valid', ruleName: rule.name, reason: `符合规则「${rule.name}」` }
     }
+    if (baseIssue) {
+      return { status: 'invalid', reason: baseIssue }
+    }
     return {
       status: 'invalid',
-      reason: '分支名称不符合任何命名规则'
+      reason: '不符合前缀规范'
     }
   }
 }

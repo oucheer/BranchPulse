@@ -129,7 +129,7 @@ function createTray(): void {
     {
       label: 'Run Check Now',
       click: () => {
-        void services?.monitoring.runCheckNow({ trigger: 'manual' })
+        void services?.monitoring.runCheckNow({ bypassEnabledCheck: true, trigger: 'manual' })
         showWindow()
       }
     },

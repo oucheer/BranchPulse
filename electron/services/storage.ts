@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS branch_naming_rules (
 
 CREATE TABLE IF NOT EXISTS monitoring_rules (
   id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 1,
   stale_threshold_days INTEGER NOT NULL,
   grace_period_days INTEGER NOT NULL,
   stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
@@ -158,6 +159,7 @@ CREATE TABLE IF NOT EXISTS report_schedules (
 
 CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
   repository_id TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 1,
   stale_threshold_days INTEGER NOT NULL,
   grace_period_days INTEGER NOT NULL,
   stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
@@ -320,6 +322,7 @@ export class StorageService {
     this.ensureColumn('repositories', 'web_url', 'TEXT')
     this.ensureColumn('repositories', 'remote_project_path', 'TEXT')
     this.ensureColumn('repositories', 'remote_api_key', 'TEXT')
+    this.ensureColumn('monitoring_rules', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('monitoring_rules', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
@@ -341,6 +344,7 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
     this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
     this.ensureColumn('branch_naming_rules', 'repository_id', 'TEXT')
@@ -360,8 +364,8 @@ export class StorageService {
   }
 
   private seed(): void {
-    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, auto_delete_enabled, notify_target)
-      VALUES (1, 14, 7, 1, 1, 'none', 1, 0, 'self')`)
+    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, auto_delete_enabled, notify_target)
+      VALUES (1, 1, 14, 7, 1, 1, 'none', 1, 0, 'self')`)
     this.run(`INSERT OR IGNORE INTO app_settings (id, theme, language, notifications_enabled, tray_enabled, launch_minimized, start_with_windows, fetch_policy)
       VALUES (1, 'dark', 'en', 1, 1, 0, 0, 'auto')`)
     this.run(`INSERT OR IGNORE INTO email_config (id, server, port, from_address, secure, tls, enabled)

@@ -134,6 +134,7 @@ export interface ProtectionEntry {
 }
 
 export interface MonitoringConfig {
+  enabled: boolean
   staleThresholdDays: number
   gracePeriodDays: number
   staleThresholdUnit: 'minutes' | 'hours' | 'days'
@@ -371,6 +372,7 @@ export interface DeleteResult {
 }
 
 export interface RunCheckOptions {
+  bypassEnabledCheck?: boolean
   emailPolicy?: EmailPolicy
   notifyTarget?: NotifyTarget
   autoDelete?: boolean

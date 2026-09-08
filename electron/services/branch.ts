@@ -120,6 +120,7 @@ export class BranchService {
         ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
       : this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
     return {
+      enabled: (row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
       gracePeriodDays: Number(row?.grace_period_days ?? 7),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),

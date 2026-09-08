@@ -40,10 +40,22 @@ export default function Monitoring(): JSX.Element {
     }
   }
 
+  const toggleMonitoring = async (enabled: boolean): Promise<void> => {
+    try {
+      await window.branchpulse.saveMonitoring({ ...monitoring, enabled }, activeRepositoryId)
+      toast(enabled ? '监控已开启' : '监控已关闭', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+      void refresh()
+    }
+  }
+
   const runCheck = async (): Promise<void> => {
     setScanning(true)
     try {
       const run = await window.branchpulse.runCheckNow({
+        bypassEnabledCheck: true,
         notifyTarget: draft.notifyTarget,
         autoDelete: false,
         trigger: 'manual'
@@ -64,13 +76,17 @@ export default function Monitoring(): JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-canvas-fg">
+        <h1 className="flex items-center gap-3 text-lg font-bold text-canvas-fg">
           {tr('monitoring')}
           {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库配置</span> : <span className="ml-2 text-sm font-medium text-muted">全局默认配置</span>}
+          <Badge tone={monitoring.enabled ? 'ok' : 'warn'}>
+            {monitoring.enabled ? '已开启' : '已关闭'}
+          </Badge>
         </h1>
-        <button className="btn btn-primary" disabled={saving || scanning} onClick={() => void save()}>
-          <Activity size={15} /> {tr('save')}
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted">{monitoring.enabled ? '监控开启中' : '监控已关闭'}</span>
+          <Toggle checked={monitoring.enabled} label="监控开关" disabled={saving} onChange={(v) => void toggleMonitoring(v)} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

@@ -114,6 +114,24 @@ describe('SchedulerService never deletes branches', () => {
     expect((service as unknown as Record<string, unknown>).deleteBranch).toBeUndefined()
     expect((monitoring as unknown as Record<string, unknown>).deleteBranch).toBeUndefined()
   })
+
+  it('does not run scheduler jobs while monitoring is disabled', async () => {
+    const job = sampleJob()
+    const storage = {
+      all: vi.fn().mockReturnValue([jobRow(job)]),
+      get: vi.fn().mockReturnValue({ enabled: 0 }),
+      update: vi.fn(),
+      insert: vi.fn(),
+      delete: vi.fn()
+    } as unknown as StorageService
+    const monitoring = { runCheckNow: vi.fn() } as unknown as MonitoringService
+    const audit = { record: vi.fn() } as unknown as AuditService
+
+    const service = new SchedulerService(storage, monitoring, audit)
+    await expect(service.runSchedulerJob('job-1')).rejects.toThrow('Monitoring is disabled.')
+    expect(monitoring.runCheckNow).not.toHaveBeenCalled()
+    expect(storage.update).not.toHaveBeenCalled()
+  })
 })
 
 describe('computeNextRunAt', () => {

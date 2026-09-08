@@ -91,7 +91,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
     if (action === 'runCheck') {
       setScanning(true)
       try {
-        const run = await window.branchpulse.runCheckNow({ trigger: 'manual' })
+        const run = await window.branchpulse.runCheckNow({ bypassEnabledCheck: true, trigger: 'manual' })
         toast(`Check complete: ${run.branches} branches analyzed`, 'success')
       } catch (err) {
         toast(err instanceof Error ? err.message : String(err), 'error')

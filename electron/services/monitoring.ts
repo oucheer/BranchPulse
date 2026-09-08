@@ -60,6 +60,9 @@ export class MonitoringService {
     }
 
     const monitoringRow = this.readMonitoringRow(options.repositoryIds?.length ? options.repositoryIds[0] : null)
+    if (!options.bypassEnabledCheck && Number(monitoringRow?.enabled ?? 1) !== 1) {
+      throw new Error('Monitoring is disabled. Turn monitoring on to run a check.')
+    }
     const fetchEnabled = options.fetch ?? (monitoringRow?.fetch_enabled ?? 1) === 1
     const policy: EmailPolicy = options.emailPolicy ?? ((monitoringRow?.email_policy as EmailPolicy) ?? 'none')
     const notifyTarget: NotifyTarget = options.notifyTarget ?? ((monitoringRow?.notify_target as NotifyTarget) ?? 'self')
