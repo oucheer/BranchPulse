@@ -49,6 +49,7 @@ export default function App(): JSX.Element {
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
   const [splashFading, setSplashFading] = useState(false)
+  const [appMounted, setAppMounted] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
@@ -88,8 +89,12 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!splashFading) return
+    const mountTimer = window.setTimeout(() => setAppMounted(true), 80)
     const timer = window.setTimeout(() => setSplashDone(true), 650)
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(mountTimer)
+      window.clearTimeout(timer)
+    }
   }, [splashFading])
 
   useEffect(() => {
@@ -120,35 +125,39 @@ export default function App(): JSX.Element {
     )
   }
 
-  if (!splashDone) {
-    return (
-      <div className="relative h-screen overflow-hidden bg-canvas">
-        {effectsEnabled && splashParticlesEnabled ? (
-          <div className="absolute inset-0">
-            <ParticleText text="BranchPulse" duration={2600} onComplete={() => { if (ready) setSplashFading(true) }} />
-          </div>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
-          <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <Layout>
-      <div className="h-full overflow-auto">
-        <Routes location={location}>
-          {pages.map((p) => (
-            <Route key={p.path} path={p.path} element={p.element} />
-          ))}
-        </Routes>
-      </div>
-      <Toasts />
-    </Layout>
+    <>
+      {appMounted ? (
+        <Layout deferBackground>
+          <div className="h-full overflow-auto">
+            <Routes location={location}>
+              {pages.map((p) => (
+                <Route key={p.path} path={p.path} element={p.element} />
+              ))}
+            </Routes>
+          </div>
+          <Toasts />
+        </Layout>
+      ) : null}
+      {!splashDone ? (
+        <div
+          className={`fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'}`}
+          style={{ transitionDuration: '650ms' }}
+        >
+          {effectsEnabled && splashParticlesEnabled ? (
+            <div className="absolute inset-0">
+              <ParticleText text="BranchPulse" duration={2600} onComplete={() => { if (ready) setSplashFading(true) }} />
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
+            <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
