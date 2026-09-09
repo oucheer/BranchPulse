@@ -120,17 +120,6 @@ export default function App(): JSX.Element {
     )
   }
 
-  if (!ready) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-canvas">
-        <div className="text-center">
-          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
-          <div className="text-sm text-muted">Loading...</div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <>
       <Layout>
