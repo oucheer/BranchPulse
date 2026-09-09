@@ -48,6 +48,7 @@ export default function App(): JSX.Element {
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
+  const [shellPrepared, setShellPrepared] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
@@ -113,38 +114,46 @@ export default function App(): JSX.Element {
     )
   }
 
+  const showSplash = !splashDone
+
   return (
     <>
-      {!splashDone ? (
-        <div className="relative h-screen overflow-hidden bg-canvas">
-          {effectsEnabled && splashParticlesEnabled ? (
-            <div className="absolute inset-0">
-              <ParticleText
-                text="BranchPulse"
-                duration={3400}
-                onComplete={() => setSplashDone(true)}
-              />
+      <div style={{ display: showSplash || !shellPrepared ? 'block' : 'none' }}>
+        {showSplash && (
+          <div className="relative h-screen overflow-hidden bg-canvas">
+            {effectsEnabled && splashParticlesEnabled ? (
+              <div className="absolute inset-0">
+                <ParticleText
+                  text="BranchPulse"
+                  duration={3400}
+                  onPrepare={() => setShellPrepared(true)}
+                  onComplete={() => setSplashDone(true)}
+                />
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+              </div>
+            )}
+            <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
+              <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
             </div>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
-            </div>
-          )}
-          <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
-            <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
           </div>
+        )}
+      </div>
+      {shellPrepared && (
+        <div style={{ display: showSplash ? 'none' : 'block' }}>
+          <Layout>
+            <div className="h-full overflow-auto">
+              <Routes location={location}>
+                {pages.map((p) => (
+                  <Route key={p.path} path={p.path} element={p.element} />
+                ))}
+              </Routes>
+            </div>
+            <Toasts />
+          </Layout>
         </div>
-      ) : (
-        <Layout>
-          <div className="h-full overflow-auto">
-            <Routes location={location}>
-              {pages.map((p) => (
-                <Route key={p.path} path={p.path} element={p.element} />
-              ))}
-            </Routes>
-          </div>
-          <Toasts />
-        </Layout>
       )}
     </>
   )
