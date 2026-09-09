@@ -114,9 +114,9 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
                   pillarHeight={0.4}
                   noiseIntensity={0.5}
                   pillarRotation={0}
-                  interactive={false}
+                  interactive={true}
                   mixBlendMode="normal"
-                  quality="high"
+                  quality="low"
                   lightMode={true}
                 />
               </div>

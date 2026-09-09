@@ -48,6 +48,7 @@ export default function App(): JSX.Element {
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
+  const [splashFading, setSplashFading] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
@@ -78,12 +79,18 @@ export default function App(): JSX.Element {
   }, [settings.backgroundTheme, settings.colorTheme])
 
   useEffect(() => {
-    if (!ready || splashDone) return
+    if (!ready || splashFading) return
     const elapsed = Date.now() - splashStartedAt
-    const remaining = Math.max(0, 2600 - elapsed)
-    const timer = window.setTimeout(() => setSplashDone(true), remaining)
+    const remaining = Math.max(0, 3200 - elapsed)
+    const timer = window.setTimeout(() => setSplashFading(true), remaining)
     return () => window.clearTimeout(timer)
-  }, [ready, splashDone, splashStartedAt])
+  }, [ready, splashFading, splashStartedAt])
+
+  useEffect(() => {
+    if (!splashFading) return
+    const timer = window.setTimeout(() => setSplashDone(true), 650)
+    return () => window.clearTimeout(timer)
+  }, [splashFading])
 
   useEffect(() => {
     document.documentElement.style.colorScheme = settings.backgroundTheme
@@ -97,44 +104,6 @@ export default function App(): JSX.Element {
           <div className="text-sm text-muted">
             BranchPulse is a desktop application. Launch the installed app instead of opening this URL in a browser.
           </div>
-        </div>
-      </div>
-    )
-  }
-
-  const showSplash = !splashDone
-  if (showSplash && !startupError) {
-    return (
-      <div className="relative h-screen overflow-hidden bg-canvas">
-        {effectsEnabled && splashParticlesEnabled ? (
-          <>
-            <div className="absolute inset-0">
-              <ParticleText
-                text="BranchPulse"
-                duration={2600}
-                onComplete={() => {
-                  if (ready) setSplashDone(true)
-                }}
-              />
-            </div>
-            {!ready ? (
-              <div className="pointer-events-none absolute inset-x-0 top-12 text-center">
-                <div className="inline-block rounded-md border border-line bg-surface/70 px-2.5 py-1 text-xs font-medium text-muted">
-                  Loading...
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
-            {!ready ? (
-              <div className="mt-4 text-sm font-medium text-muted">Loading...</div>
-            ) : null}
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
-          <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
         </div>
       </div>
     )
@@ -163,15 +132,36 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <Layout>
-      <div className="h-full overflow-auto">
-        <Routes location={location}>
-          {pages.map((p) => (
-            <Route key={p.path} path={p.path} element={p.element} />
-          ))}
-        </Routes>
+    <>
+      <Layout>
+        <div className="h-full overflow-auto">
+          <Routes location={location}>
+            {pages.map((p) => (
+              <Route key={p.path} path={p.path} element={p.element} />
+            ))}
+          </Routes>
+        </div>
+        <Toasts />
+      </Layout>
+    {!splashDone ? (
+      <div
+        className={`pointer-events-none fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'opacity-0' : 'opacity-100'}`}
+        style={{ transitionDuration: '650ms' }}
+      >
+        {effectsEnabled && splashParticlesEnabled ? (
+          <div className="absolute inset-0">
+            <ParticleText text="BranchPulse" duration={2600} onComplete={() => { if (ready) setSplashFading(true) }} />
+          </div>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+          </div>
+        )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
+          <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
+        </div>
       </div>
-      <Toasts />
-    </Layout>
+    ) : null}
+    </>
   )
 }

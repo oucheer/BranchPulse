@@ -43,6 +43,7 @@ const LightPillar = ({
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const geometryRef = useRef<THREE.PlaneGeometry | null>(null);
   const mouseRef = useRef(new THREE.Vector2(0, 0));
+  const targetMouseRef = useRef(new THREE.Vector2(0, 0));
   const timeRef = useRef(0);
   const rotationSpeedRef = useRef(rotationSpeed);
   const [webGLSupported, setWebGLSupported] = useState(true);
@@ -165,13 +166,17 @@ const LightPillar = ({
 
         vec3 col = vec3(0.0);
         float t = 0.1;
+        float flowX = uLightMode > 0.5 ? sin(uTime * 0.32) * 0.14 + uMouse.x * 0.13 : 0.0;
+        float flowY = uLightMode > 0.5 ? cos(uTime * 0.24) * 0.07 + uMouse.y * 0.06 : 0.0;
         
         for(int i = 0; i < MAX_ITER; i++) {
           vec3 p = ro + rd * t;
           p.xz = vec2(rotC * p.x - rotS * p.z, rotS * p.x + rotC * p.z);
 
           vec3 q = p;
+          q.x += flowX;
           q.y = p.y * uPillarHeight + uTime;
+          q.y += flowY;
           
           float freq = 1.0;
           float amp = 1.0;
@@ -261,7 +266,7 @@ const LightPillar = ({
       const rect = container.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      mouseRef.current.set(x, y);
+      targetMouseRef.current.set(x, y);
     };
 
     if (interactive) {
@@ -277,10 +282,17 @@ const LightPillar = ({
 
       const deltaTime = currentTime - lastTime;
 
+      if (document.hidden) {
+        lastTime = currentTime;
+        rafRef.current = requestAnimationFrame(animate);
+        return;
+      }
+
       if (deltaTime >= frameTime) {
         timeRef.current += 0.016 * rotationSpeedRef.current;
         const t = timeRef.current;
         materialRef.current.uniforms.uTime.value = t;
+        mouseRef.current.lerp(targetMouseRef.current, 0.055);
         materialRef.current.uniforms.uRotCos.value = Math.cos(t * 0.3);
         materialRef.current.uniforms.uRotSin.value = Math.sin(t * 0.3);
         rendererRef.current.render(sceneRef.current, cameraRef.current);
