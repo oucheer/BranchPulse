@@ -246,7 +246,11 @@ export default function MoltenMetal({
       renderer.render({ scene: mesh })
     }
 
-    const resizeObserver = new ResizeObserver(setSize)
+    const resizeObserver = new ResizeObserver(() => {
+      const rect = container.getBoundingClientRect()
+      visible = rect.width > 0 && rect.height > 0
+      setSize()
+    })
     resizeObserver.observe(container)
     setSize()
 
@@ -297,6 +301,11 @@ export default function MoltenMetal({
       else tryStop()
     }, { threshold: 0 })
     intersectionObserver.observe(container)
+    const rect = container.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) {
+      visible = true
+      tryStart()
+    }
 
     const handleVisibility = (): void => {
       pageVisible = !document.hidden
