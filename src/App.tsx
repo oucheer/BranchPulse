@@ -120,23 +120,9 @@ export default function App(): JSX.Element {
     )
   }
 
-  return (
-    <>
-      <Layout deferBackground={effectsEnabled && splashParticlesEnabled && !splashFading}>
-        <div className="h-full overflow-auto">
-          <Routes location={location}>
-            {pages.map((p) => (
-              <Route key={p.path} path={p.path} element={p.element} />
-            ))}
-          </Routes>
-        </div>
-        <Toasts />
-      </Layout>
-    {!splashDone ? (
-      <div
-        className={`fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'}`}
-        style={{ transitionDuration: '650ms' }}
-      >
+  if (!splashDone) {
+    return (
+      <div className="relative h-screen overflow-hidden bg-canvas">
         {effectsEnabled && splashParticlesEnabled ? (
           <div className="absolute inset-0">
             <ParticleText text="BranchPulse" duration={2600} onComplete={() => { if (ready) setSplashFading(true) }} />
@@ -150,7 +136,19 @@ export default function App(): JSX.Element {
           <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
         </div>
       </div>
-    ) : null}
-    </>
+    )
+  }
+
+  return (
+    <Layout>
+      <div className="h-full overflow-auto">
+        <Routes location={location}>
+          {pages.map((p) => (
+            <Route key={p.path} path={p.path} element={p.element} />
+          ))}
+        </Routes>
+      </div>
+      <Toasts />
+    </Layout>
   )
 }
