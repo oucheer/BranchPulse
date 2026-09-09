@@ -185,64 +185,87 @@ function MiniBars({
 function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
-  // Count branches that actually received a commit on each local calendar day.
-  const days = useMemo(() => {
-    const arr: { date: string; label: string; total: number }[] = []
-    for (let i = 6; i >= 0; i--) {
+  const contributors = useMemo(() => {
+    const dayKeys = new Set<string>()
+    for (let i = 0; i < 7; i++) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      const key = localDayKey(d)
-      const total = branches.filter((branch) =>
-        branch.recentCommits.some((commit) => localDayKey(commit.committedAt) === key) ||
-        (branch.lastCommitAt && localDayKey(branch.lastCommitAt) === key)
-      ).length
-      arr.push({ date: key, label: `${d.getMonth() + 1}/${d.getDate()}`, total })
+      dayKeys.add(localDayKey(d))
     }
-    return arr
-  }, [branches])
-  const max = Math.max(...days.map((d) => d.total), 1)
-  const yTicks = [max, Math.round(max / 2), 0]
+    const seenCommits = new Set<string>()
+    const byAuthor = new Map<string, { name: string; count: number }>()
+    for (const branch of branches) {
+      for (const commit of branch.recentCommits) {
+        if (!dayKeys.has(localDayKey(commit.committedAt))) continue
+        const commitKey = commit.sha || `${branch.id}:${commit.committedAt}:${commit.subject}`
+        if (seenCommits.has(commitKey)) continue
+        seenCommits.add(commitKey)
+        const name = commit.authorName || commit.authorEmail || (zh ? '未知' : 'Unknown')
+        const key = (commit.authorEmail || commit.authorName || name).toLowerCase()
+        const current = byAuthor.get(key) ?? { name, count: 0 }
+        current.count += 1
+        byAuthor.set(key, current)
+      }
+    }
+    return [...byAuthor.values()]
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 7)
+  }, [branches, zh])
+  const max = Math.max(...contributors.map((c) => c.count), 1)
+  const yTicks = [max, Math.ceil(max / 2), 0]
   return (
-    <Card className="self-start p-3.5">
+    <Card className="flex h-full flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支活跃度' : 'Branch Activity'}</div>
-        <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
+        <div className="text-[10px] text-muted">{zh ? '近 7 天 Top 7' : 'Last 7 days Top 7'}</div>
       </div>
-      <div className="flex gap-1.5">
-        <div className="flex w-6 shrink-0 flex-col items-end justify-between pb-[3px] text-[9px] tabular-nums leading-none text-muted opacity-70" style={{ height: 56 }}>
-          {yTicks.map((tick) => <span key={tick}>{tick}</span>)}
+      {contributors.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-line/70 text-xs text-muted">
+          {zh ? '近 7 天暂无提交' : 'No commits in last 7 days'}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="relative border-b border-line/60" style={{ height: 56 }}>
-            <div className="pointer-events-none absolute inset-x-0 top-[4px] border-t border-dashed border-line/40" />
-            <div className="pointer-events-none absolute inset-x-0 top-[28px] border-t border-dashed border-line/40" />
-            <Sparkline data={days.map((d) => d.total)} color="rgb(var(--primary))" height={56} />
-            <div className="absolute inset-0 flex">
-              {days.map((d) => (
-                <div key={d.date} className="group relative flex-1">
-                  <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                    {d.label}: {d.total}
-                  </div>
+      ) : (
+        <div className="flex flex-1 flex-col">
+          <div className="flex min-h-[76px] flex-1 gap-1.5">
+            <div className="flex w-6 shrink-0 flex-col items-end justify-between pb-[3px] text-[9px] tabular-nums leading-none text-muted opacity-70">
+              {yTicks.map((tick) => <span key={tick}>{tick}</span>)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="relative h-full min-h-[64px] border-b border-line/60">
+                <div className="pointer-events-none absolute inset-x-0 top-0 border-t border-dashed border-line/40" />
+                <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-line/40" />
+                <Sparkline data={contributors.map((c) => c.count)} color="rgb(var(--primary))" height={64} />
+                <div className="absolute inset-0 flex">
+                  {contributors.map((c) => (
+                    <div key={c.name} className="group relative flex-1">
+                      <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-canvas-fg opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                        {c.name}: {c.count}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           </div>
-          <div className="mt-1 flex text-[9px] text-muted opacity-60">
-            {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
+          <div className="mt-1 flex text-[9px] text-muted opacity-70">
+            {contributors.map((c) => (
+              <div key={c.name} className="min-w-0 flex-1 truncate px-0.5 text-center" title={c.name}>{c.name}</div>
+            ))}
           </div>
           <div className="mt-1.5 flex justify-between text-[9px] text-muted opacity-70">
-            <span>{zh ? 'X 轴：日期' : 'X axis: date'}</span>
-            <span>{zh ? 'Y 轴：有提交的分支数' : 'Y axis: branches with commits'}</span>
+            <span>{zh ? 'X 轴：提交人' : 'X axis: committer'}</span>
+            <span>{zh ? 'Y 轴：提交数量' : 'Y axis: commit count'}</span>
           </div>
         </div>
-      </div>
+      )}
     </Card>
   )
 }
 
-function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[]; runs: ScanRun[]; current: number }): JSX.Element {
+function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; runs: ScanRun[]; current: number }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
+  const [hoveredRisk, setHoveredRisk] = useState<string | null>(null)
+  const [riskFilter, setRiskFilter] = useState<string | null>(null)
   const snapshot = useMemo(() => ({
     average: current,
     best: branches.length ? Math.max(...branches.map((b) => b.health.score)) : 0,
@@ -253,124 +276,139 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
     invalid: branches.filter((b) => b.naming.status === 'invalid').length,
     total: branches.length
   }), [branches, current])
-
-  const days = useMemo(() => {
-    const arr: Array<{
-      date: string
-      label: string
-      inspections: number
-      branches: number | null
-      active: number | null
-      stale: number | null
-      expired: number | null
-      invalid: number | null
-      health: number | null
-    }> = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const key = localDayKey(d)
-      const dayRuns = runs.filter((run) => run.status === 'completed' && localDayKey(run.finishedAt ?? run.startedAt) === key)
-      const latestRun = dayRuns[0]
-      const hasRun = Boolean(latestRun)
-      arr.push({
-        date: key,
-        label: `${d.getMonth() + 1}/${d.getDate()}`,
-        inspections: dayRuns.length,
-        branches: hasRun ? latestRun.branches : null,
-        active: hasRun ? latestRun.active : null,
-        stale: hasRun ? latestRun.stale : null,
-        expired: hasRun ? latestRun.graceExpired : null,
-        invalid: hasRun ? latestRun.namingInvalid : null,
-        health: hasRun && latestRun.healthAvg != null ? clampScore(Math.round(latestRun.healthAvg)) : null
-      })
-    }
-    return arr
-  }, [runs])
-
+  const riskPoints = useMemo(() => branches
+    .map((branch) => {
+      const risk = clampScore(100 - branch.health.score)
+      const categories = [
+        branch.state === 'active' ? 'active' : null,
+        branch.stale && branch.state !== 'grace_expired' ? 'stale' : null,
+        branch.state === 'grace_expired' ? 'expired' : null,
+        branch.naming.status === 'invalid' ? 'naming' : null
+      ].filter(Boolean) as string[]
+      return {
+        id: branch.id,
+        name: branch.displayName,
+        risk,
+        categories,
+        inactiveDays: Math.max(0, branch.inactiveDays),
+        color: risk >= 60 ? 'rgb(var(--danger))' : risk >= 30 ? 'rgb(var(--warn))' : 'rgb(var(--ok))'
+      }
+    })
+    .sort((a, b) => b.risk - a.risk || b.inactiveDays - a.inactiveDays), [branches])
+  const maxInactiveDays = Math.max(14, ...riskPoints.map((p) => p.inactiveDays))
+  const selectedPoints = riskFilter === null
+    ? riskPoints
+    : riskPoints.filter((p) => p.categories.includes(riskFilter))
+  const labelPoint = hoveredRisk ? selectedPoints.find((p) => p.id === hoveredRisk) : null
+  const positionFor = (point: typeof riskPoints[number]) => ({
+    left: `${4 + (point.inactiveDays / maxInactiveDays) * 92}%`,
+    bottom: `${4 + (point.risk / 100) * 92}%`
+  })
   const hasBranches = snapshot.total > 0
-  const metrics: Array<{ label: string; value: number | string; tone: string }> = [
-    { label: zh ? '平均健康' : 'Average', value: hasBranches ? snapshot.average : '--', tone: hasBranches ? healthColor(snapshot.average) : 'rgb(var(--muted))' },
-    { label: zh ? '最佳' : 'Best', value: hasBranches ? snapshot.best : '--', tone: hasBranches ? 'rgb(var(--ok))' : 'rgb(var(--muted))' },
-    { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))' },
-    { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))' },
-    { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))' },
-    { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))' },
-    { label: zh ? '到期' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))' },
-    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))' }
+  const metrics: Array<{ label: string; value: number | string; tone: string; key: string }> = [
+    { label: zh ? '平均健康' : 'Average', value: hasBranches ? snapshot.average : '--', tone: hasBranches ? healthColor(snapshot.average) : 'rgb(var(--muted))', key: 'all' },
+    { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))', key: 'active' },
+    { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))', key: 'stale' },
+    { label: zh ? '到期' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))', key: 'expired' },
+    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' },
+    { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))', key: 'total' },
+    { label: zh ? '最佳' : 'Best', value: hasBranches ? snapshot.best : '--', tone: hasBranches ? 'rgb(var(--ok))' : 'rgb(var(--muted))', key: 'best' },
+    { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))', key: 'worst' }
   ]
-
-  const rows = [
-    { label: zh ? '巡检(次)' : 'Runs', values: days.map((day) => day.inspections) },
-    { label: zh ? '分支(个)' : 'Branches', values: days.map((day) => day.branches) },
-    { label: zh ? '活跃(个)' : 'Active', values: days.map((day) => day.active) },
-    { label: zh ? '停更(个)' : 'Stale', values: days.map((day) => day.stale) },
-    { label: zh ? '到期(个)' : 'Expired', values: days.map((day) => day.expired) },
-    { label: zh ? '违规(个)' : 'Naming', values: days.map((day) => day.invalid) }
-  ]
-
   return (
     <Card className="flex h-full flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支问题趋势' : 'Branch Issue Trend'}</div>
-        <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
+        <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支风险分布' : 'Branch Risk Distribution'}</div>
+        <div className="text-[10px] text-muted">
+          {riskFilter === null ? (zh ? '全部类型' : 'All types') : (zh ? '点击其他分类切换' : 'Click another type to switch')}
+        </div>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
-        {metrics.map((metric) => (
-          <div key={metric.label} className="rounded-md border border-line bg-surface-elevated px-2 py-1.5">
-            <div className="truncate text-[10px] text-muted">{metric.label}</div>
-            <div className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: metric.tone }}>{metric.value}</div>
-          </div>
-        ))}
+        {metrics.map((metric) => {
+          const selectable = ['all', 'active', 'stale', 'expired', 'naming'].includes(metric.key)
+          const selected = riskFilter === (metric.key === 'all' ? null : metric.key)
+          return (
+            <button
+              key={metric.key}
+              type="button"
+              disabled={!selectable}
+              onClick={() => selectable && setRiskFilter((current) => metric.key === 'all' ? null : current === metric.key ? null : metric.key)}
+              className={`rounded-md border px-2 py-1.5 text-left transition-colors ${
+                !selectable ? 'cursor-default border-line bg-surface-elevated opacity-85' :
+                selected ? 'border-primary/50 bg-primary/10' : 'border-line bg-surface-elevated hover:border-primary/30'
+              }`}
+            >
+              <div className="truncate text-[10px] text-muted">{metric.label}</div>
+              <div className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: metric.tone }}>{metric.value}</div>
+            </button>
+          )
+        })}
       </div>
-      <div className="mt-2">
-        <div className="flex items-center gap-3 text-[10px] text-muted">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-danger" /> {zh ? '过期分支' : 'Expired'}</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-warn" /> {zh ? '命名不规范' : 'Naming issues'}</span>
-        </div>
-        <div className="mt-2 flex h-[44px] items-end gap-1 border-b border-line/60">
-          {days.map((day) => {
-            const expired = day.expired ?? 0
-            const invalid = day.invalid ?? 0
-            const total = expired + invalid
-            const maxValue = Math.max(...days.map((item) => (item.expired ?? 0) + (item.invalid ?? 0)), 1)
-            return (
-              <div key={day.date} className="flex h-full flex-1 flex-col justify-end" title={`${day.label}: ${expired} / ${invalid}`}>
-                {total > 0 ? (
-                  <>
-                    <div className="w-full rounded-t-sm bg-warn" style={{ height: `${(invalid / maxValue) * 100}%` }} />
-                    <div className="w-full rounded-b-sm bg-danger" style={{ height: `${(expired / maxValue) * 100}%` }} />
-                  </>
-                ) : null}
+      <div className="mt-2 flex flex-1 flex-col">
+        {selectedPoints.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line/70 text-xs text-muted">
+            {zh ? '当前筛选暂无分支' : 'No branches in this filter'}
+          </div>
+        ) : (
+          <>
+            <div className="relative min-h-[180px] flex-1 overflow-hidden rounded-lg border border-line bg-surface-elevated">
+              <div className="absolute inset-0 grid grid-cols-3 grid-rows-2">
+                <div className="border-r border-b border-line/50 bg-ok/5" />
+                <div className="border-r border-b border-line/50 bg-warn/5" />
+                <div className="border-b border-line/50 bg-danger/5" />
+                <div className="border-r border-line/50 bg-ok/5" />
+                <div className="border-r border-line/50 bg-warn/5" />
+                <div className="bg-danger/5" />
               </div>
-            )
-          })}
-        </div>
-        <div className="mt-1 flex text-[9px] text-muted opacity-70">
-          {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
-        </div>
-        <div className="mt-1 flex justify-between text-[9px] text-muted opacity-70">
-          <span>{zh ? 'X 轴：日期' : 'X axis: date'}</span>
-          <span>{zh ? 'Y 轴：分支数量（个）' : 'Y axis: branch count'}</span>
-        </div>
-      </div>
-      <div className="mt-2 overflow-hidden rounded-md border border-line">
-        <div className="grid grid-cols-8 border-b border-line bg-surface-elevated text-[10px] text-muted">
-            <div className="px-2 py-1">7D</div>
-          {days.map((day) => <div key={day.date} className="px-1 py-1 text-center">{day.label}</div>)}
-        </div>
-        {rows.map((row) => (
-          <div key={row.label} className="grid grid-cols-8 border-b border-line/50 text-[10px] tabular-nums last:border-0">
-            <div className="truncate px-2 py-1 text-muted">{row.label}</div>
-            {row.values.map((value, index) => (
-              <div key={`${row.label}-${days[index].date}`} className="px-1 py-1 text-center text-canvas-fg">{value == null ? '-' : value}</div>
-            ))}
-          </div>
-        ))}
+              <span className="absolute left-1.5 top-1.5 text-[9px] text-muted opacity-70">{zh ? '高' : 'High'}</span>
+              <span className="absolute bottom-1.5 left-1.5 text-[9px] text-muted opacity-70">{zh ? '低' : 'Low'}</span>
+              {labelPoint ? (
+                <div
+                  className="pointer-events-none absolute z-10 max-w-[220px] rounded-lg border border-line bg-surface px-2.5 py-1.5 shadow-lg"
+                  style={{
+                    left: `clamp(104px, ${4 + (labelPoint.inactiveDays / maxInactiveDays) * 92}%, calc(100% - 104px))`,
+                    bottom: `calc(${4 + (labelPoint.risk / 100) * 92}% + 12px)`,
+                    transform: 'translateX(-50%)'
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: labelPoint.color }} />
+                    <span className="truncate text-xs font-semibold text-canvas-fg">{labelPoint.name}</span>
+                  </div>
+                  <div className="mt-0.5 whitespace-nowrap text-[10px] text-muted">
+                    {zh ? '风险' : 'Risk'}: {labelPoint.risk} | {labelPoint.inactiveDays}{zh ? '天未更新' : 'd inactive'}
+                  </div>
+                </div>
+              ) : null}
+              {selectedPoints.map((point) => {
+                const position = positionFor(point)
+                return (
+                  <button
+                    key={point.id}
+                    type="button"
+                    className="absolute h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full border-2 border-surface shadow-sm transition-transform hover:scale-125"
+                    style={{ left: position.left, bottom: position.bottom, background: point.color }}
+                    onMouseEnter={() => setHoveredRisk(point.id)}
+                    onMouseLeave={() => setHoveredRisk((currentId) => currentId === point.id ? null : currentId)}
+                    aria-label={`${point.name}: ${point.risk}, ${point.inactiveDays}d`}
+                  />
+                )
+              })}
+            </div>
+            <div className="mt-1 flex justify-between text-[9px] text-muted opacity-70">
+              <span>{zh ? '最近' : 'Recent'}</span>
+              <span>{zh ? '久未活动' : 'Long inactive'}</span>
+            </div>
+            <div className="mt-1 text-center text-[9px] text-muted opacity-70">
+              {zh ? '最近活动时间' : 'Last activity time'}
+            </div>
+          </>
+        )}
       </div>
     </Card>
   )
 }
+
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -393,7 +431,8 @@ export default function Dashboard(): JSX.Element {
   )
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
   const lastRun = visibleScanRuns[0]
-  const avgHealth = visibleBranches.length ? Math.round(visibleBranches.reduce((s, b) => s + b.health.score, 0) / visibleBranches.length) : 0
+  const scoredBranches = visibleBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+  const avgHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (visibleBranches.length ? 100 : 0)
   const count = useCallback((fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length, [visibleBranches])
   const validBranches = count((b) => b.naming.status === 'valid')
   const excludedBranches = count((b) => b.naming.status === 'excluded')

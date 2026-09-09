@@ -13,6 +13,8 @@ export interface HealthInput {
   whitelisted: boolean
   isDefault: boolean
   protected: boolean
+  branchName: string
+  baseBranch: string
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -21,6 +23,15 @@ function clamp(value: number, min: number, max: number): number {
 
 export class HealthService {
   compute(input: HealthInput): HealthResult {
+    // 基准分支本身是评分参照物，保持满分且不参与停更、合并等生命周期扣分。
+    const isBaselineBranch = input.isDefault || input.branchName === input.baseBranch || /^(main|develop)$/i.test(input.branchName)
+    if (isBaselineBranch) {
+      const factors: HealthFactor[] = [
+        { label: '基准分支', score: 100, weight: 100, detail: '基准分支固定满分，不参与其他分支的计分规则' }
+      ]
+      return { score: 100, level: 'healthy', factors }
+    }
+
     const factors: HealthFactor[] = []
 
     const activityWindow = Math.max(1, input.staleThresholdDays * 2)

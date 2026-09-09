@@ -51,7 +51,8 @@ export class ReportService {
     const invalid = count((b) => b.naming.status === 'invalid')
     const excluded = count((b) => b.naming.status === 'excluded')
     const total = Math.max(1, branches.length)
-    const averageHealth = branches.length ? Math.round(branches.reduce((s, b) => s + b.health.score, 0) / branches.length) : 0
+    const scoredBranches = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+    const averageHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (branches.length ? 100 : 0)
     return {
       totalBranches: branches.length,
       validBranches: valid,

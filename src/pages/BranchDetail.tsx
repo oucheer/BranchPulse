@@ -211,7 +211,7 @@ export default function BranchDetail(): JSX.Element {
 
         <Card className="p-5 xl:col-span-2">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Tag size={15} className="text-warn" /> 健康度扣分原因
+            <Tag size={15} className="text-warn" /> 健康度计分原因
           </div>
           <div className="space-y-3">
             {branch.health.factors.map((factor) => (

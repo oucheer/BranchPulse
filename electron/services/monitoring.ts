@@ -288,7 +288,8 @@ export class MonitoringService {
 
   private summarize(branches: BranchSummary[], repositoryCount: number) {
     const count = (fn: (b: BranchSummary) => boolean): number => branches.filter(fn).length
-    const scores = branches.map((b) => b.health.score).filter((score) => Number.isFinite(score))
+    const scoredBranches = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+    const scores = scoredBranches.map((b) => b.health.score).filter((score) => Number.isFinite(score))
     const healthAvg = scores.length
       ? Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10
       : null
