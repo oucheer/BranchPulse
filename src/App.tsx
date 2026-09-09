@@ -145,7 +145,7 @@ export default function App(): JSX.Element {
       </Layout>
     {!splashDone ? (
       <div
-        className={`pointer-events-none fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'opacity-0' : 'opacity-100'}`}
+        className={`fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'}`}
         style={{ transitionDuration: '650ms' }}
       >
         {effectsEnabled && splashParticlesEnabled ? (
