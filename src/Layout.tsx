@@ -36,7 +36,13 @@ function StaticBackdrop({ isDark }: { isDark: boolean }): JSX.Element {
   )
 }
 
-export default function Layout({ children }: { children: ReactNode }): JSX.Element {
+export default function Layout({
+  children,
+  deferBackground = false
+}: {
+  children: ReactNode
+  deferBackground?: boolean
+}): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const setProgress = useAppStore((s) => s.setProgress)
   const refresh = useAppStore((s) => s.refresh)
@@ -46,6 +52,8 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   const clickSparkEnabled = isEffectOn(effectSettings, 'clickSpark')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isDark, setIsDark] = useState(true)
+  const [backgroundMounted, setBackgroundMounted] = useState(!deferBackground)
+  const [backgroundVisible, setBackgroundVisible] = useState(!deferBackground)
   useEffect(() => {
     const checkDark = (): void => setIsDark(document.documentElement.classList.contains('dark'))
     checkDark()
@@ -74,12 +82,30 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
     })
     return () => unsub()
   }, [refresh, setProgress, setScanning])
+  useEffect(() => {
+    if (backgroundMounted) return
+    let nextFrame = 0
+    const firstFrame = window.requestAnimationFrame(() => {
+      setBackgroundMounted(true)
+      nextFrame = window.requestAnimationFrame(() => setBackgroundVisible(true))
+    })
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      window.cancelAnimationFrame(nextFrame)
+    }
+  }, [backgroundMounted])
   return (
     <div className="relative flex h-screen bg-canvas text-muted">
       {/* Layer 1-2: Ambient background */}
-      {ambientEnabled ? (
+      {ambientEnabled && backgroundMounted ? (
         <>
-          <AeroShards />
+          <div
+            className="pointer-events-none fixed inset-0 z-0 transition-opacity duration-700"
+            aria-hidden="true"
+            style={{ opacity: backgroundVisible ? 1 : 0 }}
+          >
+            <AeroShards />
+          </div>
           <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
             {isDark ? (
               <MoltenMetal

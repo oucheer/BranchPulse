@@ -79,7 +79,7 @@ export default function ParticleText({ text, duration = 3400, onComplete }: Part
           if (image[(y * offWidth + x) * 4 + 3] > 140) sampled.push({ x, y })
         }
       }
-      const maxParticles = Math.min(4300, sampled.length)
+      const maxParticles = Math.min(3200, sampled.length)
       const stride = Math.max(1, Math.floor(sampled.length / maxParticles))
       const centerX = width / 2
       const centerY = height / 2

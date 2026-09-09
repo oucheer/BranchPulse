@@ -122,7 +122,7 @@ export default function App(): JSX.Element {
 
   return (
     <>
-      <Layout>
+      <Layout deferBackground={effectsEnabled && splashParticlesEnabled && !splashFading}>
         <div className="h-full overflow-auto">
           <Routes location={location}>
             {pages.map((p) => (
