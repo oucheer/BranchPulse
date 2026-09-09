@@ -117,8 +117,8 @@ export default function App(): JSX.Element {
   const showSplash = !splashDone
 
   return (
-    <>
-      <div style={{ display: showSplash || !shellPrepared ? 'block' : 'none' }}>
+    <div className="relative h-screen overflow-hidden">
+      <div style={{ display: showSplash ? 'block' : 'none' }}>
         {showSplash && (
           <div className="relative h-screen overflow-hidden bg-canvas">
             {effectsEnabled && splashParticlesEnabled ? (
@@ -142,7 +142,10 @@ export default function App(): JSX.Element {
         )}
       </div>
       {shellPrepared && (
-        <div style={{ display: showSplash ? 'none' : 'block' }}>
+        <div
+          className="absolute inset-0"
+          style={{ visibility: showSplash ? 'hidden' : 'visible', pointerEvents: showSplash ? 'none' : 'auto' }}
+        >
           <Layout>
             <div className="h-full overflow-auto">
               <Routes location={location}>
@@ -155,6 +158,6 @@ export default function App(): JSX.Element {
           </Layout>
         </div>
       )}
-    </>
+    </div>
   )
 }
