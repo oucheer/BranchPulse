@@ -1,9 +1,10 @@
+import fs from 'node:fs'
 import type { ReportSchedule, ReportScheduleFrequency } from '@shared/types'
 import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
-import { buildBranchEmailHtml, parseNotifyTarget, readEmailLang, resolveRecipients } from './email'
+import { parseNotifyTarget, resolveRecipients } from './email'
 import { newId } from '../utils/ids'
 
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
@@ -162,13 +163,13 @@ export class ReportScheduleService {
               input: schedule.recipients
             }, 'failure')
           } else {
-            const lang = readEmailLang(this.storage)
-            const emailData = this.reportService.getSummaryEmailData(schedule.repositoryId)
+            const reportHtml = await fs.promises.readFile(report.path, 'utf8')
+            const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
             await this.emailService.sendReportEmail({
               to: recipients,
-              subject: lang === 'zh' ? `BranchPulse 分支健康报告 · ${schedule.name}` : `BranchPulse Branch Health Report · ${schedule.name}`,
+              subject: `【分支健康月报】${month}`,
               body: '',
-              html: buildBranchEmailHtml(emailData, lang, 'report'),
+              html: reportHtml,
               attachmentPath: report.path
             })
           }
