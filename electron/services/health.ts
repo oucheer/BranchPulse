@@ -6,6 +6,7 @@ export interface HealthInput {
   gracePeriodDays: number
   state: 'active' | 'stale' | 'grace_period' | 'grace_expired'
   namingStatus: 'valid' | 'invalid' | 'excluded'
+  namingExempt?: boolean
   merged: boolean
   ahead: number
   behind: number
@@ -46,12 +47,18 @@ export class HealthService {
               : '分支已停更'
     })
 
-    const namingScore = input.namingStatus === 'valid' ? 20 : input.namingStatus === 'excluded' ? 16 : 0
+    const namingScore = input.namingExempt || input.namingStatus === 'valid' ? 20 : input.namingStatus === 'excluded' ? 16 : 0
     factors.push({
       label: '命名规范',
       score: namingScore,
       weight: 20,
-      detail: input.namingStatus === 'valid' ? '命名符合规则' : input.namingStatus === 'excluded' ? '未启用命名校验' : '命名不符合规则'
+      detail: input.namingExempt
+        ? '默认分支不参与命名规范评分'
+        : input.namingStatus === 'valid'
+          ? '命名符合规则'
+          : input.namingStatus === 'excluded'
+            ? '未启用命名校验'
+            : '命名不符合规则'
     })
 
     const mergeScore = input.merged ? 15 : 0

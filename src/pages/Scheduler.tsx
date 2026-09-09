@@ -49,7 +49,7 @@ export default function Scheduler(): JSX.Element {
 
   const visibleJobs = activeRepositoryId ? jobs.filter((job) => job.repositoryId === activeRepositoryId || job.repositoryId === null) : jobs
 
-  const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns
+  const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {

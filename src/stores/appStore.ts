@@ -18,7 +18,7 @@ import type {
   SchedulerJob
 } from '@shared/types'
 import { t, type Language } from '../lib/i18n'
-import { persistEffectsMode, readEffectsMode, type EffectsMode } from '../lib/effects'
+import { persistEffectSettings, readEffectSettings, type EffectSettings } from '../lib/effects'
 
 interface Toast {
   id: number
@@ -30,7 +30,7 @@ interface AppState {
   ready: boolean
   startupError: string | null
   language: Language
-  effectsMode: EffectsMode
+  effectSettings: EffectSettings
   repositories: Repository[]
   branches: BranchSummary[]
   scanRuns: ScanRun[]
@@ -53,7 +53,7 @@ interface AppState {
   toasts: Toast[]
   refresh: () => Promise<void>
   setLanguage: (language: Language) => void
-  setEffectsMode: (effectsMode: EffectsMode) => void
+  setEffectSettings: (partial: Partial<EffectSettings>) => void
   setActiveRepositoryId: (repositoryId: string | null) => Promise<void>
   setScanning: (scanning: boolean) => void
   setProgress: (progress: ScanProgress | null) => void
@@ -74,7 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   startupError: null,
   language: (localStorage.getItem('branchpulse:language') as Language) || 'en',
-  effectsMode: readEffectsMode(),
+  effectSettings: readEffectSettings(),
   repositories: [],
   branches: [],
   scanRuns: [],
@@ -175,9 +175,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ language })
   },
 
-  setEffectsMode: (effectsMode) => {
-    persistEffectsMode(effectsMode)
-    set({ effectsMode })
+  setEffectSettings: (partial) => {
+    const next = { ...get().effectSettings, ...partial }
+    persistEffectSettings(next)
+    set({ effectSettings: next })
   },
 
   setActiveRepositoryId: async (repositoryId) => {

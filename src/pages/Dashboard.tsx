@@ -230,6 +230,10 @@ function ActivityChart({ branches }: { branches: BranchSummary[] }): JSX.Element
           <div className="mt-1 flex text-[9px] text-muted opacity-60">
             {days.map((d) => <div key={d.date} className="flex-1 text-center">{d.label}</div>)}
           </div>
+          <div className="mt-1.5 flex justify-between text-[9px] text-muted opacity-70">
+            <span>{zh ? 'X 轴：日期' : 'X axis: date'}</span>
+            <span>{zh ? 'Y 轴：有提交的分支数' : 'Y axis: branches with commits'}</span>
+          </div>
         </div>
       </div>
     </Card>
@@ -297,18 +301,18 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
   ]
 
   const rows = [
-    { label: zh ? '巡检' : 'Runs', values: days.map((day) => day.inspections) },
-    { label: zh ? '健康分' : 'Health', values: days.map((day) => day.health) },
-    { label: zh ? '活跃' : 'Active', values: days.map((day) => day.active) },
-    { label: zh ? '停更' : 'Stale', values: days.map((day) => day.stale) },
-    { label: zh ? '到期' : 'Expired', values: days.map((day) => day.expired) },
-    { label: zh ? '违规' : 'Naming', values: days.map((day) => day.invalid) }
+    { label: zh ? '巡检(次)' : 'Runs', values: days.map((day) => day.inspections) },
+    { label: zh ? '分支(个)' : 'Branches', values: days.map((day) => day.branches) },
+    { label: zh ? '活跃(个)' : 'Active', values: days.map((day) => day.active) },
+    { label: zh ? '停更(个)' : 'Stale', values: days.map((day) => day.stale) },
+    { label: zh ? '到期(个)' : 'Expired', values: days.map((day) => day.expired) },
+    { label: zh ? '违规(个)' : 'Naming', values: days.map((day) => day.invalid) }
   ]
 
   return (
     <Card className="flex h-full flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold text-canvas-fg">{zh ? '健康趋势' : 'Health Trend'}</div>
+        <div className="text-sm font-semibold text-canvas-fg">{zh ? '分支问题趋势' : 'Branch Issue Trend'}</div>
         <div className="text-[10px] text-muted">{zh ? '最近 7 天' : 'Last 7 days'}</div>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
@@ -319,29 +323,36 @@ function HealthTrendCard({ branches, runs, current }: { branches: BranchSummary[
           </div>
         ))}
       </div>
-      <div className="mt-2 flex gap-1.5">
-        <div className="flex w-6 shrink-0 flex-col items-end justify-between pb-[2px] text-[9px] tabular-nums leading-none text-muted opacity-70" style={{ height: 44 }}>
-          <span>100</span>
-          <span>50</span>
-          <span>0</span>
+      <div className="mt-2">
+        <div className="flex items-center gap-3 text-[10px] text-muted">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-danger" /> {zh ? '过期分支' : 'Expired'}</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-warn" /> {zh ? '命名不规范' : 'Naming issues'}</span>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="relative border-b border-line/60">
-            <MiniBars
-              data={days.map((day) => day.health)}
-              color="rgb(var(--secondary))"
-              height={44}
-              maxValue={100}
-              labels={days.map((day) => day.label)}
-              emptyLabel={zh ? '暂无健康数据' : 'No health data yet'}
-            />
-            <div className="pointer-events-none absolute inset-x-0 top-[8px] border-t border-dashed border-line/40" />
-            <div className="pointer-events-none absolute inset-x-0 top-[26px] border-t border-dashed border-line/40" />
-          </div>
+        <div className="mt-2 flex h-[44px] items-end gap-1 border-b border-line/60">
+          {days.map((day) => {
+            const expired = day.expired ?? 0
+            const invalid = day.invalid ?? 0
+            const total = expired + invalid
+            const maxValue = Math.max(...days.map((item) => (item.expired ?? 0) + (item.invalid ?? 0)), 1)
+            return (
+              <div key={day.date} className="flex h-full flex-1 flex-col justify-end" title={`${day.label}: ${expired} / ${invalid}`}>
+                {total > 0 ? (
+                  <>
+                    <div className="w-full rounded-t-sm bg-warn" style={{ height: `${(invalid / maxValue) * 100}%` }} />
+                    <div className="w-full rounded-b-sm bg-danger" style={{ height: `${(expired / maxValue) * 100}%` }} />
+                  </>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
-      </div>
-      <div className="mt-1 flex pl-[30px] text-[9px] text-muted opacity-70">
-        {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
+        <div className="mt-1 flex text-[9px] text-muted opacity-70">
+          {days.map((day) => <div key={day.date} className="flex-1 text-center">{day.label}</div>)}
+        </div>
+        <div className="mt-1 flex justify-between text-[9px] text-muted opacity-70">
+          <span>{zh ? 'X 轴：日期' : 'X axis: date'}</span>
+          <span>{zh ? 'Y 轴：分支数量（个）' : 'Y axis: branch count'}</span>
+        </div>
       </div>
       <div className="mt-2 overflow-hidden rounded-md border border-line">
         <div className="grid grid-cols-8 border-b border-line bg-surface-elevated text-[10px] text-muted">
@@ -377,7 +388,7 @@ export default function Dashboard(): JSX.Element {
 
   const visibleBranches = activeRepositoryId ? branches.filter((b) => b.repositoryId === activeRepositoryId) : branches
   const visibleScanRuns = useMemo(
-    () => (activeRepositoryId ? scanRuns.filter((r) => r.repositories <= 1) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
+    () => (activeRepositoryId ? scanRuns.filter((r) => r.repositoryIds?.includes(activeRepositoryId)) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
     [scanRuns, activeRepositoryId]
   )
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
@@ -431,7 +442,7 @@ export default function Dashboard(): JSX.Element {
   }
 
   const compactMetrics = [
-    { label: tr('repositories'), value: activeRepositoryId ? 1 : repositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
+    { label: tr('repositories'), value: repositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
     { label: tr('totalBranches'), value: visibleBranches.length, icon: GitBranch, to: '/branches', tone: 'text-muted' },
     { label: tr('namingCompliance'), value: `${compliance}%`, icon: Scale, to: '/naming-rules', tone: compliance >= 90 ? 'text-ok' : compliance >= 70 ? 'text-warn' : 'text-danger' },
   ]

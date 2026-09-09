@@ -439,15 +439,18 @@ export class BranchService {
     const stale = inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
-    const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(facts.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
+    const naming: NamingResult = monitoring.namingEnabled
+      ? this.naming.validate(facts.name, this.naming.listRules(repositoryId))
+      : { status: 'excluded', reason: 'Naming validation disabled.' }
     const isDefault = ref.name === facts.baseBranch
-    const protection: ProtectionInfo = this.protection.evaluate(facts.name, isDefault)
+    const protection: ProtectionInfo = this.protection.evaluate(facts.name, isDefault, repositoryId)
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
       gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
+      namingExempt: facts.name === 'main' || facts.name === 'develop',
       merged: facts.merged,
       ahead: facts.ahead,
       behind: facts.behind,
@@ -503,7 +506,9 @@ export class BranchService {
     const stale = inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
-    const naming: NamingResult = monitoring.namingEnabled ? this.naming.validate(cached.name) : { status: 'excluded', reason: 'Naming validation disabled.' }
+    const naming: NamingResult = monitoring.namingEnabled
+      ? this.naming.validate(cached.name, this.naming.listRules(cached.repositoryId))
+      : { status: 'excluded', reason: 'Naming validation disabled.' }
     const isDefault = cached.name === cached.baseBranch
     const protection: ProtectionInfo = this.protection.evaluate(cached.name, isDefault, cached.repositoryId)
     const health: HealthResult = this.health.compute({
@@ -512,6 +517,7 @@ export class BranchService {
       gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
+      namingExempt: cached.name === 'main' || cached.name === 'develop',
       merged: cached.merged,
       ahead: cached.ahead,
       behind: cached.behind,

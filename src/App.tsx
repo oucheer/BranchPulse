@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
-import { useEffectsEnabled } from './lib/effects'
+import { isEffectOn, useEffectSettings } from './lib/effects'
 import { Toasts } from './components/ui'
 import ParticleText from './components/ParticleText'
 import Layout from './Layout'
@@ -16,6 +16,7 @@ import Notifications from './pages/Notifications'
 import Reports from './pages/Reports'
 import Scheduler from './pages/Scheduler'
 import Audit from './pages/Audit'
+import Animation from './pages/Animation'
 import Settings from './pages/Settings'
 
 const pages = [
@@ -30,6 +31,7 @@ const pages = [
   { path: '/reports', element: <Reports /> },
   { path: '/scheduler', element: <Scheduler /> },
   { path: '/audit', element: <Audit /> },
+  { path: '/animation', element: <Animation /> },
   { path: '/settings', element: <Settings /> }
 ]
 
@@ -38,11 +40,13 @@ export default function App(): JSX.Element {
   const startupError = useAppStore((s) => s.startupError)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
-  const effectsMode = useAppStore((s) => s.effectsMode)
-  const effectsEnabled = useEffectsEnabled(effectsMode)
+  const effectSettings = useEffectSettings()
+  const effectsEnabled = isEffectOn(effectSettings, 'ambientBackground')
+  const splashParticlesEnabled = isEffectOn(effectSettings, 'particleSplash')
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
+  const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
     if (!effectsEnabled) return
@@ -73,9 +77,11 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!ready || splashDone) return
-    const timer = window.setTimeout(() => setSplashDone(true), effectsEnabled ? 650 : 200)
+    const elapsed = Date.now() - splashStartedAt
+    const remaining = Math.max(0, 2600 - elapsed)
+    const timer = window.setTimeout(() => setSplashDone(true), remaining)
     return () => window.clearTimeout(timer)
-  }, [ready, splashDone, effectsEnabled])
+  }, [ready, splashDone, splashStartedAt])
 
   useEffect(() => {
     document.documentElement.style.colorScheme = settings.backgroundTheme
@@ -98,12 +104,12 @@ export default function App(): JSX.Element {
   if (showSplash && !startupError) {
     return (
       <div className="relative h-screen overflow-hidden bg-canvas">
-        {effectsEnabled ? (
+        {effectsEnabled && splashParticlesEnabled ? (
           <>
             <div className="absolute inset-0">
               <ParticleText
                 text="BranchPulse"
-                duration={1400}
+                duration={2600}
                 onComplete={() => {
                   if (ready) setSplashDone(true)
                 }}

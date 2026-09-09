@@ -6,6 +6,7 @@ import {
   Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, Trash2, X, XCircle
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
+import { matchPattern } from '../lib/protection'
 import { Badge, Card, ConfirmCheckbox, EmptyState, Modal } from '../components/ui'
 import { stateLabel, stateTone, timeAgo } from '../lib/format'
 import { motion as motionToken, shadow } from '../design-system/tokens'
@@ -289,6 +290,8 @@ export default function Branches(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
+  const whitelist = useAppStore((s) => s.whitelist)
+  const protectedList = useAppStore((s) => s.protected)
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const zh = language === 'zh'
@@ -522,7 +525,11 @@ export default function Branches(): JSX.Element {
     }
   }
 
-  const isProtected = (b: BranchSummary): boolean => b.protection.protected || b.protection.isDefault || b.protection.whitelisted
+  const isProtected = (b: BranchSummary): boolean => {
+    const whitelisted = whitelist.some((entry) => matchPattern(entry.pattern, entry.type, b.name))
+    const protectedByRule = protectedList.some((entry) => matchPattern(entry.pattern, entry.type, b.name))
+    return b.protection.isDefault || b.protection.protected || b.protection.whitelisted || whitelisted || protectedByRule
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">

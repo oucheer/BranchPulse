@@ -7,11 +7,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Bell, CalendarClock, FileBarChart, FolderGit2,
-  GitBranch, LayoutDashboard, ScrollText, Settings, ShieldCheck, Tags, GitMerge
+  GitBranch, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
-import { useEffectsEnabled } from '../lib/effects'
+import { isEffectOn, useEffectSettings } from '../lib/effects'
 import DepthText from '../components/DepthText'
 
 interface NavItem {
@@ -55,6 +55,7 @@ const sections: NavSection[] = [
     title: 'SYSTEM',
     items: [
       { to: '/audit', label: 'auditLog', icon: ScrollText },
+      { to: '/animation', label: 'animation', icon: Sparkles },
       { to: '/settings', label: 'settings', icon: Settings }
     ]
   }
@@ -66,8 +67,8 @@ export default function Sidebar(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
-  const effectsMode = useAppStore((s) => s.effectsMode)
-  const effectsEnabled = useEffectsEnabled(effectsMode)
+  const effectSettings = useEffectSettings()
+  const effectsEnabled = isEffectOn(effectSettings, 'depthText')
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const navRef = useRef<HTMLElement | null>(null)

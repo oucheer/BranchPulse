@@ -7,6 +7,8 @@ import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
+import type { EmailSummaryData } from './email'
+import { toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
 
@@ -67,6 +69,24 @@ export class ReportService {
       whitelistedBranches: whitelistedCount,
       averageHealth,
       repositories
+    }
+  }
+
+  getSummaryEmailData(repositoryId?: string | null): EmailSummaryData {
+    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
+    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
+    const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
+    return {
+      total: branches.length,
+      stale: count((branch) => branch.stale),
+      gracePeriod: count((branch) => branch.state === 'grace_period'),
+      graceExpired: count((branch) => branch.state === 'grace_expired'),
+      namingInvalid: count((branch) => branch.naming.status === 'invalid'),
+      merged: count((branch) => branch.merged),
+      cleanupCandidates: count((branch) => branch.cleanupCandidate),
+      repositories: new Set(branches.map((branch) => branch.repositoryId)).size,
+      generatedAt: new Date().toISOString(),
+      branches: branches.map(toEmailIssueRow)
     }
   }
 

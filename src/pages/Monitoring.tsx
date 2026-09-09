@@ -20,6 +20,7 @@ export default function Monitoring(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
+  const [sendEmail, setSendEmail] = useState(false)
 
   useEffect(() => {
     setDraft(monitoring)
@@ -56,9 +57,11 @@ export default function Monitoring(): JSX.Element {
     try {
       const run = await window.branchpulse.runCheckNow({
         bypassEnabledCheck: true,
-        notifyTarget: draft.notifyTarget,
+        notifyTarget: sendEmail ? draft.notifyTarget : 'none',
+        emailPolicy: sendEmail ? draft.emailPolicy : 'none',
         autoDelete: false,
-        trigger: 'manual'
+        trigger: 'manual',
+        ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {})
       })
       toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
     } catch (err) {
@@ -71,7 +74,7 @@ export default function Monitoring(): JSX.Element {
 
   const activeRepository = repositories.find((r) => r.id === activeRepositoryId)
   const isRemoteOnly = activeRepository ? activeRepository.source !== 'local' : repositories.length > 0 && repositories.every((r) => r.source !== 'local')
-  const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositories <= 1) : scanRuns).slice(0, 5)
+  const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns).slice(0, 5)
 
   return (
     <div className="space-y-6">
@@ -183,7 +186,12 @@ export default function Monitoring(): JSX.Element {
               allowSelf
               allowCreator
             />
-            <button className="btn btn-primary w-full justify-center" disabled={scanning || emailDisabled} onClick={() => void runCheck()}>
+            <label className={`flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-canvas-fg ${emailDisabled ? 'opacity-50' : ''}`}>
+              <input type="checkbox" className="no-specular" checked={sendEmail} disabled={emailDisabled} onChange={(e) => setSendEmail(e.target.checked)} />
+              {tr('sendEmailNotification')}
+            </label>
+            <p className="text-xs text-muted">{emailDisabled ? tr('checkOnlyNoEmail') : (sendEmail ? tr('notifyTarget') : tr('checkOnlyNoEmail'))}</p>
+            <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>
           </div>

@@ -13,6 +13,13 @@ export type ProtectionResult = {
 export class ProtectionService {
   constructor(private readonly storage: StorageService) {}
 
+  private entryExists(table: string, repositoryId: string | null, pattern: string): boolean {
+    return this.storage.get(
+      `SELECT 1 AS x FROM ${table} WHERE pattern = ? AND (repository_id = ? OR (repository_id IS NULL AND ? IS NULL))`,
+      [pattern, repositoryId, repositoryId]
+    ) !== undefined
+  }
+
   private load(table: string, repositoryId?: string | null): ProtectionEntry[] {
     const scoped = repositoryId !== undefined
     const rows = this.storage.all<Record<string, unknown>>(
@@ -40,6 +47,9 @@ export class ProtectionService {
   }
 
   addWhitelist(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>, repositoryId?: string | null): ProtectionEntry[] {
+    if (this.entryExists('whitelist', repositoryId ?? null, entry.pattern)) {
+      return this.listWhitelist(repositoryId)
+    }
     this.storage.insert('whitelist', {
       id: newId(),
       repository_id: repositoryId ?? null,
@@ -48,7 +58,7 @@ export class ProtectionService {
       note: entry.note,
       created_at: nowIso()
     })
-    return this.listWhitelist()
+    return this.listWhitelist(repositoryId)
   }
 
   removeWhitelist(id: string, repositoryId?: string | null): ProtectionEntry[] {
@@ -57,6 +67,9 @@ export class ProtectionService {
   }
 
   addProtected(entry: Omit<ProtectionEntry, 'id' | 'createdAt'>, repositoryId?: string | null): ProtectionEntry[] {
+    if (this.entryExists('protected_branches', repositoryId ?? null, entry.pattern)) {
+      return this.listProtected(repositoryId)
+    }
     this.storage.insert('protected_branches', {
       id: newId(),
       repository_id: repositoryId ?? null,
@@ -65,7 +78,7 @@ export class ProtectionService {
       note: entry.note,
       created_at: nowIso()
     })
-    return this.listProtected()
+    return this.listProtected(repositoryId)
   }
 
   removeProtected(id: string, repositoryId?: string | null): ProtectionEntry[] {

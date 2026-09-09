@@ -100,6 +100,9 @@ export class NamingService {
 
   validate(name: string, rules?: NamingRule[]): NamingResult {
     const list = rules ?? this.listRules()
+    if (name === 'main' || name === 'develop') {
+      return { status: 'valid', reason: '默认分支不参与命名规范校验' }
+    }
     const baseIssue = baseNamingIssue(name)
     for (const rule of list.filter((r) => r.enabled && !baseIssue)) {
       if (!matchPattern(rule.pattern, rule.type, name)) continue

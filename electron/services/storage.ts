@@ -187,6 +187,19 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   result TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS backup_records (
+  id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL,
+  repository_name TEXT NOT NULL,
+  path TEXT NOT NULL,
+  target_directory TEXT NOT NULL,
+  remote_url TEXT NOT NULL,
+  status TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS whitelist (
   id TEXT PRIMARY KEY,
   pattern TEXT NOT NULL,
@@ -245,6 +258,24 @@ CREATE TABLE IF NOT EXISTS scan_runs (
   emails_sent INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   activity_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS scan_run_repositories (
+  run_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
+  repositories INTEGER NOT NULL DEFAULT 1,
+  branches INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 0,
+  stale INTEGER NOT NULL DEFAULT 0,
+  grace_period INTEGER NOT NULL DEFAULT 0,
+  grace_expired INTEGER NOT NULL DEFAULT 0,
+  merged INTEGER NOT NULL DEFAULT 0,
+  naming_invalid INTEGER NOT NULL DEFAULT 0,
+  cleanup_candidates INTEGER NOT NULL DEFAULT 0,
+  health_avg REAL,
+  health_best REAL,
+  health_worst REAL,
+  PRIMARY KEY (run_id, repository_id)
 );
 `
 
@@ -356,6 +387,8 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'repository_id', 'TEXT')
     this.ensureColumn('whitelist', 'repository_id', 'TEXT')
     this.ensureColumn('protected_branches', 'repository_id', 'TEXT')
+    this.run(`DELETE FROM whitelist WHERE rowid NOT IN (SELECT MIN(rowid) FROM whitelist GROUP BY pattern)`)
+    this.run(`DELETE FROM protected_branches WHERE rowid NOT IN (SELECT MIN(rowid) FROM protected_branches GROUP BY pattern)`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
     this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
     this.run(`DELETE FROM whitelist WHERE pattern = 'whitelisted-feature' AND type = 'exact' AND note = 'Demo whitelisted branch'`)

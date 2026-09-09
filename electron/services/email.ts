@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
-import type { EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
+import type { BranchSummary, EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import { logger } from '../utils/logger'
@@ -17,12 +17,16 @@ export interface EmailIssueRow {
   creator: string
   creatorEmail: string
   lastCommitDate: string
+  lastCommitAt?: string | null
   inactiveDays: number
   gracePeriod: number
   namingStatus: string
+  namingRuleName?: string
+  namingReason?: string
   mergeStatus: string
   healthScore: number
   state: string
+  cleanupCandidate?: boolean
 }
 
 export interface EmailSummaryData {
@@ -35,6 +39,34 @@ export interface EmailSummaryData {
   cleanupCandidates: number
   repositories: number
   generatedAt: string
+  branches: EmailIssueRow[]
+}
+
+export type EmailLang = 'en' | 'zh'
+
+export function readEmailLang(storage: StorageService): EmailLang {
+  const row = storage.get<Record<string, unknown>>('SELECT language FROM app_settings WHERE id = 1')
+  return row?.language === 'zh' ? 'zh' : 'en'
+}
+
+export function toEmailIssueRow(branch: BranchSummary): EmailIssueRow {
+  return {
+    repository: branch.repositoryName,
+    branch: branch.displayName,
+    creator: branch.creator.name,
+    creatorEmail: branch.creator.email,
+    lastCommitDate: branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : '-',
+    lastCommitAt: branch.lastCommitAt,
+    inactiveDays: branch.inactiveDays,
+    gracePeriod: branch.gracePeriodDays,
+    namingStatus: branch.naming.status,
+    namingRuleName: branch.naming.ruleName,
+    namingReason: branch.naming.reason,
+    mergeStatus: branch.merged ? 'merged' : 'not merged',
+    healthScore: branch.health.score,
+    state: branch.state,
+    cleanupCandidate: branch.cleanupCandidate
+  }
 }
 
 export function resolveRecipients(input: string, groups: EmailGroup[] = []): string[] {
@@ -85,19 +117,243 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;')
 }
 
-function textToHtml(subject: string, body: string): string {
+function formatDateTime(value: string | null | undefined, lang: EmailLang): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  })
+}
+
+const STATE_LABELS: Record<EmailLang, Record<string, string>> = {
+  zh: {
+    active: '活跃',
+    stale: '过期',
+    grace_period: '宽限期',
+    grace_expired: '宽限已过'
+  },
+  en: {
+    active: 'Active',
+    stale: 'Stale',
+    grace_period: 'Grace period',
+    grace_expired: 'Grace expired'
+  }
+}
+
+function stateLabel(state: string, lang: EmailLang): string {
+  return STATE_LABELS[lang][state] ?? state
+}
+
+function namingLabel(status: string, lang: EmailLang): string {
+  if (lang === 'zh') {
+    if (status === 'invalid') return '<span style="color:#b42318">不规范</span>'
+    if (status === 'excluded') return '豁免'
+    return '合规'
+  }
+  if (status === 'invalid') return '<span style="color:#b42318">Invalid</span>'
+  if (status === 'excluded') return 'Excluded'
+  return 'Valid'
+}
+
+function textToHtml(subject: string, body: string, lang: EmailLang = 'zh'): string {
   const content = body
     .split(/\r?\n/)
     .map((line) => `<p style="margin:0 0 7px">${escapeHtml(line) || '&nbsp;'}</p>`)
     .join('')
   return `<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"></head>
+<html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
 <body style="font-family:'Microsoft YaHei',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
   <div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
     <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
     ${content}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">由 BranchPulse 自动发送 · ${new Date().toLocaleString()}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+  </div>
+</body></html>`
+}
+
+function emailTable(headers: string[], rows: string[][]): string {
+  if (rows.length === 0) return ''
+  const thead = `<tr>${headers.map((h) => `<th style="padding:6px 8px;border:1px solid #e2e6ea;background:#f8fafc;text-align:left;font-size:12px">${h}</th>`).join('')}</tr>`
+  const tbody = rows.map((cells) => `<tr>${cells.map((cell) => `<td style="padding:6px 8px;border:1px solid #e2e6ea;font-size:12px">${cell}</td>`).join('')}</tr>`).join('')
+  return `<table style="width:100%;border-collapse:collapse;margin-top:8px">${thead}${tbody}</table>`
+}
+
+function statCards(cards: Array<{ value: string | number; label: string; color?: string }>): string {
+  const cells = cards.map((card) => `
+    <td style="border:1px solid #e2e6ea;border-radius:6px;padding:10px 6px;text-align:center;width:12.5%">
+      <div style="font-size:20px;font-weight:700;color:${card.color ?? '#20242a'}">${escapeHtml(card.value)}</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:2px">${escapeHtml(card.label)}</div>
+    </td>`).join('')
+  return `<table style="width:100%;border-collapse:separate;border-spacing:4px 0"><tr>${cells}</tr></table>`
+}
+
+function stackedBar(segments: Array<{ label: string; value: number; color: string }>, lang: EmailLang): string {
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0)
+  const barCells = total > 0
+    ? segments.filter((s) => s.value > 0).map((segment, index, list) => {
+        const radiusStart = index === 0 ? 'border-radius:4px 0 0 4px;' : ''
+        const radiusEnd = index === list.length - 1 ? 'border-radius:0 4px 4px 0;' : ''
+        return `<td style="background:${segment.color};width:${(segment.value / total * 100).toFixed(2)}%;height:16px;${radiusStart}${radiusEnd}"></td>`
+      }).join('')
+    : '<td style="background:#eef2f6;width:100%;height:16px;border-radius:4px"></td>'
+  const legend = segments.filter((s) => s.value > 0).map((segment) =>
+    `<span style="display:inline-block;margin:0 12px 4px 0;font-size:11px;color:#4b5563"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${segment.color};margin-right:4px"></span>${escapeHtml(segment.label)} ${segment.value}</span>`
+  ).join('')
+  const emptyText = lang === 'zh' ? '暂无分支数据' : 'No branch data'
+  return `
+    <table style="width:100%;border-collapse:collapse"><tr>${barCells}</tr></table>
+    <div style="margin-top:6px">${legend || `<span style="font-size:11px;color:#6b7280">${emptyText}</span>`}</div>`
+}
+
+export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
+  const t = lang === 'zh'
+    ? {
+        title: kind === 'report' ? '分支健康报告' : '分支治理汇总',
+        repositories: '个仓库',
+        generatedAt: '生成时间',
+        chart: '分支状态分布',
+        stats: '关键指标',
+        total: '总分支',
+        active: '活跃',
+        stale: '过期',
+        gracePeriod: '宽限期',
+        graceExpired: '宽限已过',
+        merged: '已合并',
+        namingInvalid: '命名违规',
+        cleanup: '清理候选',
+        attention: `需要处理的分支`,
+        attentionEmpty: '没有需要处理的分支，状态健康。',
+        branch: '分支',
+        repository: '仓库',
+        creator: '创始人',
+        inactive: '未提交天数',
+        lastCommit: '最新提交',
+        state: '状态',
+        naming: '命名',
+        rule: '违反规则',
+        reason: '原因',
+        namingTitle: '命名不规范的分支',
+        namingEmpty: '没有命名违规分支。',
+        allTitle: '所有分支一览',
+        health: '健康分',
+        mergedLabel: '合并',
+        yes: '是',
+        no: '否'
+      }
+    : {
+        title: kind === 'report' ? 'Branch Health Report' : 'Branch Governance Summary',
+        repositories: 'repositories',
+        generatedAt: 'Generated at',
+        chart: 'Branch status distribution',
+        stats: 'Key metrics',
+        total: 'Total',
+        active: 'Active',
+        stale: 'Stale',
+        gracePeriod: 'Grace period',
+        graceExpired: 'Grace expired',
+        merged: 'Merged',
+        namingInvalid: 'Naming invalid',
+        cleanup: 'Cleanup candidates',
+        attention: 'Branches needing attention',
+        attentionEmpty: 'No branches need attention. All healthy.',
+        branch: 'Branch',
+        repository: 'Repository',
+        creator: 'Creator',
+        inactive: 'Inactive days',
+        lastCommit: 'Last commit',
+        state: 'State',
+        naming: 'Naming',
+        rule: 'Violated rule',
+        reason: 'Reason',
+        namingTitle: 'Naming violations',
+        namingEmpty: 'No naming violations.',
+        allTitle: 'All branches overview',
+        health: 'Health',
+        mergedLabel: 'Merged',
+        yes: 'Yes',
+        no: 'No'
+      }
+
+  const sections: string[] = []
+  const stateCount = (state: string): number => data.branches.filter((row) => row.state === state).length
+  const activeCount = stateCount('active')
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 8px">${t.chart}</h3>
+    ${stackedBar([
+      { label: t.active, value: activeCount, color: '#16a34a' },
+      { label: t.gracePeriod, value: stateCount('grace_period'), color: '#3b82f6' },
+      { label: t.stale, value: stateCount('stale'), color: '#f59e0b' },
+      { label: t.graceExpired, value: stateCount('grace_expired'), color: '#dc2626' }
+    ], lang)}`)
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 8px">${t.stats}</h3>
+    ${statCards([
+      { value: data.total, label: t.total },
+      { value: activeCount, label: t.active, color: '#087443' },
+      { value: data.stale, label: t.stale, color: '#b54708' },
+      { value: data.gracePeriod, label: t.gracePeriod, color: '#2563eb' },
+      { value: data.graceExpired, label: t.graceExpired, color: '#b42318' },
+      { value: data.merged, label: t.mergedLabel },
+      { value: data.namingInvalid, label: t.namingInvalid, color: '#b42318' },
+      { value: data.cleanupCandidates, label: t.cleanup }
+    ])}`)
+
+  const attentionRows = data.branches
+    .filter((row) => row.state === 'stale' || row.state === 'grace_expired' || row.cleanupCandidate)
+    .sort((a, b) => b.inactiveDays - a.inactiveDays)
+    .map((row) => [
+      `<code>${escapeHtml(row.branch)}</code>`,
+      escapeHtml(row.repository),
+      escapeHtml(row.creator || '-'),
+      String(row.inactiveDays),
+      escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
+      stateLabel(row.state, lang) + (row.cleanupCandidate ? (lang === 'zh' ? ' · 清理候选' : ' · cleanup') : '')
+    ])
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
+    ${attentionRows.length ? emailTable([t.branch, t.repository, t.creator, t.inactive, t.lastCommit, t.state], attentionRows) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
+
+  const namingRows = data.branches
+    .filter((row) => row.namingStatus === 'invalid')
+    .sort((a, b) => a.branch.localeCompare(b.branch))
+    .map((row) => [
+      `<code>${escapeHtml(row.branch)}</code>`,
+      escapeHtml(row.repository),
+      escapeHtml(row.creator || '-'),
+      escapeHtml(row.namingRuleName || '-'),
+      escapeHtml(row.namingReason || '-')
+    ])
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
+    ${namingRows.length ? emailTable([t.branch, t.repository, t.creator, t.rule, t.reason], namingRows) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
+
+  const allRows = [...data.branches]
+    .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
+    .map((row) => [
+      `<code>${escapeHtml(row.branch)}</code>`,
+      escapeHtml(row.repository),
+      escapeHtml(row.creator || '-'),
+      stateLabel(row.state, lang),
+      namingLabel(row.namingStatus, lang),
+      String(row.healthScore),
+      String(row.inactiveDays),
+      escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang))
+    ])
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
+    ${emailTable([t.branch, t.repository, t.creator, t.state, t.naming, t.health, t.inactive, t.lastCommit], allRows)}`)
+
+  return `<!DOCTYPE html>
+<html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
+<body style="font-family:'Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
+  <div style="max-width:860px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
+    <h2 style="font-size:18px;margin:0 0 4px">${t.title}</h2>
+    <div style="color:#6b7280;font-size:12px">${data.repositories} ${t.repositories} · ${t.generatedAt} ${escapeHtml(formatDateTime(data.generatedAt, lang))}</div>
+    ${sections.join('')}
+    <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
 }
@@ -279,7 +535,7 @@ export class EmailService {
     ].join("\r\n"))
   }
 
-  private async sendWithOutlook(input: { to: string[]; subject: string; body: string; attachments?: string[] }): Promise<void> {
+  private async sendWithOutlook(input: { to: string[]; subject: string; body: string; html?: string; lang?: EmailLang; attachments?: string[] }): Promise<void> {
     const recipients = validRecipients(input.to)
     if (recipients.length === 0) throw new Error('收件人为空。')
     const script = [
@@ -310,7 +566,7 @@ export class EmailService {
     await this.runOutlookScript(script, {
       recipients,
       subject: input.subject,
-      htmlBody: textToHtml(input.subject, input.body),
+      htmlBody: input.html ?? textToHtml(input.subject, input.body, input.lang),
       attachments: input.attachments ?? []
     })
   }
@@ -334,6 +590,7 @@ export class EmailService {
 
   async sendTestEmail(config?: EmailConfig): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
+    const lang = readEmailLang(this.storage)
     const testRecipient = cfg.testRecipient || cfg.selfEmail
     if (!testRecipient) {
       return { ok: false, message: 'Set a test recipient before sending a test email.' }
@@ -341,8 +598,11 @@ export class EmailService {
     try {
       await this.sendWithOutlook({
         to: [testRecipient],
-        subject: 'BranchPulse Test Email',
-        body: 'This is a test email from BranchPulse. Local Outlook delivery is working.'
+        subject: lang === 'zh' ? 'BranchPulse 测试邮件' : 'BranchPulse Test Email',
+        body: lang === 'zh'
+          ? '这是来自 BranchPulse 的测试邮件，本机 Outlook 发送正常。'
+          : 'This is a test email from BranchPulse. Local Outlook delivery is working.',
+        lang
       })
       this.audit.record('email_test_sent', { to: testRecipient }, 'success')
       return { ok: true, message: 'Test email sent successfully.', recipients: [testRecipient], emailsSent: 1 }
@@ -359,6 +619,7 @@ export class EmailService {
 
   async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig, recipients?: string[]): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
+    const lang = readEmailLang(this.storage)
     const fallback = resolveRecipients(cfg.testRecipient || cfg.selfEmail || cfg.username)
     const recipientList = recipients?.length ? recipients : fallback
     const recipient = recipientList.join(', ')
@@ -369,12 +630,12 @@ export class EmailService {
       }, 'failure')
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }
     }
-    const rendered = this.renderTemplate('summary', { ...data, recipient })
     try {
       await this.sendWithOutlook({
         to: recipientList,
-        subject: rendered.subject,
-        body: rendered.body
+        subject: lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary',
+        body: '',
+        html: buildBranchEmailHtml(data, lang, 'summary')
       })
       this.audit.record('email_summary_sent', { to: recipient }, 'success')
       return { ok: true, message: 'Summary email sent.', recipients: [recipient], emailsSent: 1 }
@@ -387,7 +648,8 @@ export class EmailService {
 
   async sendCreatorEmails(rows: EmailIssueRow[], config?: EmailConfig): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
-    if (!cfg.enabled) return { ok: false, message: '邮件发送未启用。', emailsSent: 0 }
+    const lang = readEmailLang(this.storage)
+    if (!cfg.enabled) return { ok: false, message: lang === 'zh' ? '邮件发送未启用。' : 'Email sending is disabled.', emailsSent: 0 }
     const groups = new Map<string, EmailIssueRow[]>()
     for (const row of rows) {
       const key = (row.creatorEmail || row.creator || 'unknown').trim().toLowerCase()
@@ -408,21 +670,33 @@ export class EmailService {
         void key
         continue
       }
-      const body = branchRows
-        .map((r) => {
-          const rendered = this.renderTemplate('stale', {
-            ...r,
-            creator: first.creator,
-            creator_email: first.creatorEmail
-          })
-          return `${rendered.subject}\n\n${rendered.body}`
-        })
-        .join('\n\n---\n\n')
+      const sortedRows = [...branchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
+      const issueRows = sortedRows.map((row) => [
+        `<code>${escapeHtml(row.branch)}</code>`,
+        escapeHtml(row.repository),
+        String(row.inactiveDays),
+        escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
+        stateLabel(row.state, lang) + (row.cleanupCandidate ? (lang === 'zh' ? ' · 清理候选' : ' · cleanup') : ''),
+        namingLabel(row.namingStatus, lang)
+      ])
+      const issueTable = emailTable(
+        lang === 'zh'
+          ? ['分支', '仓库', '未提交天数', '最新提交', '状态', '命名']
+          : ['Branch', 'Repository', 'Inactive days', 'Last commit', 'State', 'Naming'],
+        issueRows
+      )
+      const body = lang === 'zh'
+        ? `<p>以下 ${branchRows.length} 个分支需要处理，请合并、归档或继续提交：</p>${issueTable}`
+        : `<p>The following ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention. Please merge, archive, or push a new commit:</p>${issueTable}`
       try {
         await this.sendWithOutlook({
           to: [to],
-          subject: `BranchPulse: ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention`,
-          body
+          subject: lang === 'zh'
+            ? `【分支治理】${branchRows.length} 个分支需要处理`
+            : `BranchPulse: ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention`,
+          body,
+          html: body,
+          lang
         })
         recipients.push(to)
         sent += 1
@@ -462,6 +736,7 @@ export class EmailService {
     to: string[]
     subject: string
     body: string
+    html?: string
     attachmentPath: string
   }): Promise<EmailSendResult> {
     const cfg = this.getConfig()
@@ -472,6 +747,7 @@ export class EmailService {
         to: input.to,
         subject: input.subject,
         body: input.body,
+        html: input.html,
         attachments: [input.attachmentPath]
       })
       this.audit.record('email_report_sent', { recipients: input.to, report: path.basename(input.attachmentPath) }, 'success')

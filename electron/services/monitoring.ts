@@ -13,7 +13,7 @@ import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
-import { resolveRecipients, parseNotifyTarget } from './email'
+import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 
@@ -30,6 +30,26 @@ export class MonitoringService {
 
   private emitProgress(runId: string, activity: ActivityItem[], summary?: ScanProgress['summary']): void {
     this.onProgress?.({ runId, activity: [...activity], summary })
+  }
+
+  private insertRepoScanSummary(runId: string, repositoryId: string, branches: BranchSummary[]): void {
+    const summary = this.summarize(branches, 1)
+    this.storage.insert('scan_run_repositories', {
+      run_id: runId,
+      repository_id: repositoryId,
+      repositories: 1,
+      branches: summary.branches,
+      active: summary.active,
+      stale: summary.stale,
+      grace_period: summary.gracePeriod,
+      grace_expired: summary.graceExpired,
+      merged: summary.merged,
+      naming_invalid: summary.namingInvalid,
+      cleanup_candidates: summary.cleanupCandidates,
+      health_avg: summary.healthAvg,
+      health_best: summary.healthBest,
+      health_worst: summary.healthWorst
+    })
   }
 
   private readMonitoringRow(repositoryId?: string | null): Record<string, unknown> | null {
@@ -71,7 +91,9 @@ export class MonitoringService {
     const notificationsEnabled = (monitoringRow?.notification_enabled ?? 1) === 1
 
     const allBranches: BranchSummary[] = []
+    const scannedRepositoryIds: string[] = []
     for (const repo of targets) {
+      scannedRepositoryIds.push(repo.id)
       addActivity(`Scanning ${repo.name}...`)
       this.emitProgress(runId, activity)
       try {
@@ -154,7 +176,8 @@ export class MonitoringService {
           merged: summary.merged,
           cleanupCandidates: summary.cleanupCandidates,
           repositories: targets.length,
-          generatedAt: new Date().toISOString()
+          generatedAt: new Date().toISOString(),
+          branches: allBranches.map(toEmailIssueRow)
         }
         const cfg = this.email.getConfig()
         const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
@@ -236,6 +259,9 @@ export class MonitoringService {
       error: null,
       activity_json: JSON.stringify(activity)
     })
+    for (const repositoryId of scannedRepositoryIds) {
+      this.insertRepoScanSummary(runId, repositoryId, allBranches.filter((branch) => branch.repositoryId === repositoryId))
+    }
     this.audit.record('monitoring_check', {
       trigger: run.trigger,
       repositories: run.repositories,
@@ -359,19 +385,7 @@ export class MonitoringService {
 
 
   private toIssueRow(branch: BranchSummary): EmailIssueRow {
-    return {
-      repository: branch.repositoryName,
-      branch: branch.displayName,
-      creator: branch.creator.name,
-      creatorEmail: branch.creator.email,
-      lastCommitDate: branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleDateString() : 'unknown',
-      inactiveDays: branch.inactiveDays,
-      gracePeriod: branch.gracePeriodDays,
-      namingStatus: branch.naming.status,
-      mergeStatus: branch.merged ? 'merged' : 'not merged',
-      healthScore: branch.health.score,
-      state: branch.state
-    }
+    return toEmailIssueRow(branch)
   }
 
   async notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]> {
@@ -395,7 +409,8 @@ export class MonitoringService {
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,
       repositories: 1,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      branches: branches.map(toEmailIssueRow)
     }
     const result = await this.email.sendSummaryEmail(data)
     return { sent: result.emailsSent ?? 0, message: result.message }

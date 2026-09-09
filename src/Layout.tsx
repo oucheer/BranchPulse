@@ -13,7 +13,7 @@ import Sidebar from './shell/Sidebar'
 import Topbar from './shell/Topbar'
 import CommandPalette from './shell/CommandPalette'
 import { useAppStore } from './stores/appStore'
-import { useEffectsEnabled } from './lib/effects'
+import { computeWebGLAvailable, isEffectOn, useEffectSettings } from './lib/effects'
 
 /** Resolve the current --primary CSS variable into a canvas-friendly rgb() color. */
 function resolveAccentColor(): string {
@@ -40,8 +40,10 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   const setScanning = useAppStore((s) => s.setScanning)
   const setProgress = useAppStore((s) => s.setProgress)
   const refresh = useAppStore((s) => s.refresh)
-  const effectsMode = useAppStore((s) => s.effectsMode)
-  const effectsEnabled = useEffectsEnabled(effectsMode)
+  const effectSettings = useEffectSettings()
+  const ambientEnabled = isEffectOn(effectSettings, 'ambientBackground') && computeWebGLAvailable()
+  const splashCursorEnabled = isEffectOn(effectSettings, 'splashCursor') && computeWebGLAvailable()
+  const clickSparkEnabled = isEffectOn(effectSettings, 'clickSpark')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isDark, setIsDark] = useState(true)
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
   return (
     <div className="relative flex h-screen bg-canvas text-muted">
       {/* Layer 1-2: Ambient background */}
-      {effectsEnabled ? (
+      {ambientEnabled ? (
         <>
           <AeroShards />
           <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
@@ -121,16 +123,18 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
             )}
           </div>
           {/* Interactive fluid that follows the pointer and reacts to clicks */}
-          <SplashCursor
-            DENSITY_DISSIPATION={3}
-            VELOCITY_DISSIPATION={2.5}
-            PRESSURE={0.5}
-            CURL={1}
-            SPLAT_RADIUS={0.05}
-            SPLAT_FORCE={12500}
-            COLOR_UPDATE_SPEED={7}
-            RAINBOW_MODE
-          />
+          {splashCursorEnabled ? (
+            <SplashCursor
+              DENSITY_DISSIPATION={3}
+              VELOCITY_DISSIPATION={2.5}
+              PRESSURE={0.5}
+              CURL={1}
+              SPLAT_RADIUS={0.05}
+              SPLAT_FORCE={12500}
+              COLOR_UPDATE_SPEED={7}
+              RAINBOW_MODE
+            />
+          ) : null}
         </>
       ) : (
         <StaticBackdrop isDark={isDark} />
@@ -147,7 +151,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       {/* Layer 7: Command Palette */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {/* Global click sparkles (above shell + splash, below nothing) */}
-      {effectsEnabled ? (
+      {clickSparkEnabled ? (
         <ClickSpark sparkColor={resolveAccentColor()} sparkSize={9} sparkRadius={22} sparkCount={9} duration={420} />
       ) : null}
     </div>

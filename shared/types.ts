@@ -198,6 +198,7 @@ export interface ScanRun {
   emailsSent: number
   error: string | null
   activity: ActivityItem[]
+  repositoryIds?: string[]
 }
 
 export type NotificationType =

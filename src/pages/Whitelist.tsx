@@ -3,6 +3,7 @@ import { Plus, ShieldCheck, ShieldOff, Trash2, Upload } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal } from '../components/ui'
 import type { ProtectionEntry } from '@shared/types'
+import { matchPattern } from '../lib/protection'
 
 export default function Whitelist(): JSX.Element {
   const whitelist = useAppStore((s) => s.whitelist)
@@ -29,10 +30,11 @@ export default function Whitelist(): JSX.Element {
       }
       const kind = tab === 'whitelist' ? 'whitelist' : 'protected'
       for (const branch of branches) {
+        const type: ProtectionEntry['type'] = /[*?]/.test(branch) ? 'glob' : 'exact'
         if (kind === 'whitelist') {
-          await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type: 'exact', note: '从 TXT 导入' })
+          await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         } else {
-          await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type: 'exact', note: '从 TXT 导入' })
+          await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         }
       }
       toast(`已导入 ${branches.length} 个分支到${kind === 'whitelist' ? '白名单' : '保护列表'}`, 'success')

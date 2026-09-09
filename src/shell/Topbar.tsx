@@ -2,7 +2,7 @@
  * Topbar — Clean command center search + notifications.
  */
 import { useNavigate } from 'react-router-dom'
-import { Bell, Activity, Search } from 'lucide-react'
+import { Bell, Activity, FolderGit2, Search } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { layout, shadow } from '../design-system/tokens'
 
@@ -10,6 +10,9 @@ export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void })
   const language = useAppStore((s) => s.language)
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
+  const repositories = useAppStore((s) => s.repositories)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
   const navigate = useNavigate()
   const unread = notifications.filter((n) => !n.read).length
 
@@ -28,6 +31,21 @@ export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void })
         <span className="ml-auto flex items-center gap-0.5 rounded border border-line px-1.5 text-[10px]">Ctrl K</span>
       </button>
       <div className="ml-auto flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm" style={{ boxShadow: shadow.sm }}>
+          <FolderGit2 size={14} className="shrink-0 text-muted" />
+          <select
+            className="max-w-[11rem] cursor-pointer bg-transparent text-sm text-canvas-fg outline-none"
+            value={activeRepositoryId ?? ''}
+            disabled={repositories.length === 0}
+            onChange={(event) => void setActiveRepositoryId(event.target.value || null)}
+            aria-label={language === 'zh' ? '切换仓库' : 'Switch repository'}
+          >
+            <option value="">{language === 'zh' ? '全部仓库' : 'All repositories'}</option>
+            {repositories.map((repo) => (
+              <option key={repo.id} value={repo.id}>{repo.name}</option>
+            ))}
+          </select>
+        </div>
         {scanning ? (
           <span className="chip bg-primary/10 text-primary">
             <Activity size={12} className="animate-spin" /> {tr('running')}

@@ -64,7 +64,7 @@ export interface AppServices {
   settings: SettingsService
 }
 
-function scanRunFromRow(row: Record<string, unknown>): ScanRun {
+function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]): ScanRun {
   let activity: ScanRun['activity'] = []
   try {
     activity = JSON.parse(String(row.activity_json ?? '[]'))
@@ -93,12 +93,46 @@ function scanRunFromRow(row: Record<string, unknown>): ScanRun {
     notifications: Number(row.notifications ?? 0),
     emailsSent: Number(row.emails_sent ?? 0),
     error: (row.error as string | null) ?? null,
-    activity
+    activity,
+    ...(repositoryIds ? { repositoryIds } : {})
   }
 }
 
 export function registerIpc(services: AppServices): void {
   const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings } = services
+
+  function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
+    const rows = repositoryId
+      ? storage.all<Record<string, unknown>>(
+        `SELECT sr.* FROM scan_runs sr
+         WHERE EXISTS (
+           SELECT 1 FROM scan_run_repositories srr
+           WHERE srr.run_id = sr.id AND srr.repository_id = ?
+         )
+         ORDER BY sr.started_at DESC LIMIT ?`,
+        [repositoryId, limit]
+      )
+      : storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?', [limit])
+    const runIds = rows.map((row) => String(row.id))
+    const repositoryIdsByRun = new Map<string, string[]>()
+    if (runIds.length > 0) {
+      const associations = storage.all<Record<string, unknown>>(
+        `SELECT run_id, repository_id FROM scan_run_repositories WHERE run_id IN (${runIds.map(() => '?').join(',')})`,
+        runIds
+      )
+      for (const association of associations) {
+        const runId = String(association.run_id)
+        const repositoryIdForRun = String(association.repository_id)
+        const current = repositoryIdsByRun.get(runId) ?? []
+        current.push(repositoryIdForRun)
+        repositoryIdsByRun.set(runId, current)
+      }
+    }
+    return rows.map((row) => {
+      const runId = String(row.id)
+      return scanRunFromRow(row, repositoryIdsByRun.get(runId) ?? [])
+    })
+  }
 
   services.monitoring.onProgress = (progress) => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -109,9 +143,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:init', async (): Promise<DashboardSnapshot> => {
     const currentSettings = settings.get()
     const activeRepositoryId = currentSettings.activeRepositoryId
-    const scanRuns = storage
-      .all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 50')
-      .map(scanRunFromRow)
+    const scanRuns = listScanRuns(activeRepositoryId, 50)
     return {
       repositories: repository.list(),
       branches: branch.listBranches(),
@@ -411,7 +443,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:deleteJob', (_e, id: string): SchedulerJob[] => scheduler.deleteJob(id))
   ipcMain.handle('branchpulse:runSchedulerJob', (_e, id: string): Promise<ScanRun> => scheduler.runSchedulerJob(id))
   ipcMain.handle('branchpulse:listRuns', (): ScanRun[] => {
-    return storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 100').map(scanRunFromRow)
+    return listScanRuns(null, 100)
   })
   ipcMain.handle('branchpulse:calendarRuns', (): { date: string; status: ScanRun['status']; runs: number }[] => scheduler.calendarRuns())
 

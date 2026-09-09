@@ -1,35 +1,42 @@
 import { useSyncExternalStore } from 'react'
 
-export type EffectsMode = 'auto' | 'off'
+export type EffectKey = 'ambientBackground' | 'splashCursor' | 'clickSpark' | 'depthText' | 'particleSplash'
 
-export const EFFECTS_MODE_KEY = 'branchpulse:effectsMode'
-export const EFFECTS_CHANGE_EVENT = 'branchpulse:effects-change'
+export interface EffectSettings {
+  enabled: boolean
+  ambientBackground: boolean
+  splashCursor: boolean
+  clickSpark: boolean
+  depthText: boolean
+  particleSplash: boolean
+}
+
+const STORAGE_KEY = 'branchpulse:effectSettings'
+const CHANGE_EVENT = 'branchpulse:effect-settings-change'
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const GL_RENDERER = 0x1f01
 
-let cachedSoftwareWebGL: boolean | null = null
-
-export function readEffectsMode(): EffectsMode {
-  try {
-    return window.localStorage.getItem(EFFECTS_MODE_KEY) === 'off' ? 'off' : 'auto'
-  } catch {
-    return 'auto'
-  }
+const DEFAULT_SETTINGS: EffectSettings = {
+  enabled: true,
+  ambientBackground: true,
+  splashCursor: false,
+  clickSpark: true,
+  depthText: true,
+  particleSplash: true
 }
 
-export function persistEffectsMode(mode: EffectsMode): void {
-  try {
-    window.localStorage.setItem(EFFECTS_MODE_KEY, mode)
-  } catch {
-    /* ignore storage errors */
-  }
-  window.dispatchEvent(new Event(EFFECTS_CHANGE_EVENT))
-}
+export const EFFECT_KEYS: EffectKey[] = [
+  'ambientBackground',
+  'splashCursor',
+  'clickSpark',
+  'depthText',
+  'particleSplash'
+]
 
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_MOTION_QUERY).matches
-}
+let cachedWebGLAvailable: boolean | null = null
+let cachedSettings: EffectSettings | null = null
+let cachedRaw: string | null = null
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -47,29 +54,66 @@ function detectSoftwareWebGL(): boolean {
   }
 }
 
-function isLowPowerDevice(): boolean {
-  const cores = navigator.hardwareConcurrency
-  return typeof cores === 'number' && cores > 0 && cores <= 4
+export function computeWebGLAvailable(): boolean {
+  if (cachedWebGLAvailable === null) cachedWebGLAvailable = !detectSoftwareWebGL()
+  return cachedWebGLAvailable
 }
 
-export function computeEffectsEnabled(mode: EffectsMode): boolean {
-  if (mode === 'off') return false
-  if (prefersReducedMotion() || isLowPowerDevice()) return false
-  if (cachedSoftwareWebGL === null) cachedSoftwareWebGL = detectSoftwareWebGL()
-  return !cachedSoftwareWebGL
-}
-
-function subscribeEffectsChange(onChange: () => void): () => void {
-  const query = window.matchMedia(REDUCED_MOTION_QUERY)
-  const onMediaChange = (): void => onChange()
-  query.addEventListener('change', onMediaChange)
-  window.addEventListener(EFFECTS_CHANGE_EVENT, onChange)
-  return () => {
-    query.removeEventListener('change', onMediaChange)
-    window.removeEventListener(EFFECTS_CHANGE_EVENT, onChange)
+export function readEffectSettings(): EffectSettings {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (raw === cachedRaw && cachedSettings !== null) return cachedSettings
+    if (!raw) {
+      cachedRaw = null
+      cachedSettings = { ...DEFAULT_SETTINGS }
+      return cachedSettings
+    }
+    const parsed = JSON.parse(raw) as Partial<EffectSettings>
+    const merged = { ...DEFAULT_SETTINGS }
+    for (const key of ['enabled', ...EFFECT_KEYS] as const) {
+      if (typeof parsed[key] === 'boolean') merged[key] = parsed[key] as boolean
+    }
+    cachedRaw = raw
+    cachedSettings = merged
+    return merged
+  } catch {
+    cachedRaw = null
+    cachedSettings = { ...DEFAULT_SETTINGS }
+    return cachedSettings
   }
 }
 
-export function useEffectsEnabled(effectsMode: EffectsMode): boolean {
-  return useSyncExternalStore(subscribeEffectsChange, () => computeEffectsEnabled(effectsMode))
+export function persistEffectSettings(next: EffectSettings): void {
+  cachedRaw = null
+  cachedSettings = null
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore storage errors */
+  }
+  window.dispatchEvent(new Event(CHANGE_EVENT))
+}
+
+function subscribeEffectSettings(onChange: () => void): () => void {
+  const query = window.matchMedia(REDUCED_MOTION_QUERY)
+  const onMediaChange = (): void => onChange()
+  query.addEventListener('change', onMediaChange)
+  window.addEventListener(CHANGE_EVENT, onChange)
+  return () => {
+    query.removeEventListener('change', onMediaChange)
+    window.removeEventListener(CHANGE_EVENT, onChange)
+  }
+}
+
+export function useEffectSettings(): EffectSettings {
+  return useSyncExternalStore(subscribeEffectSettings, readEffectSettings, () => DEFAULT_SETTINGS)
+}
+
+/** Whether a specific effect should render, combining master switch + user toggle. */
+export function isEffectOn(settings: EffectSettings, key: EffectKey): boolean {
+  return settings.enabled && settings[key] && !prefersReducedMotion()
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_MOTION_QUERY).matches
 }

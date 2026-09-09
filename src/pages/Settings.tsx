@@ -2,17 +2,14 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
-import type { EffectsMode } from '../lib/effects'
-import type { AppSettings, BackgroundTheme, ColorTheme, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
+import type { AppSettings, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
 
 export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const language = useAppStore((s) => s.language)
-  const effectsMode = useAppStore((s) => s.effectsMode)
   const setLanguage = useAppStore((s) => s.setLanguage)
-  const setEffectsMode = useAppStore((s) => s.setEffectsMode)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const zh = language === 'zh'
@@ -37,23 +34,6 @@ export default function Settings(): JSX.Element {
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
-  const colorThemes: Array<{ value: ColorTheme; label: string; dot: string }> = [
-    { value: 'default', label: '默认橙', dot: 'rgb(255 122 24)' },
-    { value: 'ocean', label: '海洋蓝', dot: 'rgb(59 130 246)' },
-    { value: 'forest', label: '森林绿', dot: 'rgb(52 199 123)' },
-    { value: 'violet', label: '雅紫', dot: 'rgb(139 92 246)' },
-    { value: 'rose', label: '玫瑰红', dot: 'rgb(244 63 94)' },
-    { value: 'cyan', label: '青碧', dot: 'rgb(34 211 238)' }
-  ]
-  const backgroundThemes: Array<{ value: BackgroundTheme; label: string }> = [
-    { value: 'dark', label: '深色' },
-    { value: 'light', label: '浅色' }
-  ]
-  const effectsModes: Array<{ value: EffectsMode; label: string }> = [
-    { value: 'auto', label: zh ? '自动' : 'Auto' },
-    { value: 'off', label: zh ? '关闭' : 'Off' }
-  ]
-
   useEffect(() => {
     setDraft(settings)
   }, [settings])
@@ -158,60 +138,6 @@ export default function Settings(): JSX.Element {
             <SettingsIcon size={15} className="text-primary" /> Application
           </div>
           <div className="space-y-4">
-            <div>
-              <div className="label mb-1.5">颜色主题</div>
-              <div className="grid grid-cols-3 gap-2">
-                {colorThemes.map((ct) => (
-                  <button
-                    key={ct.value}
-                    className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs font-medium transition-colors ${
-                      draft.colorTheme === ct.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
-                    }`}
-                    onClick={() => setDraft({ ...draft, colorTheme: ct.value })}
-                  >
-                    <span className="h-3 w-3 shrink-0 rounded-full border border-line" style={{ background: ct.dot }} />
-                    {ct.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="label mb-1.5">背景主题</div>
-              <div className="flex gap-2">
-                {backgroundThemes.map((bt) => (
-                  <button
-                    key={bt.value}
-                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                      draft.backgroundTheme === bt.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
-                    }`}
-                    onClick={() => setDraft({ ...draft, backgroundTheme: bt.value })}
-                  >
-                    {bt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="label mb-1.5">{zh ? '动态背景' : 'Animated background'}</div>
-              <div className="flex gap-2">
-                {effectsModes.map((mode) => (
-                  <button
-                    key={mode.value}
-                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                      effectsMode === mode.value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
-                    }`}
-                    onClick={() => setEffectsMode(mode.value)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                {zh
-                  ? '自动模式会在低性能设备、系统减少动态效果或软件渲染时自动关闭动画。'
-                  : 'Auto disables animations on low-power devices, reduced-motion systems, or software rendering.'}
-              </p>
-            </div>
             <div>
               <div className="label mb-1.5">{tr('language')}</div>
               <div className="flex gap-2">
