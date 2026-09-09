@@ -281,7 +281,8 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
       const risk = clampScore(100 - branch.health.score)
       const categories = [
         branch.state === 'active' ? 'active' : null,
-        branch.stale && branch.state !== 'grace_expired' ? 'stale' : null,
+        // 停更是大类，包含已到宽限期的分支。
+        branch.stale ? 'stale' : null,
         branch.state === 'grace_expired' ? 'expired' : null,
         branch.naming.status === 'invalid' ? 'naming' : null
       ].filter(Boolean) as string[]
@@ -299,21 +300,38 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   const selectedPoints = riskFilter === null
     ? riskPoints
     : riskPoints.filter((p) => p.categories.includes(riskFilter))
-  const labelPoint = hoveredRisk ? selectedPoints.find((p) => p.id === hoveredRisk) : null
-  const positionFor = (point: typeof riskPoints[number]) => ({
-    left: `${4 + (point.inactiveDays / maxInactiveDays) * 92}%`,
-    bottom: `${4 + (point.risk / 100) * 92}%`
-  })
+  const positionFor = (point: typeof riskPoints[number], duplicateIndex = 0) => {
+    const baseLeft = 4 + (point.inactiveDays / maxInactiveDays) * 92
+    const baseBottom = 4 + (point.risk / 100) * 92
+    // 完全相同的健康分和停更天数会互相遮住；用固定网格偏移保证每个分支点都可见。
+    const duplicateOffsets = [
+      [0, 0], [1, 0], [-1, 0],
+      [0, 1], [1, 1], [-1, 1],
+      [0, -1], [1, -1], [-1, -1]
+    ]
+    const [offsetX, offsetY] = duplicateOffsets[duplicateIndex % duplicateOffsets.length]
+    const edgeX = baseLeft >= 80 ? -1 : 1
+    const edgeY = baseBottom >= 80 ? -1 : 1
+    const left = Math.min(98, Math.max(2, baseLeft + offsetX * 3.2 * edgeX))
+    const bottom = Math.min(98, Math.max(2, baseBottom + offsetY * 3.8 * edgeY))
+    return { left: `${left}%`, bottom: `${bottom}%` }
+  }
+
+  const hoveredPointIndex = hoveredRisk ? selectedPoints.findIndex((p) => p.id === hoveredRisk) : -1
+  const labelPoint = hoveredPointIndex >= 0 ? selectedPoints[hoveredPointIndex] : null
+  const labelPosition = labelPoint ? positionFor(labelPoint, hoveredPointIndex) : { left: '0%', bottom: '0%' }
+
+
   const hasBranches = snapshot.total > 0
   const metrics: Array<{ label: string; value: number | string; tone: string; key: string }> = [
     { label: zh ? '平均健康' : 'Average', value: hasBranches ? snapshot.average : '--', tone: hasBranches ? healthColor(snapshot.average) : 'rgb(var(--muted))', key: 'all' },
+    { label: zh ? '最佳' : 'Best', value: hasBranches ? snapshot.best : '--', tone: hasBranches ? 'rgb(var(--ok))' : 'rgb(var(--muted))', key: 'best' },
+    { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))', key: 'worst' },
+    { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))', key: 'total' },
     { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))', key: 'active' },
     { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))', key: 'stale' },
     { label: zh ? '到期' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))', key: 'expired' },
-    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' },
-    { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))', key: 'total' },
-    { label: zh ? '最佳' : 'Best', value: hasBranches ? snapshot.best : '--', tone: hasBranches ? 'rgb(var(--ok))' : 'rgb(var(--muted))', key: 'best' },
-    { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))', key: 'worst' }
+    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' }
   ]
   return (
     <Card className="flex h-full flex-col p-3.5">
@@ -366,8 +384,8 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
                 <div
                   className="pointer-events-none absolute z-10 max-w-[220px] rounded-lg border border-line bg-surface px-2.5 py-1.5 shadow-lg"
                   style={{
-                    left: `clamp(104px, ${4 + (labelPoint.inactiveDays / maxInactiveDays) * 92}%, calc(100% - 104px))`,
-                    bottom: `calc(${4 + (labelPoint.risk / 100) * 92}% + 12px)`,
+                    left: `clamp(104px, ${labelPosition.left}, calc(100% - 104px))`,
+                    bottom: `calc(${labelPosition.bottom} + 12px)`,
                     transform: 'translateX(-50%)'
                   }}
                 >
@@ -380,8 +398,8 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
                   </div>
                 </div>
               ) : null}
-              {selectedPoints.map((point) => {
-                const position = positionFor(point)
+              {selectedPoints.map((point, pointIndex) => {
+                const position = positionFor(point, pointIndex)
                 return (
                   <button
                     key={point.id}
