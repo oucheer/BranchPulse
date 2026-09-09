@@ -48,8 +48,6 @@ export default function App(): JSX.Element {
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
-  const [splashFading, setSplashFading] = useState(false)
-  const [appMounted, setAppMounted] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
@@ -80,22 +78,12 @@ export default function App(): JSX.Element {
   }, [settings.backgroundTheme, settings.colorTheme])
 
   useEffect(() => {
-    if (!ready || splashFading) return
+    if (!ready || splashDone) return
     const elapsed = Date.now() - splashStartedAt
-    const remaining = Math.max(0, 3200 - elapsed)
-    const timer = window.setTimeout(() => setSplashFading(true), remaining)
+    const remaining = Math.max(0, 3400 - elapsed)
+    const timer = window.setTimeout(() => setSplashDone(true), remaining)
     return () => window.clearTimeout(timer)
-  }, [ready, splashFading, splashStartedAt])
-
-  useEffect(() => {
-    if (!splashFading) return
-    const mountTimer = window.setTimeout(() => setAppMounted(true), 80)
-    const timer = window.setTimeout(() => setSplashDone(true), 650)
-    return () => {
-      window.clearTimeout(mountTimer)
-      window.clearTimeout(timer)
-    }
-  }, [splashFading])
+  }, [ready, splashDone, splashStartedAt])
 
   useEffect(() => {
     document.documentElement.style.colorScheme = settings.backgroundTheme
@@ -127,26 +115,15 @@ export default function App(): JSX.Element {
 
   return (
     <>
-      {appMounted ? (
-        <Layout deferBackground>
-          <div className="h-full overflow-auto">
-            <Routes location={location}>
-              {pages.map((p) => (
-                <Route key={p.path} path={p.path} element={p.element} />
-              ))}
-            </Routes>
-          </div>
-          <Toasts />
-        </Layout>
-      ) : null}
       {!splashDone ? (
-        <div
-          className={`fixed inset-0 z-[80] bg-canvas transition-opacity ${splashFading ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'}`}
-          style={{ transitionDuration: '650ms' }}
-        >
+        <div className="relative h-screen overflow-hidden bg-canvas">
           {effectsEnabled && splashParticlesEnabled ? (
             <div className="absolute inset-0">
-              <ParticleText text="BranchPulse" duration={2600} onComplete={() => { if (ready) setSplashFading(true) }} />
+              <ParticleText
+                text="BranchPulse"
+                duration={3400}
+                onComplete={() => setSplashDone(true)}
+              />
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center text-center">
@@ -157,7 +134,18 @@ export default function App(): JSX.Element {
             <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <Layout>
+          <div className="h-full overflow-auto">
+            <Routes location={location}>
+              {pages.map((p) => (
+                <Route key={p.path} path={p.path} element={p.element} />
+              ))}
+            </Routes>
+          </div>
+          <Toasts />
+        </Layout>
+      )}
     </>
   )
 }
