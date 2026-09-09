@@ -100,10 +100,16 @@ export class NamingService {
 
   validate(name: string, rules?: NamingRule[]): NamingResult {
     const list = rules ?? this.listRules()
-    if (name === 'main' || name === 'develop') {
+    const baseIssue = baseNamingIssue(name)
+    if (!baseIssue && (name === 'main' || name === 'develop')) {
+      const explicit = list.find((rule) => rule.enabled && matchPattern(rule.pattern, rule.type, name))
+      if (explicit) {
+        return explicit.mode === 'exclude'
+          ? { status: 'excluded', ruleName: explicit.name, reason: `由规则「${explicit.name}」排除` }
+          : { status: 'valid', ruleName: explicit.name, reason: `符合规则「${explicit.name}」` }
+      }
       return { status: 'valid', reason: '默认分支不参与命名规范校验' }
     }
-    const baseIssue = baseNamingIssue(name)
     for (const rule of list.filter((r) => r.enabled && !baseIssue)) {
       if (!matchPattern(rule.pattern, rule.type, name)) continue
       if (rule.mode === 'exclude') {

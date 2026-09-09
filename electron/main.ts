@@ -17,9 +17,10 @@ import { ReportScheduleService } from './services/reportSchedule'
 import { AuditService } from './services/audit'
 import { SettingsService } from './services/settings'
 import { GitLabService } from './services/gitlab'
+import { BackupService } from './services/backup'
 import { registerIpc, type AppServices } from './ipc'
 import { logger } from './utils/logger'
-import { dataDir, dbFile } from './utils/paths'
+import { dataDir, dbFile, ensureDir } from './utils/paths'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -192,10 +193,17 @@ async function bootstrap(): Promise<void> {
   const reportSchedules = new ReportScheduleService(storage, report, email, audit)
   const deletionEngine = new DeletionPolicyEngine()
   const deletionTokens = new DeletionTokenRegistry()
+  const backup = new BackupService(
+    storage,
+    repository,
+    audit,
+    () => settings.get().gitPath || 'git',
+    () => ensureDir(path.join(dataDir(), 'backups'))
+  )
 
   services = {
     storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens,
-    monitoring, email, scheduler, report, reportSchedules, audit, settings
+    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup
   }
 
   registerIpc(services)

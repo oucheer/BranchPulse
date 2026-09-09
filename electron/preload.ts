@@ -84,6 +84,13 @@ const api: BranchApi = {
     ipcRenderer.invoke('branchpulse:saveReportSchedule', schedule),
   deleteReportSchedule: (id: string) => ipcRenderer.invoke('branchpulse:deleteReportSchedule', id),
 
+  listBackups: () => ipcRenderer.invoke('branchpulse:listBackups'),
+  startBackup: (options?: { repositoryId?: string | null; folderPath?: string }) =>
+    ipcRenderer.invoke('branchpulse:startBackup', options),
+  deleteBackup: (id: string) => ipcRenderer.invoke('branchpulse:deleteBackup', id),
+  selectBackupFolder: () => ipcRenderer.invoke('branchpulse:selectBackupFolder'),
+  openBackupFolder: (path: string) => ipcRenderer.invoke('branchpulse:openBackupFolder', path),
+
   listAudit: () => ipcRenderer.invoke('branchpulse:listAudit'),
   exportAuditLogs: (format: 'csv' | 'json' | 'txt') => ipcRenderer.invoke('branchpulse:exportAuditLogs', format),
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),

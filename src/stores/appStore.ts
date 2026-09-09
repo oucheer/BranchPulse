@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AuditEntry,
   BranchSummary,
+  BackupRecord,
   DashboardSnapshot,
   EmailConfig,
   EmailGroup,
@@ -41,6 +42,7 @@ interface AppState {
   jobs: SchedulerJob[]
   calendarRuns: { date: string; status: ScanRun['status']; runs: number }[]
   reports: ReportRecord[]
+  backups: BackupRecord[]
   reportSchedules: ReportSchedule[]
   audit: AuditEntry[]
   namingRules: NamingRule[]
@@ -112,6 +114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   jobs: [],
   calendarRuns: [],
   reports: [],
+  backups: [],
   reportSchedules: [],
   audit: [],
   namingRules: [],
@@ -131,7 +134,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const snapshot = await window.branchpulse.init()
       const activeId = snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null
-      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups] = await Promise.all([
+      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups] = await Promise.all([
         window.branchpulse.listJobs(),
         window.branchpulse.calendarRuns(),
         window.branchpulse.listReports(),
@@ -141,7 +144,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.branchpulse.listWhitelist(activeId),
         window.branchpulse.listProtected(activeId),
         window.branchpulse.getEmailConfig(),
-        window.branchpulse.listEmailGroups()
+        window.branchpulse.listEmailGroups(),
+        window.branchpulse.listBackups()
       ])
       set({
         ready: true,
@@ -155,6 +159,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         jobs,
         calendarRuns,
         reports,
+        backups,
         reportSchedules,
         audit,
         namingRules,

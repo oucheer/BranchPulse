@@ -299,6 +299,25 @@ export interface ReportSchedule {
   createdAt: string
 }
 
+export type BackupStatus = 'running' | 'success' | 'failed'
+
+export interface BackupRecord {
+  id: string
+  repositoryId: string
+  repositoryName: string
+  remoteUrl: string
+  path: string
+  status: BackupStatus
+  startedAt: string
+  finishedAt: string | null
+  error: string | null
+}
+
+export interface BackupOptions {
+  repositoryId?: string | null
+  folderPath?: string
+}
+
 export interface AuditEntry {
   id: string
   at: string
@@ -511,6 +530,11 @@ export interface BranchApi {
 
   listAudit(): Promise<AuditEntry[]>
   exportAuditLogs(format: 'csv' | 'json' | 'txt'): Promise<AuditExportResult>
+  listBackups(): Promise<BackupRecord[]>
+  startBackup(options?: BackupOptions): Promise<BackupRecord>
+  deleteBackup(id: string): Promise<void>
+  selectBackupFolder(): Promise<string>
+  openBackupFolder(path: string): Promise<void>
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>

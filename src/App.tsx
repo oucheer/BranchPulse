@@ -14,6 +14,7 @@ import NamingRules from './pages/NamingRules'
 import Whitelist from './pages/Whitelist'
 import Notifications from './pages/Notifications'
 import Reports from './pages/Reports'
+import Backups from './pages/Backups'
 import Scheduler from './pages/Scheduler'
 import Audit from './pages/Audit'
 import Animation from './pages/Animation'
@@ -29,6 +30,7 @@ const pages = [
   { path: '/whitelist', element: <Whitelist /> },
   { path: '/notifications', element: <Notifications /> },
   { path: '/reports', element: <Reports /> },
+  { path: '/backup', element: <Backups /> },
   { path: '/scheduler', element: <Scheduler /> },
   { path: '/audit', element: <Audit /> },
   { path: '/animation', element: <Animation /> },

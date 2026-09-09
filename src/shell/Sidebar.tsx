@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Bell, CalendarClock, FileBarChart, FolderGit2,
-  GitBranch, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
+  GitBranch, HardDrive, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
@@ -40,7 +40,8 @@ const sections: NavSection[] = [
     items: [
       { to: '/monitoring', label: 'monitoring', icon: Activity },
       { to: '/naming-rules', label: 'namingRules', icon: Tags },
-      { to: '/whitelist', label: 'whitelist', icon: ShieldCheck }
+      { to: '/whitelist', label: 'whitelist', icon: ShieldCheck },
+      { to: '/backup', label: 'backup', icon: HardDrive }
     ]
   },
   {
@@ -201,7 +202,7 @@ export default function Sidebar(): JSX.Element {
           <span className={`h-2 w-2 rounded-full ${scanning ? 'animate-pulse bg-primary' : 'bg-ok'}`} />
           {language === 'zh' ? '监控服务' : 'Monitoring service'}
         </div>
-        <div className="opacity-70">BranchPulse v0.1.0</div>
+        <div className="opacity-70">BranchPulse v0.1.1</div>
       </div>
     </aside>
   )

@@ -1,9 +1,11 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { app } from 'electron'
+import path from 'node:path'
 import type {
   AppSettings,
   AuditEntry,
   AuditExportResult,
+  BackupRecord,
   BranchCriteria,
   BranchSummary,
   DashboardSnapshot,
@@ -44,6 +46,7 @@ import type { ReportService } from './services/report'
 import type { ReportScheduleService } from './services/reportSchedule'
 import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
+import type { BackupService } from './services/backup'
 
 export interface AppServices {
   storage: StorageService
@@ -62,6 +65,7 @@ export interface AppServices {
   reportSchedules: ReportScheduleService
   audit: AuditService
   settings: SettingsService
+  backup: BackupService
 }
 
 function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]): ScanRun {
@@ -99,7 +103,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function registerIpc(services: AppServices): void {
-  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings } = services
+  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup } = services
 
   function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
     const rows = repositoryId
@@ -496,6 +500,24 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
   ipcMain.handle('branchpulse:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))
   ipcMain.handle('branchpulse:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
+
+  ipcMain.handle('branchpulse:listBackups', (): BackupRecord[] => backup.list())
+  ipcMain.handle('branchpulse:startBackup', (_e, options: { repositoryId?: string | null; folderPath?: string } = {}): Promise<BackupRecord> => {
+    return backup.start(options)
+  })
+  ipcMain.handle('branchpulse:deleteBackup', (_e, id: string): void => backup.delete(id))
+  ipcMain.handle('branchpulse:selectBackupFolder', async (): Promise<string> => {
+    const selected = await dialog.showOpenDialog({
+      title: 'Select backup folder',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return selected.canceled || selected.filePaths.length === 0 ? '' : selected.filePaths[0]
+  })
+  ipcMain.handle('branchpulse:openBackupFolder', (_e, backupPath: string): Promise<string> => {
+    const target = backupPath ? path.dirname(backupPath) : app.getPath('documents')
+    return shell.openPath(target)
+  })
 
   ipcMain.handle('branchpulse:listAudit', (): AuditEntry[] => audit.list())
   ipcMain.handle('branchpulse:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv'): Promise<AuditExportResult> => {
