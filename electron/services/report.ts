@@ -1,14 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { BrowserWindow, shell } from 'electron'
-import PDFDocument from 'pdfkit'
+import { shell } from 'electron'
 import type { BranchSummary, ReportRecord, ReportSummary, ScanRun } from '@shared/types'
 import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
 import type { EmailSummaryData } from './email'
-import { toEmailIssueRow } from './email'
+import { buildBranchEmailHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
 
@@ -138,10 +137,10 @@ export class ReportService {
     const notifications = this.notifications(resolvedRepositoryId)
     const title = `Git Branch Health Report (${period})`
     const generatedAt = new Date().toISOString()
-    const filename = `branchpulse-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format === 'pdf' ? 'pdf' : format}`
+    const filename = `branchpulse-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
 
-    const safeFormat = (['html', 'csv', 'json', 'pdf', 'png'].includes(format) ? format : 'html') as string
+    const safeFormat = (['html', 'csv'].includes(format) ? format : 'html') as string
     await this.writeFile(safeFormat, filePath, title, generatedAt, period, summary, branches, runs, notifications)
 
     const record: ReportRecord = {
@@ -205,7 +204,7 @@ export class ReportService {
   private async writeFile(
     format: string,
     filePath: string,
-    title: string,
+    _title: string,
     generatedAt: string,
     period: string,
     summary: ReportSummary,
@@ -214,11 +213,6 @@ export class ReportService {
     notifications: Array<Record<string, unknown>>
   ): Promise<void> {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
-    if (format === 'json') {
-      const data = { title, generatedAt, period, summary, branches, runs, notifications }
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
-      return
-    }
     if (format === 'csv') {
       const header = [
         'repository', 'branch', 'type', 'state', 'inactive_days', 'age_days', 'last_commit', 'creator',
@@ -240,17 +234,20 @@ export class ReportService {
       fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
       return
     }
-    const html = this.renderHtml(title, generatedAt, period, summary, branches, runs, notifications)
-    if (format === 'pdf') {
-      await this.writePdf(filePath, title, generatedAt, period, summary, branches)
-      return
+    const data: EmailSummaryData = {
+      total: summary.totalBranches,
+      stale: summary.stale,
+      gracePeriod: summary.gracePeriod,
+      graceExpired: summary.graceExpired,
+      namingInvalid: summary.namingViolations,
+      merged: summary.merged,
+      cleanupCandidates: summary.cleanupCandidates,
+      repositories: summary.repositories,
+      generatedAt,
+      branches: branches.map(toEmailIssueRow),
+      thresholdHint: `统计范围 ${period}`
     }
-    if (format === 'png') {
-      const png = await this.capturePng(html)
-      fs.writeFileSync(filePath, png)
-      return
-    }
-    fs.writeFileSync(filePath, html, 'utf8')
+    fs.writeFileSync(filePath, buildBranchEmailHtml(data, 'zh', 'report'), 'utf8')
   }
 
   private renderHtml(
@@ -410,85 +407,6 @@ export class ReportService {
   </body></html>`
   }
 
-  private async writePdf(
-    filePath: string,
-    title: string,
-    generatedAt: string,
-    period: string,
-    summary: ReportSummary,
-    branches: BranchSummary[]
-  ): Promise<void> {
-    const doc = new PDFDocument({ size: 'A4', margin: 48 })
-    const stream = fs.createWriteStream(filePath)
-    doc.pipe(stream)
-    doc.fillColor('#0b0d12').rect(0, 0, doc.page.width, doc.page.height).fill()
-    doc.fillColor('#ff7a18').font('Helvetica-Bold').fontSize(26).text('BranchPulse', 48, 48)
-    doc.fillColor('#e6e9f2').fontSize(14).text(title, 48, 86)
-    doc.fillColor('#8a90a3').fontSize(10).text(`Generated ${new Date(generatedAt).toLocaleString()}  |  Period ${period}`, 48, 108)
-
-    const items: Array<[string, number]> = [
-      ['Total branches', summary.totalBranches],
-      ['Active', summary.active],
-      ['Stale', summary.stale],
-      ['Grace period', summary.gracePeriod],
-      ['Grace expired', summary.graceExpired],
-      ['Naming violations', summary.namingViolations],
-      ['Cleanup candidates', summary.cleanupCandidates]
-    ]
-    let y = 150
-    doc.fillColor('#7c5cfc').fontSize(20).text(`${summary.averageHealth}`, 48, y)
-    doc.fillColor('#e6e9f2').font('Helvetica-Bold').fontSize(11).text('Average Health', 48, y + 26)
-    doc.fillColor('#8a90a3').font('Helvetica').fontSize(10).text(`Naming compliance ${summary.compliancePercent}%  |  ${summary.repositories} repositories`, 48, y + 46)
-    y += 90
-    for (const [label, value] of items) {
-      doc.fillColor('#e6e9f2').fontSize(12).text(label, 48, y)
-      doc.fillColor('#ff7a18').font('Helvetica-Bold').fontSize(18).text(String(value), 300, y - 2)
-      y += 24
-    }
-
-    const sorted = branches.slice().sort((a, b) => a.health.score - b.health.score)
-    if (sorted.length > 0) {
-      doc.addPage().fillColor('#0b0d12').rect(0, 0, doc.page.width, doc.page.height).fill()
-      doc.fillColor('#ff7a18').font('Helvetica-Bold').fontSize(14).text('Branch Health', 48, 48)
-      doc.fillColor('#8a90a3').font('Helvetica').fontSize(9).text('Worst branches first', 48, 66)
-      y = 92
-      for (const b of sorted.slice(0, 60)) {
-        if (y > doc.page.height - 70) {
-          doc.addPage().fillColor('#0b0d12').rect(0, 0, doc.page.width, doc.page.height).fill()
-          y = 48
-        }
-        doc.fillColor('#e6e9f2').font('Helvetica-Bold').fontSize(9).text(`${b.name}`, 48, y)
-        doc.fillColor('#8a90a3').font('Helvetica').fontSize(8).text(
-          `${b.repositoryName}  |  ${b.state}  |  ${b.inactiveDays}d inactive  |  naming ${b.naming.status}  |  health ${b.health.score}`,
-          48,
-          y + 12
-        )
-        y += 34
-      }
-    }
-    doc.end()
-    await new Promise<void>((resolve, reject) => {
-      stream.on('finish', () => resolve())
-      stream.on('error', reject)
-    })
-  }
-
-  private async capturePng(html: string): Promise<Buffer> {
-    const win = new BrowserWindow({
-      show: false,
-      width: 1240,
-      height: 920,
-      webPreferences: { sandbox: false, contextIsolation: true }
-    })
-    try {
-      const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
-      await win.loadURL(dataUrl)
-      const image = await win.webContents.capturePage()
-      return image.toPNG()
-    } finally {
-      win.destroy()
-    }
-  }
 }
 
 function emptySummary(): ReportSummary {

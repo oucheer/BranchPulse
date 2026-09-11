@@ -60,6 +60,13 @@ export class MonitoringService {
     return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1') ?? null
   }
 
+  private thresholdHint(row?: Record<string, unknown> | null): string {
+    const unitLabel = (unit: string): string => unit === 'weeks' ? '周' : unit === 'hours' ? '小时' : unit === 'minutes' ? '分钟' : '天'
+    const staleValue = Number(row?.stale_threshold_days ?? 180)
+    const graceValue = Number(row?.grace_period_days ?? 60)
+    return `阈值 ${staleValue} ${unitLabel(String(row?.stale_threshold_unit ?? 'days'))} · 提醒窗口 ${graceValue} ${unitLabel(String(row?.grace_period_unit ?? 'days'))}`
+  }
+
   async runCheckNow(options: RunCheckOptions = {}): Promise<ScanRun> {
     const runId = newId()
     const startedAt = new Date().toISOString()
@@ -115,7 +122,7 @@ export class MonitoringService {
 
     const summary = this.summarize(allBranches, targets.length)
     addActivity(
-      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.namingInvalid} naming violations, ${summary.merged} merged.`,
+      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.graceExpired} grace expired, ${summary.namingInvalid} naming violations.`,
       'success'
     )
 
@@ -177,7 +184,8 @@ export class MonitoringService {
           cleanupCandidates: summary.cleanupCandidates,
           repositories: targets.length,
           generatedAt: new Date().toISOString(),
-          branches: allBranches.map(toEmailIssueRow)
+          branches: allBranches.map(toEmailIssueRow),
+          thresholdHint: this.thresholdHint(monitoringRow)
         }
         const cfg = this.email.getConfig()
         const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
@@ -198,9 +206,11 @@ export class MonitoringService {
         }
       } else {
         const rows: EmailIssueRow[] = allBranches
-          .filter((b) => b.stale || b.naming.status === 'invalid' || b.merged || b.cleanupCandidate)
+          .filter((b) => b.stale || b.naming.status === 'invalid' || b.cleanupCandidate)
           .map((b) => this.toIssueRow(b))
-        const result = await this.email.sendCreatorEmails(rows)
+        const result = await this.email.sendCreatorEmails(rows, undefined, {
+          thresholdHint: this.thresholdHint(monitoringRow)
+        })
         if (result.ok) {
           emailsSent += result.emailsSent ?? 0
           addActivity(`${emailsSent} creator email${emailsSent === 1 ? '' : 's'} sent.`, 'success')
@@ -317,34 +327,27 @@ export class MonitoringService {
         candidates.push({
           type: 'grace_expired',
           state: branch.state,
-          message: `${branch.displayName} grace period expired after ${branch.inactiveDays} inactive days.`
+          message: `${branch.displayName} 宽限期已过，已连续 ${branch.inactiveDays} 天未提交。`
         })
       } else if (branch.stale) {
         candidates.push({
           type: 'stale',
           state: branch.state,
-          message: `${branch.displayName} has been inactive for ${branch.inactiveDays} days.`
+          message: `${branch.displayName} 已停更，已连续 ${branch.inactiveDays} 天未提交。`
         })
       }
       if (branch.naming.status === 'invalid') {
         candidates.push({
           type: 'naming_violation',
           state: 'naming_invalid',
-          message: `${branch.displayName} does not follow the naming rules.`
-        })
-      }
-          if (false && branch.merged && !branch.protection.isDefault) {
-        candidates.push({
-          type: 'merged',
-          state: 'merged',
-          message: `${branch.displayName} is merged into ${branch.mergedInto ?? branch.baseBranch}.`
+          message: `${branch.displayName} 命名不符合规范。`
         })
       }
       if (branch.cleanupCandidate) {
         candidates.push({
           type: 'cleanup_candidate',
           state: branch.state,
-          message: `${branch.displayName} is a cleanup candidate.`
+          message: `${branch.displayName} 是清理候选。`
         })
       }
       for (const candidate of candidates) {
@@ -411,7 +414,8 @@ export class MonitoringService {
       cleanupCandidates: summary.cleanupCandidates,
       repositories: 1,
       generatedAt: new Date().toISOString(),
-      branches: branches.map(toEmailIssueRow)
+      branches: branches.map(toEmailIssueRow),
+      thresholdHint: this.thresholdHint(this.readMonitoringRow())
     }
     const result = await this.email.sendSummaryEmail(data)
     return { sent: result.emailsSent ?? 0, message: result.message }

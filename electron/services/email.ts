@@ -27,6 +27,8 @@ export interface EmailIssueRow {
   healthScore: number
   state: string
   cleanupCandidate?: boolean
+  whitelisted?: boolean
+  protectedBranch?: boolean
 }
 
 export interface EmailSummaryData {
@@ -40,6 +42,7 @@ export interface EmailSummaryData {
   repositories: number
   generatedAt: string
   branches: EmailIssueRow[]
+  thresholdHint?: string
 }
 
 export type EmailLang = 'en' | 'zh'
@@ -65,7 +68,9 @@ export function toEmailIssueRow(branch: BranchSummary): EmailIssueRow {
     mergeStatus: branch.merged ? 'merged' : 'not merged',
     healthScore: branch.health.score,
     state: branch.state,
-    cleanupCandidate: branch.cleanupCandidate
+    cleanupCandidate: branch.cleanupCandidate,
+    whitelisted: branch.protection.whitelisted,
+    protectedBranch: branch.protection.protected || branch.protection.isDefault
   }
 }
 
@@ -180,6 +185,19 @@ function emailTable(headers: string[], rows: string[][]): string {
   return `<table style="width:100%;border-collapse:collapse;margin-top:8px">${thead}${tbody}</table>`
 }
 
+function htmlEmailShell(subject: string, body: string, lang: EmailLang = 'zh'): string {
+  return `<!DOCTYPE html>
+<html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
+<body style="font-family:'Microsoft YaHei',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
+  <div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
+    <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
+    ${body}
+    <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+  </div>
+</body></html>`
+}
+
 function statCards(cards: Array<{ value: string | number; label: string; color?: string }>): string {
   const cells = cards.map((card) => `
     <td style="border:1px solid #e2e6ea;border-radius:6px;padding:10px 6px;text-align:center;width:12.5%">
@@ -189,22 +207,51 @@ function statCards(cards: Array<{ value: string | number; label: string; color?:
   return `<table style="width:100%;border-collapse:separate;border-spacing:4px 0"><tr>${cells}</tr></table>`
 }
 
-function stackedBar(segments: Array<{ label: string; value: number; color: string }>, lang: EmailLang): string {
+function donutSvg(segments: Array<{ label: string; value: number; color: string }>, centerLabel: string, centerSub: string): string {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0)
-  const barCells = total > 0
-    ? segments.filter((s) => s.value > 0).map((segment, index, list) => {
-        const radiusStart = index === 0 ? 'border-radius:4px 0 0 4px;' : ''
-        const radiusEnd = index === list.length - 1 ? 'border-radius:0 4px 4px 0;' : ''
-        return `<td style="background:${segment.color};width:${(segment.value / total * 100).toFixed(2)}%;height:16px;${radiusStart}${radiusEnd}"></td>`
-      }).join('')
-    : '<td style="background:#eef2f6;width:100%;height:16px;border-radius:4px"></td>'
-  const legend = segments.filter((s) => s.value > 0).map((segment) =>
-    `<span style="display:inline-block;margin:0 12px 4px 0;font-size:11px;color:#4b5563"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${segment.color};margin-right:4px"></span>${escapeHtml(segment.label)} ${segment.value}</span>`
-  ).join('')
-  const emptyText = lang === 'zh' ? '暂无分支数据' : 'No branch data'
-  return `
-    <table style="width:100%;border-collapse:collapse"><tr>${barCells}</tr></table>
-    <div style="margin-top:6px">${legend || `<span style="font-size:11px;color:#6b7280">${emptyText}</span>`}</div>`
+  const size = 230
+  const thickness = 34
+  const radius = (size - thickness) / 2
+  const circumference = 2 * Math.PI * radius
+  const cx = size / 2
+  const cy = cx
+  let offset = 0
+  const arcs = segments.filter((segment) => segment.value > 0).map((segment) => {
+    const dash = (segment.value / total) * circumference
+    const svg = `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${segment.color}" stroke-width="${thickness}" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${escapeHtml(segment.label)}：${segment.value} 个</title></circle>`
+    offset -= dash
+    return svg
+  }).join('')
+  return `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="分支状态分布图"><circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#eef2f6" stroke-width="${thickness}"/>${arcs}<text x="${cx}" y="${cy - 4}" text-anchor="middle" style="font-size:28px;font-weight:700;fill:#20242a">${escapeHtml(centerLabel)}</text><text x="${cx}" y="${cy + 18}" text-anchor="middle" style="font-size:11px;fill:#6b7280">${escapeHtml(centerSub)}</text></svg>`
+}
+
+function hbarSvg(items: Array<{ label: string; value: number; color?: string }>, suffix = ' 天'): string {
+  const width = 560
+  const rowHeight = 30
+  const labelWidth = 190
+  const barArea = width - labelWidth - 82
+  const maxValue = Math.max(1, ...items.map((item) => item.value))
+  const rows = items.map((item, index) => {
+    const y = index * rowHeight + 10
+    const barWidth = Math.max(2, (item.value / maxValue) * barArea)
+    const color = item.color ?? '#c4320a'
+    return `<text x="0" y="${y + 11}" style="font-size:11px;fill:#374151">${escapeHtml(item.label)}</text><rect x="${labelWidth}" y="${y}" width="${barWidth.toFixed(1)}" height="14" rx="3" fill="${color}"><title>${escapeHtml(item.label)}：${item.value}${suffix}</title></rect><text x="${(labelWidth + barWidth + 6).toFixed(1)}" y="${y + 11}" style="font-size:11px;fill:#6b7280">${item.value}${escapeHtml(suffix)}</text>`
+  }).join('')
+  return `<svg viewBox="0 0 ${width} ${items.length * rowHeight + 16}" role="img" aria-label="最久未提交分支">${rows}</svg>`
+}
+
+function stackedSvg(segments: Array<{ label: string; value: number; color: string }>): string {
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0)
+  if (total <= 0) return ''
+  const width = 560
+  let x = 0
+  const rects = segments.filter((segment) => segment.value > 0).map((segment) => {
+    const w = Math.max(1, (segment.value / total) * width)
+    const svg = `<rect x="${x.toFixed(1)}" y="4" width="${w.toFixed(1)}" height="16" fill="${segment.color}"><title>${escapeHtml(segment.label)}：${segment.value} 个（${((segment.value / total) * 100).toFixed(1)}%）</title></rect>`
+    x += w
+    return svg
+  }).join('')
+  return `<svg viewBox="0 0 ${width} 42" role="img" aria-label="占比条形图">${rects}</svg>`
 }
 
 export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
@@ -272,31 +319,33 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         no: 'No'
       }
 
-  const sections: string[] = []
-  const stateCount = (state: string): number => data.branches.filter((row) => row.state === state).length
-  const activeCount = stateCount('active')
-  sections.push(`
-    <h3 style="font-size:14px;margin:18px 0 8px">${t.chart}</h3>
-    ${stackedBar([
-      { label: t.active, value: activeCount, color: '#16a34a' },
-      { label: t.gracePeriod, value: stateCount('grace_period'), color: '#3b82f6' },
-      { label: t.stale, value: stateCount('stale'), color: '#f59e0b' },
-      { label: t.graceExpired, value: stateCount('grace_expired'), color: '#dc2626' }
-    ], lang)}`)
-  sections.push(`
-    <h3 style="font-size:14px;margin:18px 0 8px">${t.stats}</h3>
-    ${statCards([
-      { value: data.total, label: t.total },
-      { value: activeCount, label: t.active, color: '#087443' },
-      { value: data.stale, label: t.stale, color: '#b54708' },
-      { value: data.gracePeriod, label: t.gracePeriod, color: '#2563eb' },
-      { value: data.graceExpired, label: t.graceExpired, color: '#b42318' },
-      { value: data.namingInvalid, label: t.namingInvalid, color: '#b42318' },
-      { value: data.cleanupCandidates, label: t.cleanup }
-    ])}`)
+  const metricCards = (cards: Array<{ value: string | number; label: string; color?: string }>): string => cards.map((card) => `
+    <div style="flex:1;border:1px solid #e2e6ea;border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:${card.color ?? '#20242a'}">${escapeHtml(card.value)}</div>
+      <div style="color:#6b7280;font-size:12px;margin-top:4px">${escapeHtml(card.label)}</div>
+    </div>`).join('')
+  const statusLabel = (row: EmailIssueRow): string => {
+    if (row.whitelisted && row.state !== 'active') return lang === 'zh' ? '白名单保留（宽限期已过）' : 'Whitelist retained (expired)'
+    if (row.protectedBranch) return lang === 'zh' ? '保护 / 默认分支' : 'Protected / default branch'
+    if (row.cleanupCandidate) return lang === 'zh' ? '清理候选' : 'Cleanup candidate'
+    return stateLabel(row.state, lang)
+  }
+  const activeCount = data.branches.filter((row) => row.state === 'active').length
+  const gracePeriodCount = data.branches.filter((row) => row.state === 'grace_period').length
+  const graceExpiredCount = data.branches.filter((row) => row.state === 'grace_expired').length
+  const protectedCount = data.branches.filter((row) => row.protectedBranch).length
+  const whitelistedCount = data.branches.filter((row) => row.whitelisted && !row.protectedBranch).length
+  const statusSegments = [
+    { label: t.active, value: activeCount, color: '#16a34a' },
+    { label: t.gracePeriod, value: gracePeriodCount, color: '#f59e0b' },
+    { label: t.graceExpired, value: graceExpiredCount, color: '#dc2626' },
+    { label: lang === 'zh' ? '保护 / 默认分支' : 'Protected / default', value: protectedCount, color: '#2563eb' },
+    { label: lang === 'zh' ? '白名单保留' : 'Whitelist retained', value: whitelistedCount, color: '#9333ea' }
+  ]
+  const stalePercent = data.total ? Math.round((data.stale / data.total) * 100) : 0
 
-  const attentionRows = data.branches
-    .filter((row) => row.state === 'stale' || row.state === 'grace_expired' || row.cleanupCandidate)
+  const staleRows = data.branches
+    .filter((row) => row.state !== 'active' || row.cleanupCandidate)
     .sort((a, b) => b.inactiveDays - a.inactiveDays)
     .map((row) => [
       `<code>${escapeHtml(row.branch)}</code>`,
@@ -304,11 +353,8 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
       escapeHtml(row.creator || '-'),
       String(row.inactiveDays),
       escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
-      stateLabel(row.state, lang) + (row.cleanupCandidate ? (lang === 'zh' ? ' · 清理候选' : ' · cleanup') : '')
+      statusLabel(row)
     ])
-  sections.push(`
-    <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
-    ${attentionRows.length ? emailTable([t.branch, t.repository, t.creator, t.inactive, t.lastCommit, t.state], attentionRows) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
 
   const namingRows = data.branches
     .filter((row) => row.namingStatus === 'invalid')
@@ -320,9 +366,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
       escapeHtml(row.namingRuleName || '-'),
       escapeHtml(row.namingReason || '-')
     ])
-  sections.push(`
-    <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
-    ${namingRows.length ? emailTable([t.branch, t.repository, t.creator, t.rule, t.reason], namingRows) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
 
   const allRows = [...data.branches]
     .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
@@ -330,15 +373,61 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
       `<code>${escapeHtml(row.branch)}</code>`,
       escapeHtml(row.repository),
       escapeHtml(row.creator || '-'),
+      escapeHtml(row.creatorEmail || '-'),
       stateLabel(row.state, lang),
       namingLabel(row.namingStatus, lang),
       String(row.healthScore),
       String(row.inactiveDays),
       escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang))
     ])
+  const topOldest = [...data.branches]
+    .sort((a, b) => b.inactiveDays - a.inactiveDays)
+    .slice(0, 10)
+    .map((row, index, list) => ({
+      label: row.branch,
+      value: row.inactiveDays,
+      color: ['#b42318', '#c4320a', '#d92d20', '#e5484d', '#ef6820', '#f97066'][Math.min(5, Math.floor((index / Math.max(1, list.length)) * 6))]
+    }))
+  const complianceSegments = [
+    { label: lang === 'zh' ? '合规' : 'Compliant', value: Math.max(0, data.total - data.namingInvalid), color: '#16a34a' },
+    { label: lang === 'zh' ? '不规范' : 'Non-compliant', value: data.namingInvalid, color: '#dc2626' }
+  ]
+  const sections: string[] = []
+  sections.push(`
+    <div style="display:flex;gap:12px;margin:16px 0">${metricCards([
+      { value: data.total, label: t.total },
+      { value: data.stale, label: t.stale, color: '#b42318' },
+      { value: `${stalePercent}%`, label: lang === 'zh' ? '已停更占比' : 'Stale percent', color: '#b54708' },
+      { value: data.namingInvalid, label: t.namingInvalid, color: '#b54708' }
+    ])}</div>
+    ${data.thresholdHint ? `<div style="color:#6b7280;font-size:12px">${escapeHtml(data.thresholdHint)}</div>` : ''}
+    <div style="height:10px;background:#eef2f6;border-radius:5px;overflow:hidden;margin:10px 0 4px"><div style="width:${stalePercent}%;height:100%;background:#c4320a"></div></div>`)
+  sections.push(`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px">
+      <div style="border:1px solid #e2e6ea;border-radius:8px;padding:14px">
+        <h3 style="font-size:14px;margin:0 0 10px">${t.chart}</h3>
+        ${donutSvg(statusSegments, String(data.total), lang === 'zh' ? '总分支数' : 'Total branches')}
+        <div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px">${statusSegments.map((segment) => `<span style="font-size:11px;color:#4b5563"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${segment.color};margin-right:5px"></span>${escapeHtml(segment.label)} ${segment.value}</span>`).join('')}</div>
+      </div>
+      <div style="border:1px solid #e2e6ea;border-radius:8px;padding:14px">
+        <h3 style="font-size:14px;margin:0 0 10px">${lang === 'zh' ? '最久未提交 TOP 10' : 'Oldest branches'}</h3>
+        ${topOldest.length ? hbarSvg(topOldest) : `<p style="color:#6b7280;font-size:12px">${lang === 'zh' ? '暂无分支' : 'No branches'}</p>`}
+      </div>
+      <div style="grid-column:1/-1;border:1px solid #e2e6ea;border-radius:8px;padding:14px">
+        <h3 style="font-size:14px;margin:0 0 10px">${lang === 'zh' ? '命名合规占比' : 'Naming compliance'}</h3>
+        ${stackedSvg(complianceSegments)}
+        <p style="color:#6b7280;font-size:11px;margin:8px 0 0">${lang === 'zh' ? `合规 ${Math.max(0, data.total - data.namingInvalid)} 个 · 不规范 ${data.namingInvalid} 个` : `Compliant ${data.total - data.namingInvalid} · Non-compliant ${data.namingInvalid}`}</p>
+      </div>
+    </div>`)
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
+    ${staleRows.length ? emailTable([t.branch, t.repository, t.creator, t.inactive, t.lastCommit, t.state], staleRows) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
+  sections.push(`
+    <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
+    ${namingRows.length ? emailTable([t.branch, t.repository, t.creator, t.rule, t.reason], namingRows) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
-    ${emailTable([t.branch, t.repository, t.creator, t.state, t.naming, t.health, t.inactive, t.lastCommit], allRows)}`)
+    ${emailTable([t.branch, t.repository, t.creator, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], allRows)}`)
 
   return `<!DOCTYPE html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
@@ -351,6 +440,74 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
+}
+
+type CreatorEmailScenario = 'stale' | 'grace_expired' | 'idle' | 'naming'
+
+function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: CreatorEmailScenario): string {
+  const zh = lang === 'zh'
+  const headers = zh
+    ? ['分支', '提交作者', '最近提交', '未提交天数', scenario === 'naming' ? '不符合原因' : '说明']
+    : ['Branch', 'Author', 'Last commit', 'Inactive days', scenario === 'naming' ? 'Reason' : 'Note']
+  const tableRows = rows.map((row) => [
+    `<code>${escapeHtml(row.branch)}</code>`,
+    escapeHtml(row.creator || '-'),
+    escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
+    String(row.inactiveDays),
+    scenario === 'naming'
+      ? escapeHtml(row.namingReason || '-')
+      : row.whitelisted
+        ? (zh ? '白名单分支，仅提醒不删除' : 'Whitelisted; reminder only')
+        : (zh ? '保护 / 默认分支' : 'Protected / default branch')
+  ])
+  return emailTable(headers, tableRows)
+}
+
+function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScenario, lang: EmailLang, thresholdHint?: string): { subject: string; html: string } {
+  const zh = lang === 'zh'
+  const count = rows.length
+  const gitCommands = `<pre style="background:#f1f5f9;padding:8px;border-radius:6px;font-size:12px">git branch -m &lt;old&gt; &lt;new&gt;\ngit push -u origin &lt;new&gt;\ngit push origin --delete &lt;old&gt;</pre>`
+  const namingRules = zh
+    ? '<p>规范：feature|bugfix|hotfix|release|chore|docs/xxx，或 main / develop。分支描述建议使用小写字母、数字、短横线，不能包含空格。</p>'
+    : '<p>Naming convention: feature|bugfix|hotfix|release|chore|docs/xxx, or main / develop.</p>'
+
+  if (scenario === 'naming') {
+    const subject = zh
+      ? `【BranchPulse】${count} 个分支命名不符合规范，请修改`
+      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} need renaming`
+    const body = zh
+      ? `<p>以下 ${count} 个分支命名不符合规范，请按规范重命名后重新推送：</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
+      : `<p>The following ${count} branch${count === 1 ? '' : 'es'} do not follow the naming rules:</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
+    return { subject, html: htmlEmailShell(subject, body, lang) }
+  }
+
+  if (scenario === 'grace_expired') {
+    const subject = zh
+      ? `【BranchPulse】${count} 个分支宽限期已过，请尽快处理`
+      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} past the grace period`
+    const body = zh
+      ? `<p>以下 ${count} 个分支宽限期已过。如需保留，请尽快 push 新提交或回复保留说明；如无需保留，请及时清理。</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
+      : `<p>The following ${count} branch${count === 1 ? '' : 'es'} ${count === 1 ? 'has' : 'have'} passed the grace period. Push a new commit if it should be retained.</p>${scenarioRowsTable(rows, lang, scenario)}`
+    return { subject, html: htmlEmailShell(subject, body, lang) }
+  }
+
+  if (scenario === 'idle') {
+    const subject = zh
+      ? `【BranchPulse】${count} 个分支长时间无提交，请确认去留`
+      : `BranchPulse: Confirm ${count} inactive branch${count === 1 ? '' : 'es'}`
+    const body = zh
+      ? `<p>以下 ${count} 个分支长时间没有 commit 记录：</p><ul><li>如还需要保留：请回复说明保留理由，并尽快 push 一次新提交或归档。</li><li>如无需保留：请删除该分支，避免被自动回收。</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
+      : `<p>The following ${count} branch${count === 1 ? '' : 'es'} have been inactive for a long time:</p><ul><li>To retain: reply with the reason and push a new commit.</li><li>To retire: delete the branch.</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
+    return { subject, html: htmlEmailShell(subject, body, lang) }
+  }
+
+  const subject = zh
+    ? `【BranchPulse】${count} 个分支已停更，请及时处理`
+    : `BranchPulse: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
+  const body = zh
+    ? `<p>以下 ${count} 个分支已进入已停更状态。为避免进入清理候选，请合并、归档或继续提交：</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
+    : `<p>The following ${count} stale branch${count === 1 ? '' : 'es'} need attention. Merge, archive, or push a new commit:</p>${scenarioRowsTable(rows, lang, scenario)}`
+  return { subject, html: htmlEmailShell(subject, body, lang) }
 }
 
 function validRecipients(recipients: string[]): string[] {
@@ -641,7 +798,11 @@ export class EmailService {
     }
   }
 
-  async sendCreatorEmails(rows: EmailIssueRow[], config?: EmailConfig): Promise<EmailSendResult> {
+  async sendCreatorEmails(
+    rows: EmailIssueRow[],
+    config?: EmailConfig,
+    options?: { thresholdHint?: string }
+  ): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
     const lang = readEmailLang(this.storage)
     if (!cfg.enabled) return { ok: false, message: lang === 'zh' ? '邮件发送未启用。' : 'Email sending is disabled.', emailsSent: 0 }
@@ -662,46 +823,29 @@ export class EmailService {
       const to = String(first.creatorEmail || first.creator || '').trim()
       if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
         skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
-        void key
         continue
       }
-      const sortedRows = [...branchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
-      const issueRows = sortedRows.map((row) => [
-        `<code>${escapeHtml(row.branch)}</code>`,
-        escapeHtml(row.repository),
-        String(row.inactiveDays),
-        escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
-        stateLabel(row.state, lang) + (row.cleanupCandidate ? (lang === 'zh' ? ' · 清理候选' : ' · cleanup') : ''),
-        namingLabel(row.namingStatus, lang)
-      ])
-      const issueTable = emailTable(
-        lang === 'zh'
-          ? ['分支', '仓库', '未提交天数', '最新提交', '状态', '命名']
-          : ['Branch', 'Repository', 'Inactive days', 'Last commit', 'State', 'Naming'],
-        issueRows
-      )
-      const body = lang === 'zh'
-        ? `<p>以下 ${branchRows.length} 个分支需要处理，请归档或继续提交：</p>${issueTable}`
-        : `<p>The following ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention. Please merge, archive, or push a new commit:</p>${issueTable}`
-      try {
-        await this.sendWithOutlook({
-          to: [to],
-          subject: lang === 'zh'
-            ? `【分支治理】${branchRows.length} 个分支需要处理`
-            : `BranchPulse: ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention`,
-          body,
-          html: body,
-          lang
-        })
-        recipients.push(to)
-        sent += 1
-      } catch (err) {
-        failed += 1
-        const message = err instanceof Error ? err.message : String(err)
-        failures.push(`${to}: ${message}`)
-        logger.warn(`creator email send failed: ${to} ${message}`)
+      const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
+        ['stale', branchRows.filter((row) => row.state === 'grace_period')],
+        ['grace_expired', branchRows.filter((row) => row.state === 'grace_expired')],
+        ['idle', branchRows.filter((row) => row.state === 'stale')],
+        ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
+      ]
+      for (const [scenario, scenarioBranchRows] of scenarios) {
+        if (scenarioBranchRows.length === 0) continue
+        const sortedRows = [...scenarioBranchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
+        const email = creatorScenarioEmail(sortedRows, scenario, lang, options?.thresholdHint)
+        try {
+          await this.sendWithOutlook({ to: [to], subject: email.subject, body: '', html: email.html, lang })
+          recipients.push(to)
+          sent += 1
+        } catch (err) {
+          failed += 1
+          const message = err instanceof Error ? err.message : String(err)
+          failures.push(`${to}: ${message}`)
+          logger.warn(`creator email send failed: ${to} ${message}`)
+        }
       }
-      void key
     }
     const details = failures.slice(0, 3).join('; ')
     if (failed > 0) {

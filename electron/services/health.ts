@@ -52,7 +52,7 @@ export class HealthService {
         input.state === 'active'
           ? '未超过未提交阈值'
           : input.state === 'grace_period'
-            ? `已停更，处于 ${input.gracePeriodDays} 天宽限期`
+            ? `已停更，进入宽限期内（未提交阈值后 ${input.gracePeriodDays} 天）`
             : input.state === 'grace_expired'
               ? '宽限期已过'
               : '分支已停更'

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, ShieldBan, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
@@ -18,14 +18,19 @@ export default function Repositories(): JSX.Element {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [gitlabUrl, setGitlabUrl] = useState(settings.gitlabUrl)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
+  const [gitlabApiKeyTouched, setGitlabApiKeyTouched] = useState(false)
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabProjects, setGitlabProjects] = useState<GitLabProject[]>([])
   const [gitlabMessage, setGitlabMessage] = useState<string | null>(null)
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
 
+  useEffect(() => {
+    if (!gitlabApiKeyTouched) setGitlabApiKey(settings.gitlabApiKey ?? '')
+  }, [gitlabApiKeyTouched, settings.gitlabApiKey])
+
   const gitlabConfig = (): GitLabConnectionConfig => ({
     url: gitlabUrl,
-    ...(gitlabApiKey ? { apiKey: gitlabApiKey } : {})
+    ...((gitlabApiKey || settings.gitlabApiKey) ? { apiKey: gitlabApiKey || settings.gitlabApiKey } : {})
   })
 
   const connect = async (): Promise<void> => {
@@ -35,7 +40,6 @@ export default function Repositories(): JSX.Element {
       await window.branchpulse.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
       const projects = await window.branchpulse.listGitLabProjects(gitlabConfig())
       setGitlabProjects(projects)
-      setGitlabApiKey('')
       setGitlabMessage(`已连接，发现 ${projects.length} 个仓库`)
       toast('已连接远程仓库', 'success')
       void refresh()
@@ -226,7 +230,10 @@ export default function Repositories(): JSX.Element {
                 className="input flex-1"
                 type={showGitlabApiKey ? 'text' : 'password'}
                 value={gitlabApiKey}
-                onChange={(e) => setGitlabApiKey(e.target.value)}
+                onChange={(e) => {
+                  setGitlabApiKey(e.target.value)
+                  setGitlabApiKeyTouched(true)
+                }}
                 placeholder={settings.hasGitlabApiKey ? tr('apiKeySaved') : tr('remoteApiKey')}
               />
               <button

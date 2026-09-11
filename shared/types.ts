@@ -251,6 +251,8 @@ export interface EmailSendResult {
   recipients?: string[]
 }
 
+export type ThresholdUnit = 'minutes' | 'hours' | 'days' | 'weeks'
+
 export interface ReportSummary {
   totalBranches: number
   validBranches: number

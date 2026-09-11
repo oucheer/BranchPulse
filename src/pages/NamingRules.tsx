@@ -106,8 +106,9 @@ export default function NamingRules(): JSX.Element {
         <div className="mb-3 rounded-md border border-line bg-surface/60 p-3 text-xs leading-relaxed text-muted">
           <div className="mb-1 text-sm font-semibold text-canvas-fg">命名规则说明</div>
           常用前缀是 <span className="font-mono">feature/、bugfix/、hotfix/、release/、chore/、docs/</span>。
-          分支名建议使用小写字母，不能包含空格或连续斜杠，也不能以斜杠结尾。
-          如果需要支持中文，请使用下方允许中文的 regex 模板。
+          基础规则要求：前缀后必须有具体描述；描述使用小写字母、数字、点、下划线或短横线；不能包含空格或连续斜杠；不能以 <span className="font-mono">/</span> 或 <span className="font-mono">-</span> 开头，也不能以 <span className="font-mono">/</span> 结尾。
+          <span className="font-mono">main</span> 和 <span className="font-mono">develop</span> 默认豁免。
+          基础前缀规则不支持中文；如需支持中文，必须使用下方允许中文的 regex / unicode 模板。
         </div>
         <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('validate')}</div>
         <div className="flex gap-2">

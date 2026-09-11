@@ -208,7 +208,7 @@ const dictionaries = {
     totalBranches: '分支总数',
     active: '活跃',
     stale: '已停更',
-    gracePeriod: '宽限期',
+    gracePeriod: '宽限期内',
     graceExpired: '宽限期已过',
     namingViolations: '命名不规范',
     cleanupCandidates: '清理候选',

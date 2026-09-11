@@ -7,7 +7,7 @@ import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import type { ReportScheduleFrequency } from '@shared/types'
 
-const formats = ['html', 'csv', 'json', 'pdf', 'png']
+const formats = ['html', 'csv']
 const frequencies: ReportScheduleFrequency[] = ['daily', 'weekly', 'monthly', 'once']
 
 const frequencyHint = (frequency: ReportScheduleFrequency): string =>

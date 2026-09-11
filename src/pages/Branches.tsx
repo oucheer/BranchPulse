@@ -581,6 +581,7 @@ export default function Branches(): JSX.Element {
           {search ? (
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
       ) : null}
+        </div>
         <div className="text-xs tabular-nums text-muted">
           {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
         </div>
@@ -643,7 +644,6 @@ export default function Branches(): JSX.Element {
           <ConfirmCheckbox label={tr('understand')} checked={batchConfirm} onChange={setBatchConfirm} />
         </div>
       </Modal>
-    </div>
       {/* Batch Actions Bar */}
       <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">
           <div className="flex flex-wrap items-center gap-2">

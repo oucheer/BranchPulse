@@ -138,7 +138,7 @@ function createTray(): void {
     {
       label: 'Generate Report',
       click: () => {
-        void services?.report.generateReport('on-demand', 'pdf')
+        void services?.report.generateReport('on-demand', 'html')
         showWindow()
       }
     },

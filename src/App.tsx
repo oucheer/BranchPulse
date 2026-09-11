@@ -133,9 +133,6 @@ export default function App(): JSX.Element {
             ) : null}
           </div>
         )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
-          <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
-        </div>
       </div>
     )
   }

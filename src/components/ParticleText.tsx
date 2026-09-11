@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface Particle {
   x: number
@@ -22,7 +22,6 @@ const ACCENTS = ['#f97316', '#fb923c', '#38bdf8', '#818cf8']
 export default function ParticleText({ text, duration = 3400, onComplete }: ParticleTextProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const completeRef = useRef(onComplete)
-  const [clearTextVisible, setClearTextVisible] = useState(false)
 
   useEffect(() => {
     completeRef.current = onComplete
@@ -152,7 +151,6 @@ export default function ParticleText({ text, duration = 3400, onComplete }: Part
       }
 
       context.globalAlpha = 1
-      if (!clearTextVisible && life >= 0.72) setClearTextVisible(true)
       if (life >= 1) {
         finish()
         return
@@ -181,12 +179,6 @@ export default function ParticleText({ text, duration = 3400, onComplete }: Part
   return (
     <div className="relative h-full w-full">
       <canvas ref={canvasRef} className="h-full w-full cursor-crosshair" aria-label={text} />
-      <div
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 grid place-items-center text-4xl font-extrabold text-canvas-fg transition-opacity duration-500 ${clearTextVisible ? 'opacity-100' : 'opacity-0'}`}
-      >
-        {text}
-      </div>
     </div>
   )
 }

@@ -39,6 +39,10 @@ export default function Settings(): JSX.Element {
   }, [settings])
 
   useEffect(() => {
+    setGitlabApiKey(settings.gitlabApiKey ?? '')
+  }, [settings.gitlabApiKey])
+
+  useEffect(() => {
     if (emailConfig) setEmailDraft(emailConfig)
   }, [emailConfig])
 
@@ -80,7 +84,6 @@ export default function Settings(): JSX.Element {
         ...(gitlabApiKey ? { gitlabApiKey } : {})
       })
       setDraft(saved)
-      setGitlabApiKey('')
       await window.branchpulse.listGitLabProjects({ url: saved.gitlabUrl })
       toast('远程仓库 API 已连接', 'success')
       void refresh()
