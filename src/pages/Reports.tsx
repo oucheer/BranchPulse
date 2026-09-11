@@ -12,7 +12,7 @@ const frequencies: ReportScheduleFrequency[] = ['daily', 'weekly', 'monthly', 'o
 
 const frequencyHint = (frequency: ReportScheduleFrequency): string =>
   frequency === 'daily'
-    ? '按天巡检和汇总，适合每天观察新增过期分支。'
+    ? '按天巡检和汇总，适合每天观察新增已停更分支。'
     : frequency === 'weekly'
       ? '按周聚合趋势，适合复盘一周清理效果。'
       : frequency === 'monthly'

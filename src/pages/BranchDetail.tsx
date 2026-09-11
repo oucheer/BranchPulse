@@ -143,7 +143,7 @@ export default function BranchDetail(): JSX.Element {
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-muted">停更阈值</span>
+              <span className="text-muted">未提交阈值</span>
               <span className="font-mono text-sm text-canvas-fg">{monitoring.staleThresholdDays} 天</span>
             </div>
             <div className="flex items-center justify-between">

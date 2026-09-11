@@ -120,7 +120,7 @@ export default function RecipientPicker({
             <UserRound size={13} className="text-secondary" />
             <div>
               <div className="text-sm text-canvas-fg">通知分支创始人</div>
-              <div className="text-xs text-muted">勾选后过期的分支将邮件通知对应创始人</div>
+              <div className="text-xs text-muted">勾选后已停更的分支将邮件通知对应创始人</div>
             </div>
           </div>
           <Toggle checked={creator} onChange={(next) => apply({ creator: next })} />

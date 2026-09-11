@@ -13,6 +13,14 @@ import { motion as motionToken, shadow } from '../design-system/tokens'
 import type { BranchSummary, DeleteAuthSession, BranchType } from '@shared/types'
 
 type DeleteTarget = { criteria: { repositoryId: string; name: string; type: BranchType; remote?: string }; session: DeleteAuthSession }
+type IssueFilter = '' | 'stale' | 'grace_period' | 'grace_expired' | 'invalid'
+
+function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): boolean {
+  if (issue === 'stale') return branch.stale
+  if (issue === 'grace_period') return branch.state === 'grace_period'
+  if (issue === 'grace_expired') return branch.state === 'grace_expired'
+  return branch.naming.status === 'invalid'
+}
 
 // ─── Branch type classification ─────────────────────────────────────────────
 
@@ -191,7 +199,7 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
           {[
             { label: zh ? '命名' : 'Naming', ok: b.naming.status === 'valid' || b.naming.status === 'excluded', text: b.naming.status === 'valid' ? (zh ? '合规' : 'Compliant') : b.naming.status === 'excluded' ? (zh ? '排除' : 'Excluded') : (zh ? '违规' : 'Violation') },
             { label: zh ? '保护' : 'Protection', ok: protected_, text: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') },
-            { label: zh ? '生命周期' : 'Lifecycle', ok: b.state === 'active', text: b.stale ? (zh ? `停更 ${b.inactiveDays} 天` : `Inactive ${b.inactiveDays}d`) : b.merged ? (zh ? '已合并' : 'Merged') : stateLabel(b.state, language) }
+            { label: zh ? '生命周期' : 'Lifecycle', ok: b.state === 'active', text: b.stale ? (zh ? `已停更 ${b.inactiveDays} 天` : `Inactive ${b.inactiveDays}d`) : b.merged ? (zh ? '已合并' : 'Merged') : stateLabel(b.state, language) }
           ].map((g) => (
             <div key={g.label} className="flex items-center justify-between rounded-md border border-line px-2.5 py-1.5 text-xs">
               <span className="text-muted">{g.label}</span>
@@ -298,8 +306,7 @@ export default function Branches(): JSX.Element {
 
   const [search, setSearch] = useState('')
   const [repoFilter, setRepoFilter] = useState('')
-  const [stateFilter, setStateFilter] = useState('')
-  const [issueFilter, setIssueFilter] = useState('')
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>('')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
@@ -321,13 +328,9 @@ export default function Branches(): JSX.Element {
       const q = search.toLowerCase()
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
-    if (stateFilter) list = list.filter((b) => b.state === stateFilter)
-    if (issueFilter === 'stale') list = list.filter((b) => b.stale)
-    else if (issueFilter === 'grace_expired') list = list.filter((b) => b.state === 'grace_expired')
-    else if (issueFilter === 'invalid') list = list.filter((b) => b.naming.status === 'invalid')
-    else if (issueFilter === 'merged') list = list.filter((b) => b.merged)
+    if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [branches, search, effectiveRepo, stateFilter, issueFilter])
+  }, [branches, search, effectiveRepo, issueFilter])
 
   const attention = useMemo(() =>
     filtered
@@ -367,6 +370,15 @@ export default function Branches(): JSX.Element {
   }
 
   const clearSelection = (): void => setSelectedIds(new Set())
+
+  const applyIssueSelection = (issue: Exclude<IssueFilter, ''>): void => {
+    setIssueFilter(issue)
+    setSelectedIds(() => new Set(
+      filtered
+        .filter((b) => !isProtected(b) && matchesIssue(issue, b))
+        .map(branchKey)
+    ))
+  }
 
   const notifyCreatorsBulk = async (pred: (b: BranchSummary) => boolean, label: string): Promise<void> => {
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
@@ -430,7 +442,8 @@ export default function Branches(): JSX.Element {
     setBatchBusy(false)
   }
 
-  const states = ['active', 'grace_period', 'grace_expired'] as const
+  const notifyStaleDisabled = issueFilter === 'invalid'
+  const notifyInvalidDisabled = issueFilter === 'stale' || issueFilter === 'grace_period' || issueFilter === 'grace_expired'
 
   const loadBranchDetails = async (branch: BranchSummary): Promise<void> => {
     setSelectedBranch(branch)
@@ -630,23 +643,15 @@ export default function Branches(): JSX.Element {
       </Modal>
     </div>
         <select
-          value={stateFilter}
-          onChange={(e) => setStateFilter(e.target.value)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '所有状态' : 'All states'}</option>
-          {states.map((s) => <option key={s} value={s}>{stateLabel(s, language)}</option>)}
-        </select>
-        <select
           value={issueFilter}
-          onChange={(e) => setIssueFilter(e.target.value)}
+          onChange={(e) => setIssueFilter(e.target.value as IssueFilter)}
           className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
         >
-          <option value="">{zh ? '所有问题' : 'All issues'}</option>
-          <option value="stale">{zh ? '过期分支' : 'Stale branches'}</option>
-          <option value="grace_expired">{zh ? '宽限到期' : 'Grace expired'}</option>
+          <option value="">{zh ? '所有分支' : 'All branches'}</option>
+          <option value="stale">{zh ? '已停更' : 'Stale'}</option>
+          <option value="grace_period">{zh ? '宽限期内' : 'In grace period'}</option>
+          <option value="grace_expired">{zh ? '宽限期已过' : 'Grace expired'}</option>
           <option value="invalid">{zh ? '命名不规范' : 'Invalid names'}</option>
-          <option value="merged">{zh ? '已合并' : 'Merged'}</option>
         </select>
         <div className="text-xs tabular-nums text-muted">
           {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
@@ -672,15 +677,15 @@ export default function Branches(): JSX.Element {
             </button>
             <button
               className="btn text-xs"
-              disabled={batchBusy || !emailConfig?.enabled}
-              onClick={() => void notifyCreatorsBulk((b) => b.stale, '过期')}
-              title={zh ? '通知选中的过期分支创始人' : 'Notify stale branch creators'}
+              disabled={batchBusy || !emailConfig?.enabled || notifyStaleDisabled}
+              onClick={() => void notifyCreatorsBulk((b) => b.stale, '已停更')}
+              title={zh ? '通知选中的已停更分支创始人' : 'Notify stale branch creators'}
             >
-              <Bell size={12} /> {zh ? '通知过期分支创始人' : 'Notify stale creators'}
+              <Bell size={12} /> {zh ? '通知已停更分支创始人' : 'Notify stale creators'}
             </button>
             <button
               className="btn text-xs"
-              disabled={batchBusy || !emailConfig?.enabled}
+              disabled={batchBusy || !emailConfig?.enabled || notifyInvalidDisabled}
               onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
               title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
             >
@@ -705,9 +710,10 @@ export default function Branches(): JSX.Element {
             <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
               <span className="tabular-nums text-muted">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
               <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.stale)}>{zh ? '过期分支' : 'Stale'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => selectByFilter((b) => b.state === 'grace_expired')}>{zh ? '宽限到期' : 'Expired'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => selectByFilter((b) => b.naming.status === 'invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => applyIssueSelection('stale')}>{zh ? '已停更' : 'Stale'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => applyIssueSelection('grace_period')}>{zh ? '宽限期内' : 'Grace period'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => applyIssueSelection('grace_expired')}>{zh ? '宽限期已过' : 'Grace expired'}</button>
+              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => applyIssueSelection('invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
               <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted transition-colors hover:border-line hover:text-canvas-fg" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
             </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
@@ -716,7 +722,7 @@ export default function Branches(): JSX.Element {
             <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
             <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '停更' : 'Idle'}</span>
+            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
             <div className="flex shrink-0 items-center gap-0.5"><span className="text-[10px]">{zh ? '操作' : 'Actions'}</span></div>
@@ -727,7 +733,7 @@ export default function Branches(): JSX.Element {
                 <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
                 <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
                 <button
-                  onClick={() => { setSearch(''); setStateFilter(''); setIssueFilter('') }}
+                  onClick={() => { setSearch(''); setIssueFilter('') }}
                   className="mt-3 text-xs font-medium text-primary hover:underline"
                 >
                   {zh ? '清除筛选' : 'Clear Filters'}
@@ -791,7 +797,7 @@ export default function Branches(): JSX.Element {
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                 <span className="shrink-0 text-xs tabular-nums text-muted">{b.inactiveDays}d</span>
                 <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>
-                  {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
+                    {b.naming.status === 'invalid' ? (zh ? '命名不规范' : 'Violation') : stateLabel(b.state, language)}
                 </span>
               </button>
             ))}

@@ -129,9 +129,9 @@ function formatDateTime(value: string | null | undefined, lang: EmailLang): stri
 const STATE_LABELS: Record<EmailLang, Record<string, string>> = {
   zh: {
     active: '活跃',
-    stale: '过期',
-    grace_period: '宽限期',
-    grace_expired: '宽限已过'
+    stale: '已停更',
+    grace_period: '宽限期内',
+    grace_expired: '宽限期已过'
   },
   en: {
     active: 'Active',
@@ -217,11 +217,11 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         stats: '关键指标',
         total: '总分支',
         active: '活跃',
-        stale: '过期',
-        gracePeriod: '宽限期',
-        graceExpired: '宽限已过',
+        stale: '已停更',
+        gracePeriod: '宽限期内',
+        graceExpired: '宽限期已过',
         merged: '已合并',
-        namingInvalid: '命名违规',
+        namingInvalid: '命名不规范',
         cleanup: '清理候选',
         attention: `需要处理的分支`,
         attentionEmpty: '没有需要处理的分支，状态健康。',
@@ -235,7 +235,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         rule: '违反规则',
         reason: '原因',
         namingTitle: '命名不规范的分支',
-        namingEmpty: '没有命名违规分支。',
+        namingEmpty: '没有命名不规范分支。',
         allTitle: '所有分支一览',
         health: '健康分',
         mergedLabel: '合并',

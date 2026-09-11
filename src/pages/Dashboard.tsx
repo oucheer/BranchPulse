@@ -281,7 +281,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
       const risk = clampScore(100 - branch.health.score)
       const categories = [
         branch.state === 'active' ? 'active' : null,
-        // 停更是大类，包含已到宽限期的分支。
+        // 已停更是大类，包含已进入宽限期的分支。
         branch.stale ? 'stale' : null,
         branch.state === 'grace_expired' ? 'expired' : null,
         branch.naming.status === 'invalid' ? 'naming' : null
@@ -303,7 +303,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   const positionFor = (point: typeof riskPoints[number], duplicateIndex = 0) => {
     const baseLeft = 4 + (point.inactiveDays / maxInactiveDays) * 92
     const baseBottom = 4 + (point.risk / 100) * 92
-    // 完全相同的健康分和停更天数会互相遮住；用固定网格偏移保证每个分支点都可见。
+    // 完全相同的健康分和未提交天数会互相遮住；用固定网格偏移保证每个分支点都可见。
     const duplicateOffsets = [
       [0, 0], [1, 0], [-1, 0],
       [0, 1], [1, 1], [-1, 1],
@@ -329,9 +329,9 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
     { label: zh ? '最差' : 'Worst', value: hasBranches ? snapshot.worst : '--', tone: hasBranches ? healthColor(snapshot.worst) : 'rgb(var(--muted))', key: 'worst' },
     { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))', key: 'total' },
     { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))', key: 'active' },
-    { label: zh ? '停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))', key: 'stale' },
-    { label: zh ? '到期' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))', key: 'expired' },
-    { label: zh ? '命名违规' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' }
+    { label: zh ? '已停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))', key: 'stale' },
+    { label: zh ? '宽限期已过' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))', key: 'expired' },
+    { label: zh ? '命名不规范' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' }
   ]
   return (
     <Card className="flex h-full flex-col p-3.5">
@@ -462,19 +462,22 @@ export default function Dashboard(): JSX.Element {
   const protectedCount = count((b) => b.protection.protected)
   const expiredCount = count((b) => b.state === 'grace_expired')
   const graceCount = count((b) => b.state === 'grace_period')
+  const hasBranches = visibleBranches.length > 0
+  const healthDisplayColor = hasBranches ? healthColor(avgHealth) : 'rgb(var(--muted))'
+  const healthDisplayLabel = hasBranches ? healthLabel(avgHealth, language) : (zh ? '暂无分支' : 'No branches')
 
   const statusDistribution = [
     { label: zh ? '活跃' : 'Active', value: activeCount, color: 'rgb(var(--ok))' },
     { label: zh ? '宽限' : 'Grace', value: graceCount, color: 'rgb(var(--warn))' },
-    { label: zh ? '到期' : 'Expired', value: expiredCount, color: 'rgb(var(--danger))' },
+    { label: zh ? '宽限期已过' : 'Expired', value: expiredCount, color: 'rgb(var(--danger))' },
     { label: zh ? '合并' : 'Merged', value: mergedCount, color: 'rgb(var(--secondary))' }
   ].filter((x) => x.value > 0)
 
   const alerts = useMemo(() => {
     const list: { severity: 'warn' | 'danger' | 'info'; title: string; desc: string; to: string }[] = []
-    if (violations > 0) list.push({ severity: 'danger', title: `${violations} ${zh ? '命名违规' : 'Naming Violations'}`, desc: zh ? '分支命名不符合规则' : 'Branches fail naming rules', to: '/naming-rules' })
+    if (violations > 0) list.push({ severity: 'danger', title: `${violations} ${zh ? '命名不规范' : 'Naming Violations'}`, desc: zh ? '分支命名不符合规则' : 'Branches fail naming rules', to: '/naming-rules' })
     if (staleCount > 0) list.push({ severity: 'warn', title: `${staleCount} ${zh ? '已停更分支' : 'Stale Branches'}`, desc: zh ? '超过阈值未更新' : 'Beyond stale threshold', to: '/branches' })
-    if (expiredCount > 0) list.push({ severity: 'danger', title: `${expiredCount} ${zh ? '宽限到期' : 'Grace Expired'}`, desc: zh ? '需要处理' : 'Requires action', to: '/branches' })
+    if (expiredCount > 0) list.push({ severity: 'danger', title: `${expiredCount} ${zh ? '宽限期已过' : 'Grace Expired'}`, desc: zh ? '需要处理' : 'Requires action', to: '/branches' })
     if (!lastRun) list.push({ severity: 'info', title: zh ? '仓库未巡检' : 'Repository Not Scanned', desc: zh ? '运行第一次巡检' : 'Run first inspection', to: '/monitoring' })
     return list
   }, [violations, staleCount, expiredCount, lastRun, zh])
@@ -548,7 +551,7 @@ export default function Dashboard(): JSX.Element {
               <motion.circle
                 cx="42" cy="42" r="36"
                 fill="none"
-                stroke={healthColor(avgHealth)}
+                stroke={healthDisplayColor}
                 strokeWidth="7"
                 strokeLinecap="round"
                 strokeDasharray={2 * Math.PI * 36}
@@ -558,15 +561,15 @@ export default function Dashboard(): JSX.Element {
               />
             </svg>
             <div className="absolute text-center">
-              <div className="text-2xl font-bold tabular-nums" style={{ color: healthColor(avgHealth) }}>
-                <CountUp value={avgHealth} />
+              <div className="text-2xl font-bold tabular-nums" style={{ color: healthDisplayColor }}>
+                {hasBranches ? <CountUp value={avgHealth} /> : '--'}
               </div>
               <div className="text-[9px] text-muted opacity-70">/100</div>
             </div>
           </div>
           <div className="min-w-0">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted">{zh ? '整体健康度' : 'Overall Health'}</div>
-            <div className="mt-0.5 text-lg font-semibold" style={{ color: healthColor(avgHealth) }}>{healthLabel(avgHealth, language)}</div>
+            <div className="mt-0.5 text-lg font-semibold" style={{ color: healthDisplayColor }}>{healthDisplayLabel}</div>
             <div className="mt-0.5 text-[10px] text-muted">{zh ? '基于分支健康评分平均值' : 'Average of branch health scores'}</div>
           </div>
         </motion.div>
@@ -739,7 +742,7 @@ export default function Dashboard(): JSX.Element {
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                   <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
                   <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.state === 'grace_expired' ? 'text-danger' : 'text-warn'}`}>
-                    {b.naming.status === 'invalid' ? (zh ? '命名违规' : 'Violation') : stateLabel(b.state, language)}
+                    {b.naming.status === 'invalid' ? (zh ? '命名不规范' : 'Violation') : stateLabel(b.state, language)}
                   </span>
                 </button>
               ))}

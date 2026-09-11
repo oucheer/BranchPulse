@@ -23,7 +23,7 @@ function clamp(value: number, min: number, max: number): number {
 
 export class HealthService {
   compute(input: HealthInput): HealthResult {
-    // 基准分支本身是评分参照物，保持满分且不参与停更、合并等生命周期扣分。
+    // 基准分支本身是评分参照物，保持满分且不参与已停更、合并等生命周期扣分。
     const isBaselineBranch = input.isDefault || input.branchName === input.baseBranch || /^(main|develop)$/i.test(input.branchName)
     if (isBaselineBranch) {
       const factors: HealthFactor[] = [
@@ -45,12 +45,12 @@ export class HealthService {
 
     const staleScore = input.state === 'active' ? 25 : input.state === 'stale' ? 8 : input.state === 'grace_period' ? 12 : 0
     factors.push({
-      label: '停更风险',
+      label: '已停更风险',
       score: staleScore,
       weight: 25,
       detail:
         input.state === 'active'
-          ? '未超过停更阈值'
+          ? '未超过未提交阈值'
           : input.state === 'grace_period'
             ? `已停更，处于 ${input.gracePeriodDays} 天提醒宽限期`
             : input.state === 'grace_expired'

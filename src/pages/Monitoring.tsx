@@ -7,6 +7,13 @@ import type { MonitoringConfig, NotifyTarget } from '@shared/types'
 
 type ThresholdUnit = MonitoringConfig['staleThresholdUnit']
 
+const maxByUnit: Record<ThresholdUnit, number> = {
+  weeks: 52,
+  days: 365,
+  hours: 8760,
+  minutes: 525600
+}
+
 export default function Monitoring(): JSX.Element {
   const monitoring = useAppStore((s) => s.monitoring)
   const toast = useAppStore((s) => s.toast)
@@ -107,7 +114,7 @@ export default function Monitoring(): JSX.Element {
                 <input
                   type="number"
                   min={1}
-                  max={draft.staleThresholdUnit === 'minutes' ? 525600 : draft.staleThresholdUnit === 'hours' ? 8760 : 365}
+                  max={maxByUnit[draft.staleThresholdUnit]}
                   className="input"
                   value={draft.staleThresholdDays}
                   onChange={(e) => setDraft({ ...draft, staleThresholdDays: Math.max(1, Number(e.target.value) || 1) })}
@@ -120,9 +127,10 @@ export default function Monitoring(): JSX.Element {
                   value={draft.staleThresholdUnit}
                   onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as ThresholdUnit })}
                 >
-                  <option value="minutes">分钟</option>
+                  <option value="weeks">周</option>
                   <option value="days">天</option>
                   <option value="hours">小时</option>
+                  <option value="minutes">分钟</option>
                 </select>
               </div>
             </div>
@@ -132,7 +140,7 @@ export default function Monitoring(): JSX.Element {
                 <input
                   type="number"
                   min={0}
-                  max={draft.gracePeriodUnit === 'minutes' ? 525600 : draft.gracePeriodUnit === 'hours' ? 8760 : 365}
+                  max={maxByUnit[draft.gracePeriodUnit]}
                   className="input"
                   value={draft.gracePeriodDays}
                   onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
@@ -145,9 +153,10 @@ export default function Monitoring(): JSX.Element {
                   value={draft.gracePeriodUnit}
                   onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as ThresholdUnit })}
                 >
-                  <option value="minutes">分钟</option>
+                  <option value="weeks">周</option>
                   <option value="days">天</option>
                   <option value="hours">小时</option>
+                  <option value="minutes">分钟</option>
                 </select>
               </div>
             </div>
@@ -215,7 +224,7 @@ export default function Monitoring(): JSX.Element {
                 <div key={run.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
                   <div>
                     <div className="text-canvas-fg">{new Date(run.startedAt).toLocaleString()}</div>
-                    <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个已停更 · {run.namingInvalid} 个命名异常</div>
+                    <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个已停更 · {run.namingInvalid} 个命名不规范</div>
                   </div>
                   <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>
                     {run.status === 'completed' ? '已完成' : run.status === 'failed' ? '失败' : '进行中'}

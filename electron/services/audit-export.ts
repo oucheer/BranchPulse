@@ -44,14 +44,14 @@ const detailLabels: Record<string, string> = {
   repository: '仓库', repositoryName: '仓库名称', repositoryId: '仓库 ID', url: '仓库地址', path: '本地路径',
   branch: '分支', name: '名称', pattern: '匹配模式', type: '类型', mode: '模式',
   reason: '原因', error: '错误', technical: '技术细节', result: '结果', targetType: '目标类型',
-  trigger: '触发方式', branches: '分支总数', stale: '停更分支', graceExpired: '到期分支',
-  namingInvalid: '命名违规', merged: '已合并', deleted: '已删除', notifications: '通知数',
+  trigger: '触发方式', branches: '分支总数', stale: '已停更分支', graceExpired: '宽限期已过分支',
+  namingInvalid: '命名不规范', merged: '已合并', deleted: '已删除', notifications: '通知数',
   emailsSent: '已发送邮件', to: '收件人', recipients: '收件人', count: '数量',
   failed: '失败数', errors: '错误列表', id: 'ID', priority: '优先级', enabled: '启用',
   description: '描述', frequency: '频率', format: '格式', period: '报告周期',
   transport: '发送通道', schedule: '计划', run: '巡检记录', report: '报告', sent: '已发送',
-  skipped: '已跳过', autoDelete: '自动删除', staleThresholdDays: '停更阈值(天)',
-  gracePeriodDays: '宽限期(天)', staleThresholdUnit: '停更阈值单位', gracePeriodUnit: '宽限期单位'
+  skipped: '已跳过', autoDelete: '自动删除', staleThresholdDays: '未提交阈值数值',
+  gracePeriodDays: '宽限期数值', staleThresholdUnit: '未提交阈值单位', gracePeriodUnit: '宽限期单位'
 }
 
 function formatDetailValue(value: unknown): string {

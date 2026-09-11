@@ -166,7 +166,7 @@ export class GitLabService {
       logger.error(`Remote repository connection failed: ${message}`, technical)
       let userMessage = '无法连接远程仓库。请检查地址、token 和网络访问。'
       if (/required/i.test(message)) userMessage = message
-      else if (/401|Unauthorized/i.test(message)) userMessage = 'API token 无效或已过期。'
+      else if (/401|Unauthorized/i.test(message)) userMessage = 'API token 无效或认证已失效。'
       else if (/403|Forbidden/i.test(message)) userMessage = 'API token 没有访问权限。'
       else if (/404|Not Found/i.test(message)) userMessage = '远程仓库地址不正确，或该服务不支持当前 API。'
       else if (/getaddrinfo|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(message)) userMessage = '远程仓库地址无法访问。请检查域名、端口和网络。'

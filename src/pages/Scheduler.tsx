@@ -154,7 +154,7 @@ export default function Scheduler(): JSX.Element {
                 <th className="px-4 py-3 font-medium">状态</th>
                 <th className="px-4 py-3 font-medium">分支数</th>
                 <th className="px-4 py-3 font-medium">已停更</th>
-                <th className="px-4 py-3 font-medium">命名异常</th>
+                <th className="px-4 py-3 font-medium">命名不规范</th>
                 <th className="px-4 py-3 font-medium">通知</th>
               </tr>
             </thead>

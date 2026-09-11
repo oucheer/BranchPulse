@@ -171,7 +171,7 @@ export default function Repositories(): JSX.Element {
                     </div>
                     <div>
                       <div className="font-semibold text-canvas-fg">{repoBranches.filter((b) => b.stale).length}</div>
-                      过期
+                      已停更
                     </div>
                     <div>
                       <div className="font-semibold text-canvas-fg">{timeAgo(repo.lastScanAt)}</div>

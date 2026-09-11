@@ -256,10 +256,10 @@ export class ReportService {
     const cardData = [
       ['分支总数', summary.totalBranches],
       ['活跃分支', summary.active],
-      ['陈旧分支', summary.stale],
+      ['已停更分支', summary.stale],
       ['宽限期内', summary.gracePeriod],
-      ['宽限到期', summary.graceExpired],
-      ['命名违规', summary.namingViolations],
+      ['宽限期已过', summary.graceExpired],
+      ['命名不规范', summary.namingViolations],
       ['清理候选', summary.cleanupCandidates]
     ]
       .map(([label, value]) => ({ label: String(label), value: String(value) }))
@@ -283,8 +283,8 @@ export class ReportService {
       { label: '活跃', value: summary.active, color: '#16a34a' },
       { label: '未提交超阈值', value: summary.stale, color: '#f59e0b' },
       { label: '宽限期内', value: summary.gracePeriod, color: '#f97316' },
-      { label: '宽限到期', value: summary.graceExpired, color: '#dc2626' },
-      { label: '命名违规', value: summary.namingViolations, color: '#7c5cfc' },
+      { label: '宽限期已过', value: summary.graceExpired, color: '#dc2626' },
+      { label: '命名不规范', value: summary.namingViolations, color: '#7c5cfc' },
       { label: '清理候选', value: summary.cleanupCandidates, color: '#e11d48' }
     ]
     const maxChartValue = Math.max(1, ...chartItems.map((item) => item.value))
@@ -376,7 +376,7 @@ export class ReportService {
   <section class="hero"><div class="hero-content">
     <div class="eyebrow">BranchPulse Report</div>
     <h1>分支生命周期<br/>健康与巡检报告</h1>
-    <div class="sub">报告基于远程仓库平台实时巡检数据生成，聚焦分支陈旧趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
+    <div class="sub">报告基于远程仓库平台实时巡检数据生成，聚焦已停更分支趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
     <div class="meta"><span class="pill">${escapeHtml(title)}</span><span class="pill">生成时间：${escapeHtml(new Date(generatedAt).toLocaleString('zh-CN'))}</span><span class="pill">统计范围：${escapeHtml(period)}</span></div>
   </div></section>
   <main class="layout">
@@ -393,7 +393,7 @@ export class ReportService {
         <polyline points="${trendPoints}" fill="none" stroke="#ff7a18" stroke-width="3" stroke-linecap="round"></polyline>
       </svg></div>
       <div class="section"><h2>超过阈值 / 需要处理</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>未提交</th><th>最近提交</th><th>状态</th><th>清理候选</th></tr></thead><tbody>${riskRows}</tbody></table></div>
-      <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>陈旧</th><th>命名异常</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
+    <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>已停更</th><th>命名不规范</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
       <div class="section"><h2>全部分支明细</h2><table><thead><tr><th>仓库</th><th>分支</th><th>创建人</th><th>提交数</th><th>未提交</th><th>状态</th><th>命名</th><th>健康分</th><th>保护状态</th></tr></thead><tbody>${detailRows}</tbody></table></div>
       <div class="section"><h2>通知投递记录</h2><table><thead><tr><th>分支</th><th>类型</th><th>状态</th><th>内容</th></tr></thead><tbody>${notificationRows}</tbody></table></div>
     </section>
