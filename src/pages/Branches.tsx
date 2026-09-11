@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch, GitMerge,
+  AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch,
   Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, Trash2, X, XCircle
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
@@ -87,7 +87,6 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: sc }} />
       <span className="min-w-0 flex-1 truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
       {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
-      {b.merged ? <GitMerge size={11} className="shrink-0 text-secondary" /> : null}
       <span className="shrink-0 text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
       <span className="shrink-0 tabular-nums text-muted">{b.inactiveDays}d</span>
       <span
@@ -166,7 +165,6 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
     { label: zh ? '最近提交人' : 'Last author', value: b.lastAuthor || '—' },
     { label: zh ? '创建时间' : 'Created', value: b.createdAt ? formatDateTime(b.createdAt) : '—' },
     { label: zh ? '提交数' : 'Commits', value: String(b.commitCount) },
-    { label: zh ? '合并状态' : 'Merge', value: b.merged ? (zh ? `已合并 → ${b.mergedInto ?? ''}` : `Merged → ${b.mergedInto ?? ''}`) : (zh ? '未合并' : 'Not merged') },
     { label: zh ? '保护' : 'Protection', value: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') }
   ]
 
@@ -199,7 +197,7 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
           {[
             { label: zh ? '命名' : 'Naming', ok: b.naming.status === 'valid' || b.naming.status === 'excluded', text: b.naming.status === 'valid' ? (zh ? '合规' : 'Compliant') : b.naming.status === 'excluded' ? (zh ? '排除' : 'Excluded') : (zh ? '违规' : 'Violation') },
             { label: zh ? '保护' : 'Protection', ok: protected_, text: protected_ ? (zh ? '受保护' : 'Protected') : (zh ? '未保护' : 'Unprotected') },
-            { label: zh ? '生命周期' : 'Lifecycle', ok: b.state === 'active', text: b.stale ? (zh ? `已停更 ${b.inactiveDays} 天` : `Inactive ${b.inactiveDays}d`) : b.merged ? (zh ? '已合并' : 'Merged') : stateLabel(b.state, language) }
+            { label: zh ? '生命周期' : 'Lifecycle', ok: b.state === 'active', text: b.stale ? (zh ? `已停更 ${b.inactiveDays} 天` : `Inactive ${b.inactiveDays}d`) : stateLabel(b.state, language) }
           ].map((g) => (
             <div key={g.label} className="flex items-center justify-between rounded-md border border-line px-2.5 py-1.5 text-xs">
               <span className="text-muted">{g.label}</span>
@@ -372,7 +370,7 @@ export default function Branches(): JSX.Element {
   const clearSelection = (): void => setSelectedIds(new Set())
 
   const applyIssueSelection = (issue: Exclude<IssueFilter, ''>): void => {
-    setIssueFilter(issue)
+    setIssueFilter(current => (current === issue ? '' : issue))
     setSelectedIds(() => new Set(
       filtered
         .filter((b) => !isProtected(b) && matchesIssue(issue, b))
@@ -583,6 +581,10 @@ export default function Branches(): JSX.Element {
           {search ? (
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
       ) : null}
+        <div className="text-xs tabular-nums text-muted">
+          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
+        </div>
+      </div>
 
       {/* Delete Modal */}
       <Modal
@@ -642,24 +644,8 @@ export default function Branches(): JSX.Element {
         </div>
       </Modal>
     </div>
-        <select
-          value={issueFilter}
-          onChange={(e) => setIssueFilter(e.target.value as IssueFilter)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '所有分支' : 'All branches'}</option>
-          <option value="stale">{zh ? '已停更' : 'Stale'}</option>
-          <option value="grace_period">{zh ? '宽限期内' : 'In grace period'}</option>
-          <option value="grace_expired">{zh ? '宽限期已过' : 'Grace expired'}</option>
-          <option value="invalid">{zh ? '命名不规范' : 'Invalid names'}</option>
-        </select>
-        <div className="text-xs tabular-nums text-muted">
-          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
-        </div>
-      </div>
-
       {/* Batch Actions Bar */}
-        <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">
+      <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className={selectedIds.size > 0 ? 'text-sm font-semibold text-danger' : 'text-sm font-semibold text-muted'}>
               {selectedIds.size > 0
@@ -700,7 +686,7 @@ export default function Branches(): JSX.Element {
               <Trash2 size={12} /> {zh ? '一键删除' : 'Delete selected'}
             </button>
           </div>
-        </Card>
+      </Card>
 
       {/* Workspace: Explorer + Details */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
@@ -710,10 +696,25 @@ export default function Branches(): JSX.Element {
             <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
               <span className="tabular-nums text-muted">{selectedIds.size} {zh ? '已选' : 'selected'}</span>
               <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => applyIssueSelection('stale')}>{zh ? '已停更' : 'Stale'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-warn transition-colors hover:border-warn/40 hover:bg-warn/5" onClick={() => applyIssueSelection('grace_period')}>{zh ? '宽限期内' : 'Grace period'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => applyIssueSelection('grace_expired')}>{zh ? '宽限期已过' : 'Grace expired'}</button>
-              <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-danger transition-colors hover:border-danger/40 hover:bg-danger/5" onClick={() => applyIssueSelection('invalid')}>{zh ? '命名不规范' : 'Invalid name'}</button>
+              <button
+                className={`no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs transition-colors ${issueFilter === '' ? 'bg-primary/10 text-primary hover:border-primary/40' : 'text-muted hover:border-primary/40 hover:text-primary'}`}
+                onClick={() => setIssueFilter('')}
+              >{zh ? '所有分支' : 'All branches'}</button>
+              {([
+                { value: 'stale', label: zh ? '已停更' : 'Stale', tone: 'text-warn' },
+                { value: 'grace_period', label: zh ? '宽限期内' : 'In grace period', tone: 'text-warn' },
+                { value: 'grace_expired', label: zh ? '宽限期已过' : 'Grace expired', tone: 'text-danger' },
+                { value: 'invalid', label: zh ? '命名不规范' : 'Invalid name', tone: 'text-danger' }
+              ] as const).map((item) => {
+                const active = issueFilter === item.value
+                return (
+                  <button
+                    key={item.value}
+                    className={`no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs transition-colors ${active ? `${item.tone} ${item.tone === 'text-warn' ? 'bg-warn/10' : 'bg-danger/10'}` : `${item.tone} hover:border-line hover:text-canvas-fg`}`}
+                    onClick={() => applyIssueSelection(item.value)}
+                  >{item.label}</button>
+                )
+              })}
               <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted transition-colors hover:border-line hover:text-canvas-fg" onClick={clearSelection}>{zh ? '清空' : 'Clear'}</button>
             </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>

@@ -458,7 +458,6 @@ export default function Dashboard(): JSX.Element {
   const compliance = visibleBranches.length ? Math.round(((validBranches + excludedBranches) / visibleBranches.length) * 100) : 0
   const staleCount = count((b) => b.stale)
   const activeCount = count((b) => b.state === 'active')
-  const mergedCount = count((b) => b.merged)
   const protectedCount = count((b) => b.protection.protected)
   const expiredCount = count((b) => b.state === 'grace_expired')
   const graceCount = count((b) => b.state === 'grace_period')
@@ -468,9 +467,8 @@ export default function Dashboard(): JSX.Element {
 
   const statusDistribution = [
     { label: zh ? '活跃' : 'Active', value: activeCount, color: 'rgb(var(--ok))' },
-    { label: zh ? '宽限' : 'Grace', value: graceCount, color: 'rgb(var(--warn))' },
+    { label: zh ? '宽限期内' : 'In grace period', value: graceCount, color: 'rgb(var(--warn))' },
     { label: zh ? '宽限期已过' : 'Expired', value: expiredCount, color: 'rgb(var(--danger))' },
-    { label: zh ? '合并' : 'Merged', value: mergedCount, color: 'rgb(var(--secondary))' }
   ].filter((x) => x.value > 0)
 
   const alerts = useMemo(() => {
@@ -606,7 +604,6 @@ export default function Dashboard(): JSX.Element {
           { label: tr('active'), value: activeCount, color: 'rgb(var(--ok))' },
           { label: tr('gracePeriod'), value: graceCount, color: 'rgb(var(--warn))' },
           { label: tr('graceExpired'), value: expiredCount, color: 'rgb(var(--danger))' },
-          { label: tr('merged'), value: mergedCount, color: 'rgb(var(--secondary))' },
           { label: tr('namingViolations'), value: violations, color: 'rgb(var(--danger))' },
           { label: tr('protectedBranches'), value: protectedCount, color: 'rgb(var(--info))' }
         ].map((s) => (

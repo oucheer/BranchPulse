@@ -45,7 +45,7 @@ const detailLabels: Record<string, string> = {
   branch: '分支', name: '名称', pattern: '匹配模式', type: '类型', mode: '模式',
   reason: '原因', error: '错误', technical: '技术细节', result: '结果', targetType: '目标类型',
   trigger: '触发方式', branches: '分支总数', stale: '已停更分支', graceExpired: '宽限期已过分支',
-  namingInvalid: '命名不规范', merged: '已合并', deleted: '已删除', notifications: '通知数',
+  namingInvalid: '命名不规范', deleted: '已删除', notifications: '通知数',
   emailsSent: '已发送邮件', to: '收件人', recipients: '收件人', count: '数量',
   failed: '失败数', errors: '错误列表', id: 'ID', priority: '优先级', enabled: '启用',
   description: '描述', frequency: '频率', format: '格式', period: '报告周期',

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CalendarDays, GitCommitHorizontal, GitMerge, ShieldCheck, Tag, Timer, User } from 'lucide-react'
+import { ArrowLeft, CalendarDays, GitCommitHorizontal, ShieldCheck, Tag, Timer, User } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Ring } from '../components/ui'
 import type { BranchCriteria, BranchSummary } from '@shared/types'
@@ -10,6 +10,7 @@ export default function BranchDetail(): JSX.Element {
   const { repositoryId = '', type = 'local', name = '' } = useParams()
   const branches = useAppStore((s) => s.branches)
   const monitoring = useAppStore((s) => s.monitoring)
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const decodedName = name.replaceAll('~', '/')
 
@@ -63,10 +64,9 @@ export default function BranchDetail(): JSX.Element {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="font-mono text-lg font-bold text-canvas-fg">{branch.displayName}</h1>
-            <Badge tone={stateTone(branch.state)}>{stateLabel(branch.state, 'en')}</Badge>
+            <Badge tone={stateTone(branch.state)}>{stateLabel(branch.state, language)}</Badge>
             <Badge tone={branch.type === 'local' ? 'secondary' : 'default'}>{branch.type}</Badge>
             {branch.isHead ? <Badge tone="primary">HEAD</Badge> : null}
-            {branch.merged ? <Badge tone="info">{tr('merged')}</Badge> : null}
           </div>
           <div className="mt-1 text-xs text-muted">{branch.repositoryName} · scanned {timeAgo(branch.lastScannedAt)}</div>
         </div>
@@ -113,12 +113,6 @@ export default function BranchDetail(): JSX.Element {
               <span className="text-muted">基准分支</span>
               <span className="font-mono text-xs text-canvas-fg">{branch.baseBranch}</span>
             </div>
-            {branch.mergedInto ? (
-              <div className="flex justify-between gap-3">
-                <span className="text-muted">{tr('merged')}到</span>
-                <span className="font-mono text-xs text-ok">{branch.mergedInto}</span>
-              </div>
-            ) : null}
           </div>
         </Card>
 
@@ -144,14 +138,14 @@ export default function BranchDetail(): JSX.Element {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-muted">未提交阈值</span>
-              <span className="font-mono text-sm text-canvas-fg">{monitoring.staleThresholdDays} 天</span>
+              <span className="font-mono text-sm text-canvas-fg">{durationLabel(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted">提醒宽限期</span>
-              <span className="font-mono text-sm text-canvas-fg">{branch.gracePeriodDays} 天</span>
+              <span className="font-mono text-sm text-canvas-fg">{durationLabel(branch.gracePeriodDays, monitoring.gracePeriodUnit)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">宽限期已结束</span>
+              <span className="text-muted">宽限期已过</span>
               <Badge tone={branch.graceExpired ? 'danger' : 'ok'}>{branch.graceExpired ? '是' : '否'}</Badge>
             </div>
             <div className="flex items-center justify-between">
@@ -229,7 +223,7 @@ export default function BranchDetail(): JSX.Element {
         </Card>
         <Card className="p-5 xl:col-span-2">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <GitMerge size={15} className="text-primary" /> {tr('recentCommits')}
+            <GitCommitHorizontal size={15} className="text-primary" /> {tr('recentCommits')}
           </div>
           <div className="space-y-1">
             {branch.recentCommits.length ? (
@@ -249,4 +243,11 @@ export default function BranchDetail(): JSX.Element {
       </div>
     </div>
   )
+}
+
+function durationLabel(value: number, unit: 'weeks' | 'days' | 'hours' | 'minutes'): string {
+  if (unit === 'weeks') return `${value} 周`
+  if (unit === 'hours') return `${value} 小时`
+  if (unit === 'minutes') return `${value} 分钟`
+  return `${value} 天`
 }

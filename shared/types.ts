@@ -524,6 +524,7 @@ export interface BranchApi {
   exportReport(id: string, format: string): Promise<ReportRecord>
   deleteReport(id: string): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
+  openReportFile(id: string): Promise<void>
   listReportSchedules(): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>

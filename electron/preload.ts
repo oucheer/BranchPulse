@@ -78,6 +78,7 @@ const api: BranchApi = {
   exportReport: (id: string, format: string) => ipcRenderer.invoke('branchpulse:exportReport', id, format),
   deleteReport: (id: string) => ipcRenderer.invoke('branchpulse:deleteReport', id),
   openReportFolder: () => ipcRenderer.invoke('branchpulse:openReportFolder'),
+  openReportFile: (id: string) => ipcRenderer.invoke('branchpulse:openReportFile', id),
 
   listReportSchedules: () => ipcRenderer.invoke('branchpulse:listReportSchedules'),
   saveReportSchedule: (schedule: Partial<ReportSchedule> & { id?: string }) =>

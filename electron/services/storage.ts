@@ -381,6 +381,9 @@ export class StorageService {
     this.ensureColumn('app_settings', 'color_theme', "TEXT NOT NULL DEFAULT 'default'")
     this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
+    this.ensureColumn('monitoring_rules_repo', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
+    this.ensureColumn('monitoring_rules_repo', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
+    this.ensureColumn('monitoring_rules_repo', 'notification_enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
     this.ensureColumn('branch_naming_rules', 'repository_id', 'TEXT')
@@ -391,6 +394,8 @@ export class StorageService {
     this.run(`DELETE FROM protected_branches WHERE rowid NOT IN (SELECT MIN(rowid) FROM protected_branches GROUP BY pattern)`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
     this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
+    this.run(`UPDATE monitoring_rules SET stale_threshold_days = 180, grace_period_days = 60 WHERE stale_threshold_days = 14 AND grace_period_days = 7`)
+    this.run(`UPDATE monitoring_rules_repo SET stale_threshold_days = 180, grace_period_days = 60 WHERE stale_threshold_days = 14 AND grace_period_days = 7`)
     this.run(`DELETE FROM whitelist WHERE pattern = 'whitelisted-feature' AND type = 'exact' AND note = 'Demo whitelisted branch'`)
     this.run(`DELETE FROM protected_branches WHERE pattern = 'hotfix/*' AND type = 'glob' AND note = 'Demo protected hotfix branches'`)
   }

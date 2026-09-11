@@ -120,11 +120,11 @@ export default function Sidebar(): JSX.Element {
         {effectsEnabled ? (
           <DepthText
             text="BranchPulse"
-            layers={12}
-            depth={0.9}
+            layers={8}
+            depth={0.6}
             faceColor="rgb(var(--fg))"
             depthColor="rgb(var(--secondary))"
-            tilt={6}
+            tilt={3}
             smoothing={0.16}
             perspective={700}
             autoOrbit

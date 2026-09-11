@@ -50,7 +50,7 @@ export default function Reports(): JSX.Element {
     setGenerating(true)
     try {
       const report = await window.branchpulse.generateReport('manual', format, activeRepositoryId)
-      toast(`报告已生成：${report.title}`, 'success')
+      toast(`报告已生成：${report.title} · ${report.path}`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -119,6 +119,14 @@ export default function Reports(): JSX.Element {
   const openFolder = async (): Promise<void> => {
     try {
       await window.branchpulse.openReportFolder()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  const openReportFile = async (id: string): Promise<void> => {
+    try {
+      await window.branchpulse.openReportFile(id)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
@@ -262,6 +270,9 @@ export default function Reports(): JSX.Element {
                 <div>{report.summary.cleanupCandidates} 个清理候选</div>
               </div>
               <div className="flex items-center gap-1">
+                <button className="btn px-2 text-[11px]" onClick={() => void openReportFile(report.id)}>
+                  <FolderOpen size={12} /> 打开
+                </button>
                 {formats.filter((f) => f !== report.format).map((f) => (
                   <button key={f} className="btn px-2 text-[11px]" onClick={() => void exportReport(report.id, f)}>
                     <Download size={12} /> {f.toUpperCase()}

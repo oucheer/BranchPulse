@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Mail, Play, Save, Scale, Timer } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
@@ -27,9 +27,10 @@ export default function Monitoring(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
-  const [sendEmail, setSendEmail] = useState(false)
+  const suppressDraftSync = useRef(false)
 
   useEffect(() => {
+    if (suppressDraftSync.current) return
     setDraft(monitoring)
   }, [monitoring])
 
@@ -61,11 +62,13 @@ export default function Monitoring(): JSX.Element {
 
   const runCheck = async (): Promise<void> => {
     setScanning(true)
+    suppressDraftSync.current = true
     try {
+      await window.branchpulse.saveMonitoring({ ...draft, autoDeleteEnabled: false }, activeRepositoryId)
       const run = await window.branchpulse.runCheckNow({
         bypassEnabledCheck: true,
-        notifyTarget: sendEmail ? draft.notifyTarget : 'none',
-        emailPolicy: sendEmail ? draft.emailPolicy : 'none',
+        notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
+        emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
         autoDelete: false,
         trigger: 'manual',
         ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {})
@@ -75,7 +78,11 @@ export default function Monitoring(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setScanning(false)
-      void refresh()
+      try {
+        await refresh()
+      } finally {
+        suppressDraftSync.current = false
+      }
     }
   }
 
@@ -106,7 +113,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入提醒宽限期，宽限期结束后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
             </div>
             <div className="grid grid-cols-[1fr_5.5rem] gap-2">
               <div>
@@ -191,15 +198,13 @@ export default function Monitoring(): JSX.Element {
               onChange={(value: NotifyTarget) => setDraft({ ...draft, notifyTarget: value })}
               groups={emailGroups}
               selfEmail={emailConfig?.selfEmail ?? ''}
-              disabled={emailDisabled}
+              disabled={emailDisabled || !draft.notificationEnabled}
               allowSelf
               allowCreator
             />
-            <label className={`flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-canvas-fg ${emailDisabled ? 'opacity-50' : ''}`}>
-              <input type="checkbox" className="no-specular" checked={sendEmail} disabled={emailDisabled} onChange={(e) => setSendEmail(e.target.checked)} />
-              {tr('sendEmailNotification')}
-            </label>
-            <p className="text-xs text-muted">{emailDisabled ? tr('checkOnlyNoEmail') : (sendEmail ? tr('notifyTarget') : tr('checkOnlyNoEmail'))}</p>
+            <p className="text-xs text-muted">
+              {emailDisabled || !draft.notificationEnabled ? tr('checkOnlyNoEmail') : tr('notifyTarget')}
+            </p>
             <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>

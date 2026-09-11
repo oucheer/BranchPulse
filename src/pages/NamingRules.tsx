@@ -14,6 +14,33 @@ const emptyRule = (repositoryId: string | null): Omit<NamingRule, 'id' | 'enable
   priority: 50
 })
 
+const namingTemplates = [
+  {
+    label: '功能分支（字母、数字、点、下划线、短横线）',
+    name: '功能分支',
+    pattern: '^feature\\/[a-z0-9._-]+$',
+    description: 'feature/ 后使用小写字母、数字、点、下划线或短横线'
+  },
+  {
+    label: '修复分支',
+    name: '修复分支',
+    pattern: '^(bugfix|hotfix)\\/[a-z0-9._-]+$',
+    description: 'bugfix/ 或 hotfix/ 后使用小写字母、数字、点、下划线或短横线'
+  },
+  {
+    label: '发布 / 维护分支',
+    name: '发布维护分支',
+    pattern: '^(release|chore|docs)\\/[a-z0-9._-]+$',
+    description: 'release、chore 或 docs 前缀后使用小写字母、数字、点、下划线或短横线'
+  },
+  {
+    label: '允许中文的功能分支',
+    name: '允许中文的功能分支',
+    pattern: '^feature\\/[\\p{Script=Han}a-z0-9._-]+$',
+    description: 'feature/ 后允许中文、小写字母、数字、点、下划线或短横线'
+  }
+]
+
 export default function NamingRules(): JSX.Element {
   const namingRules = useAppStore((s) => s.namingRules)
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
@@ -76,6 +103,12 @@ export default function NamingRules(): JSX.Element {
       </div>
 
       <Card className="p-4">
+        <div className="mb-3 rounded-md border border-line bg-surface/60 p-3 text-xs leading-relaxed text-muted">
+          <div className="mb-1 text-sm font-semibold text-canvas-fg">命名规则说明</div>
+          常用前缀是 <span className="font-mono">feature/、bugfix/、hotfix/、release/、chore/、docs/</span>。
+          分支名建议使用小写字母，不能包含空格或连续斜杠，也不能以斜杠结尾。
+          如果需要支持中文，请使用下方允许中文的 regex 模板。
+        </div>
         <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('validate')}</div>
         <div className="flex gap-2">
           <input
@@ -146,6 +179,20 @@ export default function NamingRules(): JSX.Element {
           </div>
           <div>
             <div className="label mb-1">{tr('pattern')}</div>
+            <select
+              className="input mb-2"
+              value=""
+              onChange={(e) => {
+                const template = namingTemplates.find((item) => item.label === e.target.value)
+                if (!template) return
+                setEditRule({ ...editRule, name: editRule?.name || template.name, pattern: template.pattern, description: template.description, type: 'regex', mode: 'allow' })
+              }}
+            >
+              <option value="">选择常用模板</option>
+              {namingTemplates.map((template) => (
+                <option key={template.pattern} value={template.label}>{template.label}</option>
+              ))}
+            </select>
             <input className="input font-mono" value={editRule?.pattern ?? ''} onChange={(e) => setEditRule({ ...editRule, pattern: e.target.value })} />
           </div>
           <div className="grid grid-cols-2 gap-3">

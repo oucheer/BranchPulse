@@ -23,7 +23,7 @@ function clamp(value: number, min: number, max: number): number {
 
 export class HealthService {
   compute(input: HealthInput): HealthResult {
-    // 基准分支本身是评分参照物，保持满分且不参与已停更、合并等生命周期扣分。
+    // 基准分支本身是评分参照物，保持满分且不参与生命周期扣分。
     const isBaselineBranch = input.isDefault || input.branchName === input.baseBranch || /^(main|develop)$/i.test(input.branchName)
     if (isBaselineBranch) {
       const factors: HealthFactor[] = [
@@ -52,9 +52,9 @@ export class HealthService {
         input.state === 'active'
           ? '未超过未提交阈值'
           : input.state === 'grace_period'
-            ? `已停更，处于 ${input.gracePeriodDays} 天提醒宽限期`
+            ? `已停更，处于 ${input.gracePeriodDays} 天宽限期`
             : input.state === 'grace_expired'
-              ? '提醒宽限期已结束'
+              ? '宽限期已过'
               : '分支已停更'
     })
 
@@ -74,10 +74,10 @@ export class HealthService {
 
     const mergeScore = input.merged ? 15 : 0
     factors.push({
-      label: '合并状态',
+      label: '基准一致性',
       score: mergeScore,
       weight: 15,
-      detail: input.merged ? '已合并到基准分支，无合并扣分' : '尚未合并到基准分支，扣分'
+      detail: input.merged ? '未落后基准分支' : '与基准分支存在差异，扣分'
     })
 
     let divergence = 10

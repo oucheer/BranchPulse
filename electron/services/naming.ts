@@ -39,7 +39,7 @@ export function globPatternToRegex(pattern: string): RegExp {
 export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', name: string): boolean {
   if (type === 'regex') {
     try {
-      return new RegExp(pattern).test(name)
+      return new RegExp(pattern, 'u').test(name)
     } catch {
       return false
     }

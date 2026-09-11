@@ -220,7 +220,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         stale: '已停更',
         gracePeriod: '宽限期内',
         graceExpired: '宽限期已过',
-        merged: '已合并',
         namingInvalid: '命名不规范',
         cleanup: '清理候选',
         attention: `需要处理的分支`,
@@ -238,7 +237,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         namingEmpty: '没有命名不规范分支。',
         allTitle: '所有分支一览',
         health: '健康分',
-        mergedLabel: '合并',
         yes: '是',
         no: '否'
       }
@@ -253,7 +251,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         stale: 'Stale',
         gracePeriod: 'Grace period',
         graceExpired: 'Grace expired',
-        merged: 'Merged',
         namingInvalid: 'Naming invalid',
         cleanup: 'Cleanup candidates',
         attention: 'Branches needing attention',
@@ -271,7 +268,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         namingEmpty: 'No naming violations.',
         allTitle: 'All branches overview',
         health: 'Health',
-        mergedLabel: 'Merged',
         yes: 'Yes',
         no: 'No'
       }
@@ -295,7 +291,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
       { value: data.stale, label: t.stale, color: '#b54708' },
       { value: data.gracePeriod, label: t.gracePeriod, color: '#2563eb' },
       { value: data.graceExpired, label: t.graceExpired, color: '#b42318' },
-      { value: data.merged, label: t.mergedLabel },
       { value: data.namingInvalid, label: t.namingInvalid, color: '#b42318' },
       { value: data.cleanupCandidates, label: t.cleanup }
     ])}`)
@@ -686,7 +681,7 @@ export class EmailService {
         issueRows
       )
       const body = lang === 'zh'
-        ? `<p>以下 ${branchRows.length} 个分支需要处理，请合并、归档或继续提交：</p>${issueTable}`
+        ? `<p>以下 ${branchRows.length} 个分支需要处理，请归档或继续提交：</p>${issueTable}`
         : `<p>The following ${branchRows.length} branch${branchRows.length > 1 ? 'es' : ''} need attention. Please merge, archive, or push a new commit:</p>${issueTable}`
       try {
         await this.sendWithOutlook({

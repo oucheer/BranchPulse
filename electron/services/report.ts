@@ -193,6 +193,15 @@ export class ReportService {
     await shell.openPath(dir)
   }
 
+  async openReportFile(id: string): Promise<void> {
+    const report = this.listReports().find((r) => r.id === id)
+    if (report?.path && fs.existsSync(report.path)) {
+      shell.showItemInFolder(report.path)
+      return
+    }
+    await shell.openPath(reportsDir())
+  }
+
   private async writeFile(
     format: string,
     filePath: string,
@@ -281,7 +290,7 @@ export class ReportService {
       .join('')
     const chartItems = [
       { label: '活跃', value: summary.active, color: '#16a34a' },
-      { label: '未提交超阈值', value: summary.stale, color: '#f59e0b' },
+      { label: '已停更', value: summary.stale, color: '#f59e0b' },
       { label: '宽限期内', value: summary.gracePeriod, color: '#f97316' },
       { label: '宽限期已过', value: summary.graceExpired, color: '#dc2626' },
       { label: '命名不规范', value: summary.namingViolations, color: '#7c5cfc' },
@@ -423,7 +432,6 @@ export class ReportService {
       ['Stale', summary.stale],
       ['Grace period', summary.gracePeriod],
       ['Grace expired', summary.graceExpired],
-      ['Merged', summary.merged],
       ['Naming violations', summary.namingViolations],
       ['Cleanup candidates', summary.cleanupCandidates]
     ]

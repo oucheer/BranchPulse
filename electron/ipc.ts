@@ -496,6 +496,7 @@ export function registerIpc(services: AppServices): void {
   ipcMain.handle('branchpulse:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
   ipcMain.handle('branchpulse:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
   ipcMain.handle('branchpulse:openReportFolder', (): Promise<void> => report.openReportFolder())
+  ipcMain.handle('branchpulse:openReportFile', (_e, id: string): Promise<void> => report.openReportFile(id))
 
   ipcMain.handle('branchpulse:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
   ipcMain.handle('branchpulse:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))

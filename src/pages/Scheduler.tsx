@@ -7,6 +7,27 @@ import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+type IntervalUnit = 'weeks' | 'days' | 'hours' | 'minutes'
+
+const intervalUnits: Array<{ value: IntervalUnit; label: string; minutes: number }> = [
+  { value: 'weeks', label: '周', minutes: 10080 },
+  { value: 'days', label: '天', minutes: 1440 },
+  { value: 'hours', label: '小时', minutes: 60 },
+  { value: 'minutes', label: '分钟', minutes: 1 }
+]
+
+function intervalUnit(minutes: number): IntervalUnit {
+  for (const unit of intervalUnits) {
+    if (minutes >= unit.minutes && minutes % unit.minutes === 0) return unit.value
+  }
+  return 'minutes'
+}
+
+function intervalLabel(minutes: number): string {
+  const unit = intervalUnits.find((item) => item.value === intervalUnit(minutes)) ?? intervalUnits[3]
+  return `每 ${Math.round(minutes / unit.minutes)} ${unit.label}`
+}
+
 function notifyLabel(target: string): string {
   if (target === 'both') return '通知自己和分支创始人'
   if (target === 'creator') return '通知分支创始人'
@@ -20,7 +41,7 @@ const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'creat
   name: '',
   kind: 'interval',
   enabled: true,
-  intervalMinutes: 1440,
+  intervalMinutes: 1,
   daysOfWeek: [1, 2, 3, 4, 5],
   time: '09:00',
   startDate: null,
@@ -121,7 +142,7 @@ export default function Scheduler(): JSX.Element {
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
                     {job.kind === 'interval' ? (
-                      <span>每 {job.intervalMinutes} 分钟</span>
+                      <span>{intervalLabel(job.intervalMinutes)}</span>
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
@@ -236,8 +257,34 @@ export default function Scheduler(): JSX.Element {
             </div>
             {editJob?.kind === 'interval' ? (
               <div>
-                <div className="label mb-1">{tr('intervalMinutes')}</div>
-                <input type="number" min={1} className="input" value={editJob?.intervalMinutes ?? 1440} onChange={(e) => setEditJob({ ...editJob, intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
+                <div className="label mb-1">执行间隔</div>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    className="input"
+                    value={Math.max(1, Math.round((editJob?.intervalMinutes ?? 1) / (intervalUnits.find((u) => u.value === intervalUnit(editJob?.intervalMinutes ?? 1))?.minutes ?? 1)))}
+                    onChange={(e) => {
+                      const unit = intervalUnits.find((u) => u.value === intervalUnit(editJob?.intervalMinutes ?? 1)) ?? intervalUnits[3]
+                      const value = Math.max(1, Number(e.target.value) || 1)
+                      setEditJob({ ...editJob, intervalMinutes: value * unit.minutes })
+                    }}
+                  />
+                  <select
+                    className="input w-28"
+                    value={intervalUnit(editJob?.intervalMinutes ?? 1)}
+                    onChange={(e) => {
+                      const unit = intervalUnits.find((u) => u.value === e.target.value) ?? intervalUnits[3]
+                      const current = intervalUnits.find((u) => u.value === intervalUnit(editJob?.intervalMinutes ?? 1)) ?? intervalUnits[3]
+                      const value = Math.max(1, Math.round((editJob?.intervalMinutes ?? 1) / current.minutes))
+                      setEditJob({ ...editJob, intervalMinutes: value * unit.minutes })
+                    }}
+                  >
+                    {intervalUnits.map((unit) => (
+                      <option key={unit.value} value={unit.value}>{unit.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             ) : null}
           </div>
