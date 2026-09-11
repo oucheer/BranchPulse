@@ -11,7 +11,7 @@ export class SettingsService {
       theme: (row?.theme as AppSettings['theme']) ?? 'dark',
       colorTheme: ((row?.color_theme as AppSettings['colorTheme']) ?? 'default'),
       backgroundTheme: ((row?.background_theme as AppSettings['backgroundTheme']) ?? 'dark'),
-      language: (row?.language as AppSettings['language']) ?? 'en',
+      language: (row?.language as AppSettings['language']) ?? 'zh',
       notificationsEnabled: Number(row?.notifications_enabled ?? 1) === 1,
       trayEnabled: Number(row?.tray_enabled ?? 1) === 1,
       launchMinimized: Number(row?.launch_minimized ?? 0) === 1,

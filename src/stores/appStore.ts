@@ -75,7 +75,7 @@ function pushToast(state: AppState, message: string, level: Toast['level'] = 'in
 export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   startupError: null,
-  language: (localStorage.getItem('branchpulse:language') as Language) || 'en',
+  language: (localStorage.getItem('branchpulse:language') as Language) || 'zh',
   effectSettings: readEffectSettings(),
   repositories: [],
   branches: [],
@@ -86,7 +86,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     theme: 'dark',
     colorTheme: 'default',
     backgroundTheme: 'dark',
-    language: 'en',
+    language: 'zh',
     notificationsEnabled: true,
     trayEnabled: true,
     launchMinimized: false,
@@ -100,8 +100,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   monitoring: {
     enabled: true,
-    staleThresholdDays: 14,
-    gracePeriodDays: 7,
+    staleThresholdDays: 180,
+    gracePeriodDays: 60,
     staleThresholdUnit: 'days' as const,
     gracePeriodUnit: 'days' as const,
     fetchEnabled: true,

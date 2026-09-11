@@ -166,8 +166,8 @@ export function registerIpc(services: AppServices): void {
       : storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
     return {
       enabled: Number(row?.enabled ?? 1) === 1,
-      staleThresholdDays: Number(row?.stale_threshold_days ?? 14),
-      gracePeriodDays: Number(row?.grace_period_days ?? 7),
+      staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
+      gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
       gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
       fetchEnabled: Number(row?.fetch_enabled ?? 1) === 1,

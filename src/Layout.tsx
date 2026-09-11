@@ -37,11 +37,9 @@ function StaticBackdrop({ isDark }: { isDark: boolean }): JSX.Element {
 }
 
 export default function Layout({
-  children,
-  deferBackground = false
+  children
 }: {
   children: ReactNode
-  deferBackground?: boolean
 }): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const setProgress = useAppStore((s) => s.setProgress)
@@ -52,8 +50,6 @@ export default function Layout({
   const clickSparkEnabled = isEffectOn(effectSettings, 'clickSpark')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isDark, setIsDark] = useState(true)
-  const [backgroundMounted, setBackgroundMounted] = useState(!deferBackground)
-  const [backgroundVisible, setBackgroundVisible] = useState(!deferBackground)
   useEffect(() => {
     const checkDark = (): void => setIsDark(document.documentElement.classList.contains('dark'))
     checkDark()
@@ -82,30 +78,12 @@ export default function Layout({
     })
     return () => unsub()
   }, [refresh, setProgress, setScanning])
-  useEffect(() => {
-    if (backgroundMounted) return
-    let nextFrame = 0
-    const firstFrame = window.requestAnimationFrame(() => {
-      setBackgroundMounted(true)
-      nextFrame = window.requestAnimationFrame(() => setBackgroundVisible(true))
-    })
-    return () => {
-      window.cancelAnimationFrame(firstFrame)
-      window.cancelAnimationFrame(nextFrame)
-    }
-  }, [backgroundMounted])
   return (
     <div className="relative flex h-screen bg-canvas text-muted">
       {/* Layer 1-2: Ambient background */}
-      {ambientEnabled && backgroundMounted ? (
+      {ambientEnabled ? (
         <>
-          <div
-            className="pointer-events-none fixed inset-0 z-0 transition-opacity duration-700"
-            aria-hidden="true"
-            style={{ opacity: backgroundVisible ? 1 : 0 }}
-          >
-            <AeroShards />
-          </div>
+          <AeroShards />
           <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
             {isDark ? (
               <MoltenMetal
@@ -140,9 +118,9 @@ export default function Layout({
                   pillarHeight={0.4}
                   noiseIntensity={0.5}
                   pillarRotation={0}
-                  interactive={true}
+                  interactive={false}
                   mixBlendMode="normal"
-                  quality="low"
+                  quality="high"
                   lightMode={true}
                 />
               </div>

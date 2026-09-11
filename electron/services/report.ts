@@ -470,7 +470,7 @@ export class ReportService {
       show: false,
       width: 1240,
       height: 920,
-      webPreferences: { sandbox: true, contextIsolation: true }
+      webPreferences: { sandbox: false, contextIsolation: true }
     })
     try {
       const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`

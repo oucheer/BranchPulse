@@ -48,7 +48,6 @@ export default function App(): JSX.Element {
   const location = useLocation()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
-  const [shellPrepared, setShellPrepared] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
   useEffect(() => {
@@ -81,7 +80,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!ready || splashDone) return
     const elapsed = Date.now() - splashStartedAt
-    const remaining = Math.max(0, 3400 - elapsed)
+    const remaining = Math.max(0, 2600 - elapsed)
     const timer = window.setTimeout(() => setSplashDone(true), remaining)
     return () => window.clearTimeout(timer)
   }, [ready, splashDone, splashStartedAt])
@@ -103,6 +102,44 @@ export default function App(): JSX.Element {
     )
   }
 
+  const showSplash = !splashDone
+  if (showSplash && !startupError) {
+    return (
+      <div className="relative h-screen overflow-hidden bg-canvas">
+        {effectsEnabled && splashParticlesEnabled ? (
+          <>
+            <div className="absolute inset-0">
+              <ParticleText
+                text="BranchPulse"
+                duration={2600}
+                onComplete={() => {
+                  if (ready) setSplashDone(true)
+                }}
+              />
+            </div>
+            {!ready ? (
+              <div className="pointer-events-none absolute inset-x-0 top-12 text-center">
+                <div className="inline-block rounded-md border border-line bg-surface/70 px-2.5 py-1 text-xs font-medium text-muted">
+                  Loading...
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+            {!ready ? (
+              <div className="mt-4 text-sm font-medium text-muted">Loading...</div>
+            ) : null}
+          </div>
+        )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
+          <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
+        </div>
+      </div>
+    )
+  }
+
   if (startupError) {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
@@ -114,50 +151,27 @@ export default function App(): JSX.Element {
     )
   }
 
-  const showSplash = !splashDone
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-canvas">
+        <div className="text-center">
+          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
+          <div className="text-sm text-muted">Loading...</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="relative h-screen overflow-hidden">
-      <div style={{ display: showSplash ? 'block' : 'none' }}>
-        {showSplash && (
-          <div className="relative h-screen overflow-hidden bg-canvas">
-            {effectsEnabled && splashParticlesEnabled ? (
-              <div className="absolute inset-0">
-                <ParticleText
-                  text="BranchPulse"
-                  duration={3400}
-                  onPrepare={() => setShellPrepared(true)}
-                  onComplete={() => setSplashDone(true)}
-                />
-              </div>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
-              </div>
-            )}
-            <div className="pointer-events-none absolute inset-x-0 bottom-8 text-center">
-              <div className="text-sm font-medium text-canvas-fg">Git branch lifecycle intelligence</div>
-            </div>
-          </div>
-        )}
+    <Layout>
+      <div className="h-full overflow-auto">
+        <Routes location={location}>
+          {pages.map((p) => (
+            <Route key={p.path} path={p.path} element={p.element} />
+          ))}
+        </Routes>
       </div>
-      {shellPrepared && (
-        <div
-          className="absolute inset-0"
-          style={{ visibility: showSplash ? 'hidden' : 'visible', pointerEvents: showSplash ? 'none' : 'auto' }}
-        >
-          <Layout>
-            <div className="h-full overflow-auto">
-              <Routes location={location}>
-                {pages.map((p) => (
-                  <Route key={p.path} path={p.path} element={p.element} />
-                ))}
-              </Routes>
-            </div>
-            <Toasts />
-          </Layout>
-        </div>
-      )}
-    </div>
+      <Toasts />
+    </Layout>
   )
 }

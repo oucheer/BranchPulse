@@ -68,13 +68,6 @@ const LightPillar = ({
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     cameraRef.current = camera;
 
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isLowEndDevice = isMobile || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
-
-    let effectiveQuality = quality;
-    if (isLowEndDevice && quality === 'high') effectiveQuality = 'medium';
-    if (isMobile && quality !== 'low') effectiveQuality = 'low';
-
     const qualitySettings = {
       low: { iterations: 24, waveIterations: 1, pixelRatio: 0.5, precision: 'mediump', stepMultiplier: 1.5 },
       medium: { iterations: 40, waveIterations: 2, pixelRatio: 0.65, precision: 'mediump', stepMultiplier: 1.2 },
@@ -87,14 +80,14 @@ const LightPillar = ({
       }
     };
 
-    const settings = qualitySettings[effectiveQuality] || qualitySettings.medium;
+    const settings = qualitySettings[quality] || qualitySettings.medium;
 
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
         antialias: false,
         alpha: true,
-        powerPreference: effectiveQuality === 'high' ? 'high-performance' : 'low-power',
+        powerPreference: 'high-performance',
         precision: settings.precision,
         stencil: false,
         depth: false
@@ -274,19 +267,13 @@ const LightPillar = ({
     }
 
     let lastTime = performance.now();
-    const targetFPS = effectiveQuality === 'low' ? 30 : 60;
+    const targetFPS = 60;
     const frameTime = 1000 / targetFPS;
 
     const animate = (currentTime: number): void => {
       if (!materialRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
 
       const deltaTime = currentTime - lastTime;
-
-      if (document.hidden) {
-        lastTime = currentTime;
-        rafRef.current = requestAnimationFrame(animate);
-        return;
-      }
 
       if (deltaTime >= frameTime) {
         timeRef.current += 0.016 * rotationSpeedRef.current;

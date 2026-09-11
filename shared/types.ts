@@ -139,8 +139,8 @@ export interface MonitoringConfig {
   enabled: boolean
   staleThresholdDays: number
   gracePeriodDays: number
-  staleThresholdUnit: 'minutes' | 'hours' | 'days'
-  gracePeriodUnit: 'minutes' | 'hours' | 'days'
+  staleThresholdUnit: 'minutes' | 'hours' | 'days' | 'weeks'
+  gracePeriodUnit: 'minutes' | 'hours' | 'days' | 'weeks'
   fetchEnabled: boolean
   namingEnabled: boolean
   emailPolicy: EmailPolicy

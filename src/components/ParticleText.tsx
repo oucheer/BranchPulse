@@ -15,23 +15,17 @@ interface ParticleTextProps {
   text: string
   duration?: number
   onComplete: () => void
-  onPrepare?: () => void
 }
 
 const ACCENTS = ['#f97316', '#fb923c', '#38bdf8', '#818cf8']
 
-export default function ParticleText({ text, duration = 3400, onComplete, onPrepare }: ParticleTextProps): JSX.Element {
+export default function ParticleText({ text, duration = 3400, onComplete }: ParticleTextProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const completeRef = useRef(onComplete)
-  const prepareRef = useRef(onPrepare)
 
   useEffect(() => {
     completeRef.current = onComplete
   }, [onComplete])
-
-  useEffect(() => {
-    prepareRef.current = onPrepare
-  }, [onPrepare])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -48,7 +42,6 @@ export default function ParticleText({ text, duration = 3400, onComplete, onPrep
     let particles: Particle[] = []
     let raf = 0
     let finished = false
-    let prepared = false
     const startedAt = performance.now()
     const mouse = { x: 0, y: 0 }
     const rotation = { x: 0, y: 0 }
@@ -86,7 +79,7 @@ export default function ParticleText({ text, duration = 3400, onComplete, onPrep
           if (image[(y * offWidth + x) * 4 + 3] > 140) sampled.push({ x, y })
         }
       }
-      const maxParticles = Math.min(3200, sampled.length)
+      const maxParticles = Math.min(4300, sampled.length)
       const stride = Math.max(1, Math.floor(sampled.length / maxParticles))
       const centerX = width / 2
       const centerY = height / 2
@@ -126,15 +119,12 @@ export default function ParticleText({ text, duration = 3400, onComplete, onPrep
       if (finished) return
       const elapsed = now - startedAt
       const life = Math.min(1, elapsed / duration)
-      if (!prepared && life >= 0.85) {
-        prepared = true
-        prepareRef.current?.()
-      }
+      const exit = life > 0.88 ? Math.pow((life - 0.88) / 0.12, 2) : 0
       rotation.y += (mouse.x * 0.24 - rotation.y) * 0.06
       rotation.x += (-mouse.y * 0.14 - rotation.x) * 0.06
       const focalLength = 620
       context.clearRect(0, 0, width, height)
-      context.globalAlpha = 1
+      context.globalAlpha = Math.max(0, 1 - exit)
 
       for (const particle of particles) {
         particle.x += (particle.tx - particle.x) * 0.085

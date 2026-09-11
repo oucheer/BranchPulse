@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS protected_branches (
 CREATE TABLE IF NOT EXISTS app_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   theme TEXT NOT NULL DEFAULT 'dark',
-  language TEXT NOT NULL DEFAULT 'en',
+  language TEXT NOT NULL DEFAULT 'zh',
   notifications_enabled INTEGER NOT NULL DEFAULT 1,
   tray_enabled INTEGER NOT NULL DEFAULT 1,
   launch_minimized INTEGER NOT NULL DEFAULT 0,
@@ -407,9 +407,9 @@ export class StorageService {
 
   private seed(): void {
     this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, auto_delete_enabled, notify_target)
-      VALUES (1, 1, 14, 7, 1, 1, 'none', 1, 0, 'self')`)
+      VALUES (1, 1, 180, 60, 1, 1, 'none', 1, 0, 'self')`)
     this.run(`INSERT OR IGNORE INTO app_settings (id, theme, language, notifications_enabled, tray_enabled, launch_minimized, start_with_windows, fetch_policy)
-      VALUES (1, 'dark', 'en', 1, 1, 0, 0, 'auto')`)
+      VALUES (1, 'dark', 'zh', 1, 1, 0, 0, 'auto')`)
     this.run(`INSERT OR IGNORE INTO email_config (id, server, port, from_address, secure, tls, enabled)
       VALUES (1, '', 587, '', 1, 0, 0)`)
     const count = this.get<{ n: number }>('SELECT COUNT(*) AS n FROM branch_naming_rules')?.n ?? 0
