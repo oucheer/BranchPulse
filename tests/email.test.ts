@@ -60,3 +60,32 @@ describe('processingDeadlineNotice', () => {
     expect(buildBranchEmailHtml(summary(), 'en', 'report')).toContain('within 1 month')
   })
 })
+
+describe('branch report attachment layout', () => {
+  const longBranch = 'feature/warehouse-inventory-realtime-synchronization-with-legacy-erp-integration-layer'
+
+  function withBranches(rows: EmailIssueRow[]): EmailSummaryData {
+    return summary({ total: rows.length, branches: rows })
+  }
+
+  it('renames the stale section to 已停更的分支', () => {
+    const html = buildBranchEmailHtml(summary(), 'zh', 'summary')
+    expect(html).toContain('已停更的分支')
+    expect(html).not.toContain('需要处理的分支')
+  })
+
+  it('drops the repository column and groups rows under a repository heading instead', () => {
+    const html = buildBranchEmailHtml(withBranches([row]), 'zh', 'report')
+    expect(html).toContain('仓库：demo')
+    const headers = (html.match(/<th[^>]*>([^<]*)<\/th>/g) ?? []).map((cell) => cell.replace(/<[^>]*>/g, ''))
+    expect(headers.length).toBeGreaterThan(0)
+    expect(headers).not.toContain('仓库')
+  })
+
+  it('keeps long branch names inside the card by wrapping them', () => {
+    const html = buildBranchEmailHtml(withBranches([{ ...row, branch: longBranch }]), 'zh', 'report')
+    expect(html).toContain('table-layout:fixed')
+    expect(html).toContain('word-break:break-all')
+    expect(html).toContain(longBranch)
+  })
+})

@@ -197,11 +197,49 @@ function textToHtml(subject: string, body: string, lang: EmailLang = 'zh'): stri
 </body></html>`
 }
 
-function emailTable(headers: string[], rows: string[][]): string {
+/**
+ * 表格使用固定布局 + 断词，避免超长分支名把列表撑出外层白色卡片的边界。
+ * 列宽由调用方给出，保证长内容换行而不是横向溢出。
+ */
+function emailTable(headers: string[], rows: string[][], colWidths?: string[]): string {
   if (rows.length === 0) return ''
-  const thead = `<tr>${headers.map((h) => `<th style="padding:6px 8px;border:1px solid #e2e6ea;background:#f8fafc;text-align:left;font-size:12px">${h}</th>`).join('')}</tr>`
-  const tbody = rows.map((cells) => `<tr>${cells.map((cell) => `<td style="padding:6px 8px;border:1px solid #e2e6ea;font-size:12px">${cell}</td>`).join('')}</tr>`).join('')
-  return `<table style="width:100%;border-collapse:collapse;margin-top:8px">${thead}${tbody}</table>`
+  const headStyle = 'padding:6px 8px;border:1px solid #e2e6ea;background:#f8fafc;text-align:left;font-size:12px;word-break:break-word;overflow-wrap:anywhere'
+  const bodyStyle = 'padding:6px 8px;border:1px solid #e2e6ea;font-size:12px;vertical-align:top;word-break:break-word;overflow-wrap:anywhere'
+  const colgroup = colWidths?.length === headers.length
+    ? `<colgroup>${colWidths.map((width) => `<col style="width:${width}">`).join('')}</colgroup>`
+    : ''
+  const thead = `<tr>${headers.map((h) => `<th style="${headStyle}">${h}</th>`).join('')}</tr>`
+  const tbody = rows.map((cells) => `<tr>${cells.map((cell) => `<td style="${bodyStyle}">${cell}</td>`).join('')}</tr>`).join('')
+  return `<table style="width:100%;table-layout:fixed;border-collapse:collapse;margin-top:6px">${colgroup}${thead}${tbody}</table>`
+}
+
+/** 分支名可能非常长，必须允许任意位置断行，否则会撑破外层白色卡片。 */
+function branchCell(branch: string): string {
+  return `<code style="white-space:normal;word-break:break-all;overflow-wrap:anywhere">${escapeHtml(branch)}</code>`
+}
+
+/**
+ * 附件报告按仓库分组渲染：每个列表最前面先标出仓库名，列表内不再保留冗余的「仓库」列。
+ */
+function groupedTables(
+  rows: EmailIssueRow[],
+  lang: EmailLang,
+  headers: string[],
+  colWidths: string[],
+  buildCells: (row: EmailIssueRow) => string[]
+): string {
+  const groups = new Map<string, EmailIssueRow[]>()
+  for (const row of rows) {
+    const key = row.repository || (lang === 'zh' ? '未知仓库' : 'Unknown repository')
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(row)
+    else groups.set(key, [row])
+  }
+  return [...groups.entries()]
+    .map(([repository, groupRows]) => `
+      <div style="border:1px solid #e2e6ea;border-left:3px solid #2563eb;border-radius:4px;background:#f8fafc;padding:5px 8px;margin-top:12px;font-size:12px;font-weight:700;color:#344054">${lang === 'zh' ? '仓库' : 'Repository'}：${escapeHtml(repository)}</div>
+      ${emailTable(headers, groupRows.map(buildCells), colWidths)}`)
+    .join('')
 }
 
 function htmlEmailShell(subject: string, body: string, lang: EmailLang = 'zh'): string {
@@ -289,8 +327,8 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         graceExpired: '宽限期已过',
         namingInvalid: '命名不规范',
         cleanup: '清理候选',
-        attention: `需要处理的分支`,
-        attentionEmpty: '没有需要处理的分支，状态健康。',
+        attention: '已停更的分支',
+        attentionEmpty: '没有已停更的分支，状态健康。',
         branch: '分支',
         repository: '仓库',
         creator: '分支创始人',
@@ -320,8 +358,8 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         graceExpired: 'Grace expired',
         namingInvalid: 'Naming invalid',
         cleanup: 'Cleanup candidates',
-        attention: 'Branches needing attention',
-        attentionEmpty: 'No branches need attention. All healthy.',
+        attention: 'Stale branches',
+        attentionEmpty: 'No stale branches. All healthy.',
         branch: 'Branch',
         repository: 'Repository',
         creator: 'Creator',
@@ -364,42 +402,39 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
   ]
   const stalePercent = data.total ? Math.round((data.stale / data.total) * 100) : 0
 
-  const staleRows = data.branches
+  const staleIssues = data.branches
     .filter((row) => row.state !== 'active' || row.cleanupCandidate)
     .sort((a, b) => b.inactiveDays - a.inactiveDays)
-    .map((row) => [
-      `<code>${escapeHtml(row.branch)}</code>`,
-      escapeHtml(row.repository),
-      escapeHtml(row.creator || '-'),
-      String(row.inactiveDays),
-      escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
-      statusLabel(row)
-    ])
+  const staleCells = (row: EmailIssueRow): string[] => [
+    branchCell(row.branch),
+    escapeHtml(row.creator || '-'),
+    String(row.inactiveDays),
+    escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
+    statusLabel(row)
+  ]
 
-  const namingRows = data.branches
+  const namingIssues = data.branches
     .filter((row) => row.namingStatus === 'invalid')
     .sort((a, b) => a.branch.localeCompare(b.branch))
-    .map((row) => [
-      `<code>${escapeHtml(row.branch)}</code>`,
-      escapeHtml(row.repository),
-      escapeHtml(row.creator || '-'),
-      escapeHtml(row.namingRuleName || '-'),
-      escapeHtml(row.namingReason || '-')
-    ])
+  const namingCells = (row: EmailIssueRow): string[] => [
+    branchCell(row.branch),
+    escapeHtml(row.creator || '-'),
+    escapeHtml(row.namingRuleName || '-'),
+    escapeHtml(row.namingReason || '-')
+  ]
 
-  const allRows = [...data.branches]
+  const allIssues = [...data.branches]
     .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
-    .map((row) => [
-      `<code>${escapeHtml(row.branch)}</code>`,
-      escapeHtml(row.repository),
-      escapeHtml(row.creator || '-'),
-      escapeHtml(row.creatorEmail || '-'),
-      stateLabel(row.state, lang),
-      namingLabel(row.namingStatus, lang),
-      String(row.healthScore),
-      String(row.inactiveDays),
-      escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang))
-    ])
+  const allCells = (row: EmailIssueRow): string[] => [
+    branchCell(row.branch),
+    escapeHtml(row.creator || '-'),
+    escapeHtml(row.creatorEmail || '-'),
+    stateLabel(row.state, lang),
+    namingLabel(row.namingStatus, lang),
+    String(row.healthScore),
+    String(row.inactiveDays),
+    escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang))
+  ]
   const topOldest = [...data.branches]
     .sort((a, b) => b.inactiveDays - a.inactiveDays)
     .slice(0, 10)
@@ -441,13 +476,13 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     </div>`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
-    ${staleRows.length ? emailTable([t.branch, t.repository, t.creator, t.inactive, t.lastCommit, t.state], staleRows) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
+    ${staleIssues.length ? groupedTables(staleIssues, lang, [t.branch, t.creator, t.inactive, t.lastCommit, t.state], ['30%', '16%', '12%', '26%', '16%'], staleCells) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
-    ${namingRows.length ? emailTable([t.branch, t.repository, t.creator, t.rule, t.reason], namingRows) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
+    ${namingIssues.length ? groupedTables(namingIssues, lang, [t.branch, t.creator, t.rule, t.reason], ['26%', '16%', '22%', '36%'], namingCells) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
-    ${emailTable([t.branch, t.repository, t.creator, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], allRows)}`)
+    ${groupedTables(allIssues, lang, [t.branch, t.creator, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], ['24%', '11%', '17%', '10%', '10%', '8%', '10%', '10%'], allCells)}`)
 
   return `<!DOCTYPE html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>

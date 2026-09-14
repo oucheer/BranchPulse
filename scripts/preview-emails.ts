@@ -133,6 +133,22 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       healthScore: 80,
       state: 'grace_period',
       cleanupCandidate: false
+    },
+    {
+      // 超长分支名：用于回归验证「所有分支一览」表格不会撑破外层白色卡片。
+      repository: 'inventory-service',
+      branch: 'feature/warehouse-inventory-realtime-synchronization-with-legacy-erp-integration-layer',
+      creator: lang === 'zh' ? '李娜' : 'Na Li',
+      creatorEmail: 'na.li@example.com',
+      lastCommitDate: '2026-07-02 08:20',
+      lastCommitAt: '2026-07-02T08:20:00Z',
+      inactiveDays: 74,
+      gracePeriod: 7,
+      namingStatus: 'valid',
+      mergeStatus: notMerged,
+      healthScore: 38,
+      state: 'grace_expired',
+      cleanupCandidate: true
     }
   ]
 }

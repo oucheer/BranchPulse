@@ -88,3 +88,6 @@
 - 全局文字颜色集中在 `src/styles/index.css` 的 `--fg` 与 `--muted` 两个 token，页面文本几乎都经由 `text-muted`、`text-canvas-fg`、`.btn`、`.input` 派生。调暗色模式亮度只改这两个变量，并确认 `html.light` 有对应覆盖，避免连带改坏亮色主题。
 - 报告 HTML 属于用户可见产物，不能直接输出底层英文枚举（`active` / `grace_period` / `valid`）。`electron/services/report.ts` 用 `reportStateLabel` / `reportNamingLabel` 做映射，新增状态枚举时同步补齐。
 - 创始人邮件的表格必须带仓库列，且正文要点明仓库名：同一创始人可能横跨多个远程仓库，只给分支名等于没告诉对方是哪个仓。期限提示统一由 `processingDeadlineNotice()` 输出，改文案只需改这一处。
+- 附件 HTML 报告（`buildBranchEmailHtml`）的三个明细列表按仓库分组渲染：组标题条（`仓库：xxx`）在最前面，表内不再保留「仓库」列。分组逻辑集中在 `groupedTables()`，新增列表复用它，不要退回逐行仓库列。创始人邮件正文表格（`scenarioRowsTable`）仍保留仓库列，两者是不同载体，不要互相「统一」掉。
+- 附件 HTML 里的分支名可能很长（`feature/...`），必须用 `table-layout:fixed` + `<colgroup>` 固定列宽 + `word-break:break-all`，否则表格会横向撑出外层白色卡片。渲染分支名的单元格统一走 `branchCell()`。
+- 邮件/报告排版改动属于黑盒可见产物，验证方式：`.\node_modules\.bin\vite-node scripts\preview-emails.ts` 生成 `out/email-previews/*.html`，然后用 `rg -F` 检查分组标题、表头不含「仓库」、`table-layout:fixed` 是否命中。`scripts/preview-emails.ts` 里保留了一条超长分支名样例，专门用于复现溢出回归。

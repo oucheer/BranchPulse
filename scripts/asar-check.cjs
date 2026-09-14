@@ -24,7 +24,9 @@ const needles = [
   'isQuitting',
   '对分支不合规处进行处理',
   '宽限期内',
-  '分支创始人'
+  '分支创始人',
+  '已停更的分支',
+  'table-layout:fixed'
 ]
 
 const forbidden = ['过期', '已合并', '到期', '陈旧']
