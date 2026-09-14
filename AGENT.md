@@ -63,6 +63,9 @@
 - 仓库里 `rg` 对中文模式偶尔会长时间无输出甚至卡住；查中文文案优先用 `rg -n -F "关键词"`，或用 `Select-String -SimpleMatch`。多文件大范围搜索要有超时预期。
 - 打包产物的字符串校验很慢（单个关键词 `Select-String` 在 `app.asar` 上可能耗时 30s~2min）。一次批量查多个关键词，不要逐个开进程。
 - 托盘菜单与退出路径的黑盒验证：先跑 `scripts/run-tray-probe.ps1`（用 dev runtime 启动并开放 `--inspect=9338` 与 `--remote-debugging-port=9339`），再跑 `node scripts/tray-probe.mjs 9338 9339`。打包产物关闭了 `EnableNodeCliInspectArguments`，`--inspect` 在正式包上不可用，必须用 dev runtime 验证主进程行为。
+- 关闭窗口行为分两种情况，都要验证：`trayEnabled=true` 时关窗口只隐藏（托盘退出仍要能真正结束进程），`trayEnabled=false` 时关掉最后一个窗口必须结束进程。用 `scripts/close-window-probe.mjs 9338 9339` 覆盖后者。
+- dev runtime 复用同一个 userdata 目录时，上一次异常退出残留的 `DevToolsActivePort` 会让渲染进程调试端口起不来（9339 连接被拒，只剩主进程 inspector）。验证前确认上一个实例已退出，或换一个全新的 `.tmp-*` userdata 目录。
+- `win.close()` / `win.isDestroyed()` 是异步的：调用后立刻判断会得到“窗口仍存在”的假失败，必须轮询等待窗口销毁。
 
 ## 常见坑
 
