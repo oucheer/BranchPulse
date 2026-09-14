@@ -50,12 +50,18 @@
   3. 冒烟验证：隔离用户数据目录启动新包，遍历主要路由，确认不空白、主内容渲染、术语正确。
   4. 回归验证：覆盖之前修复过的缺陷，尤其是动效、术语、筛选、监控配置、通知开关、报告文件和 Token 持久化。
 - Electron 单实例锁会阻止第二个实例。冒烟测试必须设置独立的 `BRANCHPULSE_USER_DATA_DIR`，例如使用 `.tmp-branchpulse-smoke/userdata`，并通过 `--remote-debugging-port=9335` 连接 CDP。
+- 冒烟启动用 `scripts/run-smoke.ps1`（隔离 userdata、`-WindowStyle Hidden`、打印 PID 与 CDP 地址），随后跑 `node scripts/smoke-cdp.mjs`。`run-smoke.ps1` 里的 `$env:BRANCHPULSE_USER_DATA_DIR` 只对子进程生效，不要指望它改变当前 shell 之后的行为。
 - Node 24 自带全局 `WebSocket`，可以直接连接 CDP，不需要为冒烟脚本额外安装依赖。
 - 这个应用的 `Page.captureScreenshot` 可能被 3D 场景阻塞或挂起。视觉截图优先使用系统级窗口截图，例如 PowerShell `CopyFromScreen`，不要把 CDP 截图作为唯一手段。
 - 冒烟脚本应抓取路由完整 `innerText`，扫描禁止术语和重复开关，并检查关键控件的选中值。截图只能确认视觉布局，不能替代文本检查。
 - 冒烟实例不要直接批量杀 BranchPulse 进程，可能误伤用户已打开的实例。只关闭由独立用户数据目录启动、可识别的冒烟进程。
 - 截图只能证明视觉布局，锁屏或后台窗口会让 `CopyFromScreen` 拍到无关画面。此时改用产物字符串校验做白盒确认：直接在 `release/win-unpacked/resources/app.asar` 中搜索本次新增的中文文案或 CSS 变量值，命中即说明修复真的进入了安装包。
 - 用户报告“已修复但现象仍在”时，第一步比对 exe 时间戳与对应 commit 时间戳。产物早于 commit 说明运行的不是新包，不要先怀疑代码。
+
+## 代码搜索与验证工具
+
+- 仓库里 `rg` 对中文模式偶尔会长时间无输出甚至卡住；查中文文案优先用 `rg -n -F "关键词"`，或用 `Select-String -SimpleMatch`。多文件大范围搜索要有超时预期。
+- 打包产物的字符串校验很慢（单个关键词 `Select-String` 在 `app.asar` 上可能耗时 30s~2min）。一次批量查多个关键词，不要逐个开进程。
 
 ## 常见坑
 
