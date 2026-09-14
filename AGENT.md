@@ -33,6 +33,8 @@
 
 ## 构建与打包
 
+- 对齐邮件正文和 HTML 报告结构时使用的参考项目克隆在 `.tmp-git-management-ref/`（`oucheer/git-management`，Python 版 BranchGuardian，约 0.8MB，已被 `.gitignore` 忽略）。不要提交它，也不要把它当成 BranchPulse 的源码。
+
 - 常用命令：
   - 类型检查：`npm run typecheck`
   - 单元测试：`npm run test -- --run`
