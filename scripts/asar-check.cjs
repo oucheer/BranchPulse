@@ -27,7 +27,8 @@ const needles = [
   '分支创始人',
   '已停更的分支',
   'table-layout:fixed',
-  '配置导入 / 导出',
+  '导出 BranchPulse 配置',
+  '导入配置',
   'branchpulse:exportConfig',
   'branchpulse:importConfig'
 ]

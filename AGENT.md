@@ -27,6 +27,9 @@
 - 监控页不要单独出现“发送邮件通知”开关。是否通知由“通知自己”“通知分支创始人”等对象开关决定。立即检查必须使用当前表单配置，结束后不能用数据库旧配置回灌表单。
 - Git API Token、设置项和仓库配置必须持久化。重启、重进页面或连接成功后应回填已保存值；Token 默认掩码展示，可手动切换可见性。
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
+- 设置页必须保留「配置导入 / 导出」（`electron/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
+- 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
+- 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
 - 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 BranchPulse 的统一文案。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
 - 定时调度周期支持 `周`、`天`、`小时`、`分钟`；内部存储保持分钟字段兼容。
@@ -67,6 +70,7 @@
 - 仓库里 `rg` 对中文模式偶尔会长时间无输出甚至卡住；查中文文案优先用 `rg -n -F "关键词"`，或用 `Select-String -SimpleMatch`。多文件大范围搜索要有超时预期。
 - 打包产物的字符串校验很慢（单个关键词 `Select-String` 在 `app.asar` 上可能耗时 30s~2min）。一次批量查多个关键词，不要逐个开进程。
 - 打包产物字符串校验优先用 `node scripts/asar-check.cjs`：它用 `@electron/asar` 直接读取归档内的 `out/main/index.js` 和 `out/renderer/assets/*.js`，一次校验托盘中文标签、`isQuitting` 守卫、标语术语和禁止术语，比 `Select-String` 快很多。新增用户可见文案后把关键词补进该脚本的 `needles`。
+- `asar-check.cjs` 分两组断言：主进程 `needles` 只放 `electron/` 下会打进 `out/main/index.js` 的文案与 IPC 通道名，渲染层文案放在末尾单独一组。把只存在于 `src/` 的界面文案写进主进程 `needles` 会得到假 FAIL，不要靠改产品代码去迁就脚本。
 - `@electron/asar` 的 `listPackage` 返回以反斜杠开头的路径（如 `\out\main\index.js`），但 `extractFile` 要用 `path.join('out','main','index.js')` 这种不带前导分隔符的写法，否则报 `was not found in this archive`。另外 `renderer` 这个子串会命中 `node_modules/three` 里的 `renderers` 目录，匹配渲染产物必须锚定 `\out\renderer` 前缀。
 - 托盘菜单与退出路径的黑盒验证：先跑 `scripts/run-tray-probe.ps1`（用 dev runtime 启动并开放 `--inspect=9338` 与 `--remote-debugging-port=9339`），再跑 `node scripts/tray-probe.mjs 9338 9339`。打包产物关闭了 `EnableNodeCliInspectArguments`，`--inspect` 在正式包上不可用，必须用 dev runtime 验证主进程行为。
 - 关闭窗口行为分两种情况，都要验证：`trayEnabled=true` 时关窗口只隐藏（托盘退出仍要能真正结束进程），`trayEnabled=false` 时关掉最后一个窗口必须结束进程。用 `scripts/close-window-probe.mjs 9338 9339` 覆盖后者。
@@ -83,6 +87,7 @@
 - 窗口 `close` 事件里无条件 `event.preventDefault()` 会拦截 `app.quit()`，表现为点击“退出”后应用关不掉。必须用 `isQuitting` 标志区分“用户关窗口”和“应用退出”。
 - 只重建不覆盖安装，会让用户继续打开旧副本，表现成“重新打包后仍然空白”。必须核对产物时间戳并明确用户应运行的新包路径。
 - `npm run package` 会在打包前清空并重写 `release/win-unpacked/`。只要有旧实例还在从该目录运行，就会报 `EBUSY: resource busy or locked, unlink 'release\win-unpacked\icudtl.dat'`。打包前先确认并退出 `release\win-unpacked\BranchPulse.exe` 实例；不要再三重复尝试，先解决文件锁。
+- `npm run package` 偶发在 `after-pack.cjs` 的 `rcedit --set-icon` 步骤失败退出，但 `release/win-unpacked/` 已经写入了 Electron 本体。这种失败是文件句柄/杀软扫描的瞬时占用，不是配置错误：先手动执行 `.\node_modules\rcedit\bin\rcedit-x64.exe release\win-unpacked\BranchPulse.exe --set-icon build\icon.ico` 确认返回 0，再重跑 `npm run package` 即可通过。重跑后务必核对 `release/*.exe` 时间戳晚于本次 commit。
 - 概念相似但文案不同的生命周期状态，会在仪表盘、分支列表、分支详情、报告、邮件、审计导出中出现不一致。文案修改要用仓库级搜索收尾。
 - 配置回灌是高危路径：立即检查、表单刷新或页面重新加载时把数据库旧值写回表单，会让用户误以为开关或默认值被自动重置。
 - 报告文件存在但用户找不到，等同于功能失败。新增或修改报告输出时必须验证真实磁盘路径。
