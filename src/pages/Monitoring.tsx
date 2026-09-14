@@ -113,7 +113,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创建人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创始人。
             </div>
             <div className="grid grid-cols-[1fr_5.5rem] gap-2">
               <div>

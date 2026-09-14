@@ -81,10 +81,10 @@ export default function BranchDetail(): JSX.Element {
           <div className="space-y-3 text-sm">
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('creator')}</span>
-              <span className="flex items-center gap-1.5 text-canvas-fg"><User size={13} /> {branch.creator.name}</span>
+              <span className="flex items-center gap-1.5 text-canvas-fg"><User size={13} /> {branch.creator.name === 'Unknown' ? '未知' : branch.creator.name}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted">创建者邮箱</span>
+              <span className="text-muted">分支创始人邮箱</span>
               <span className="max-w-[60%] truncate text-right font-mono text-xs text-canvas-fg" title={branch.creator.email || '未知'}>{branch.creator.email || '未知'}</span>
             </div>
             <div className="flex justify-between gap-3">

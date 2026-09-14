@@ -59,7 +59,7 @@ export default function Audit(): JSX.Element {
       email_sent: '发送邮件',
       email_summary_sent: '发送汇总邮件',
       email_summary_skipped: '汇总邮件未发送',
-      email_creator_sent: '发送创建人邮件',
+      email_creator_sent: '发送分支创始人邮件',
       email_test_sent: '发送测试邮件',
       email_connection_test: '测试邮件连接',
       email_config_updated: '更新邮件配置',

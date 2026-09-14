@@ -76,6 +76,9 @@
 ## 常见坑
 
 - `tr(key)` 直接读取 `useAppStore.getState().language`，它本身不产生订阅。只在 `Settings` 页调用 `setLanguage` 而不让根组件订阅 `language`，会出现“切到中文但页面仍是英文”。根组件必须订阅 `language`（本项目用 `<Routes key={language}>` 强制重挂载路由树）才能让所有页面刷新文案。
+- 分支创始人的中文称谓全局统一为 `分支创始人`，不要再用 `创建人`、`创建者`、`作者` 等混用词。涉及位置：分支列表列头与整行单元格、分支详情抽屉、报告 HTML 表头、审计动作标签、监控页说明、`i18n.creator` / `notifyBoth` / `notifyCreators`。邮件正文与附件早已使用 `分支创始人`，改文案时以邮件为基准对齐。
+- 分支列表的列顺序是「分支名 → 分支创始人 → 类别 → 未提交 → 健康分 → 保护 → 操作」，表头与 `ExplorerRow` 必须同步增删，两边列数不一致会整体错位。
+- `creator.name` 在后端拿不到提交作者时会写成字面量 `'Unknown'`（`electron/services/branch.ts`）。任何展示用户可见文案的地方都要把它映射成 `—` 或 `未知`，不要把英文占位符直接渲染出去。
 - 托盘菜单是主进程用 `Menu.buildFromTemplate` 手工构造的，不会随 i18n 自动更新。新增或修改用户可见菜单项时，必须同步维护中英文 label 并在设置保存回调里 `setContextMenu` 重建。
 - 窗口 `close` 事件里无条件 `event.preventDefault()` 会拦截 `app.quit()`，表现为点击“退出”后应用关不掉。必须用 `isQuitting` 标志区分“用户关窗口”和“应用退出”。
 - 只重建不覆盖安装，会让用户继续打开旧副本，表现成“重新打包后仍然空白”。必须核对产物时间戳并明确用户应运行的新包路径。

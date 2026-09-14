@@ -66,6 +66,7 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
   const zh = language === 'zh'
   const cat = branchCategory(b.name)
   const sc = stateColor(b.state)
+  const creatorName = b.creator.name && b.creator.name !== 'Unknown' ? b.creator.name : ''
   return (
     <div
       className={`group flex cursor-pointer items-center gap-2 border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
@@ -87,6 +88,12 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: sc }} />
       <span className="min-w-0 flex-1 truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
       {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
+      <span
+        className="w-24 shrink-0 truncate text-[10px] text-muted"
+        title={[zh ? '分支创始人' : 'Branch creator', creatorName, b.creator.email].filter(Boolean).join(' · ')}
+      >
+        {creatorName || '—'}
+      </span>
       <span className="shrink-0 text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
       <span className="shrink-0 tabular-nums text-muted">{b.inactiveDays}d</span>
       <span
@@ -158,8 +165,8 @@ function DetailsDrawer({ b, onClose, onNotify, onDeleteBegin, protected_, deleti
     { label: zh ? '类别' : 'Category', value: cat.label },
     { label: zh ? '状态' : 'Status', value: stateLabel(b.state, language) },
     { label: zh ? '健康度' : 'Health', value: `${b.health.score} / 100` },
-    { label: zh ? '创建人' : 'Creator', value: b.creator.name || '—' },
-    { label: zh ? '创建人邮箱' : 'Creator email', value: b.creator.email || '—' },
+    { label: zh ? '分支创始人' : 'Creator', value: b.creator.name === 'Unknown' ? '—' : b.creator.name || '—' },
+    { label: zh ? '分支创始人邮箱' : 'Creator email', value: b.creator.email || '—' },
     { label: zh ? '最后提交' : 'Last commit', value: formatDateTime(b.lastCommitAt) },
     { label: zh ? '最后提交哈希' : 'Commit SHA', value: b.lastCommitSha ? b.lastCommitSha.slice(0, 8) : '—' },
     { label: zh ? '最近提交人' : 'Last author', value: b.lastAuthor || '—' },
@@ -719,6 +726,7 @@ export default function Branches(): JSX.Element {
           <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
             <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
             <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
+            <span className="w-24 shrink-0 text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
             <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
