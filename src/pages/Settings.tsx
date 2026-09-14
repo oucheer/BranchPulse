@@ -138,7 +138,7 @@ export default function Settings(): JSX.Element {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <SettingsIcon size={15} className="text-primary" /> Application
+            <SettingsIcon size={15} className="text-primary" /> {tr('application')}
           </div>
           <div className="space-y-4">
             <div>

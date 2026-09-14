@@ -158,7 +158,17 @@ const dictionaries = {
     tls: 'TLS',
     testRecipient: 'Test recipient',
     saveConfig: 'Save email config',
-    unread: 'Unread'
+    unread: 'Unread',
+    all: 'All',
+    entries: 'entries',
+    application: 'Application',
+    notificationsOn: 'notifications on',
+    notificationsOff: 'notifications off',
+    navWorkspace: 'WORKSPACE',
+    navGovernance: 'GOVERNANCE',
+    navAutomation: 'AUTOMATION',
+    navSystem: 'SYSTEM',
+    edit: 'Edit'
   },
   zh: {
     app: 'BranchPulse',
@@ -317,7 +327,17 @@ const dictionaries = {
     tls: 'TLS',
     testRecipient: '测试收件人',
     saveConfig: '保存邮件配置',
-    unread: '未读'
+    unread: '未读',
+    all: '全部',
+    entries: '条记录',
+    application: '应用',
+    notificationsOn: '通知已开启',
+    notificationsOff: '通知已关闭',
+    navWorkspace: '工作区',
+    navGovernance: '治理',
+    navAutomation: '自动化',
+    navSystem: '系统',
+    edit: '编辑'
   }
 } as const
 

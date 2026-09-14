@@ -51,11 +51,11 @@ export default function Notifications(): JSX.Element {
             <button
               className={`rounded-md px-3 py-1 text-xs font-medium ${filter === 'all' ? 'bg-primary/10 text-primary' : 'text-muted'}`}
               onClick={() => setFilter('all')}
-            >All</button>
+            >{tr('all')}</button>
             <button
               className={`rounded-md px-3 py-1 text-xs font-medium ${filter === 'unread' ? 'bg-primary/10 text-primary' : 'text-muted'}`}
               onClick={() => setFilter('unread')}
-            >Unread</button>
+            >{tr('unread')}</button>
           </div>
           {scoped.length > 0 ? (
             <button className="btn" onClick={() => void clearAll()}>

@@ -102,7 +102,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
   }
 }
 
-export function registerIpc(services: AppServices): void {
+export function registerIpc(services: AppServices, onSettingsSaved?: (settings: AppSettings) => void): void {
   const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup } = services
 
   function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
@@ -556,6 +556,7 @@ export function registerIpc(services: AppServices): void {
         activeRepositoryId: saved.activeRepositoryId,
         deletionDisabled: saved.deletionDisabled
       })
+      onSettingsSaved?.(saved)
       return saved
     } catch (err) {
       audit.record('settings_save_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')

@@ -23,12 +23,14 @@ interface NavItem {
 
 interface NavSection {
   title: string
+  titleKey: string
   items: NavItem[]
 }
 
 const sections: NavSection[] = [
   {
     title: 'WORKSPACE',
+    titleKey: 'navWorkspace',
     items: [
       { to: '/', label: 'dashboard', icon: LayoutDashboard, end: true },
       { to: '/repositories', label: 'repositories', icon: FolderGit2 },
@@ -37,6 +39,7 @@ const sections: NavSection[] = [
   },
   {
     title: 'GOVERNANCE',
+    titleKey: 'navGovernance',
     items: [
       { to: '/monitoring', label: 'monitoring', icon: Activity },
       { to: '/naming-rules', label: 'namingRules', icon: Tags },
@@ -46,6 +49,7 @@ const sections: NavSection[] = [
   },
   {
     title: 'AUTOMATION',
+    titleKey: 'navAutomation',
     items: [
       { to: '/notifications', label: 'notifications', icon: Bell },
       { to: '/reports', label: 'reports', icon: FileBarChart },
@@ -54,6 +58,7 @@ const sections: NavSection[] = [
   },
   {
     title: 'SYSTEM',
+    titleKey: 'navSystem',
     items: [
       { to: '/audit', label: 'auditLog', icon: ScrollText },
       { to: '/animation', label: 'animation', icon: Sparkles },
@@ -163,7 +168,7 @@ export default function Sidebar(): JSX.Element {
         {sections.map((section, sIdx) => (
           <div key={section.title} className={sIdx > 0 ? 'mt-5' : ''}>
             <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted opacity-60">
-              {section.title}
+              {tr(section.titleKey)}
             </div>
             <div className="space-y-0.5">
               {section.items.map((item) => {

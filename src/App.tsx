@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
 import { isEffectOn, useEffectSettings } from './lib/effects'
 import { Toasts } from './components/ui'
@@ -42,10 +42,15 @@ export default function App(): JSX.Element {
   const startupError = useAppStore((s) => s.startupError)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
+  // `tr()` reads language from the store without subscribing, so the root subscribes
+  // to it and remounts the route tree below; otherwise pages that never read
+  // `language` directly keep rendering stale strings after a language switch.
+  const language = useAppStore((s) => s.language)
   const effectSettings = useEffectSettings()
   const effectsEnabled = isEffectOn(effectSettings, 'ambientBackground')
   const splashParticlesEnabled = isEffectOn(effectSettings, 'particleSplash')
   const location = useLocation()
+  const navigate = useNavigate()
   const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
@@ -68,6 +73,11 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (desktopAvailable) void refresh()
   }, [desktopAvailable, refresh])
+
+  useEffect(() => {
+    if (!desktopAvailable) return
+    return window.branchpulse.onNavigate((route) => navigate(route))
+  }, [desktopAvailable, navigate])
 
   useEffect(() => {
     const root = document.documentElement
@@ -162,7 +172,7 @@ export default function App(): JSX.Element {
   return (
     <Layout>
       <div className="h-full overflow-auto">
-        <Routes location={location}>
+        <Routes key={language} location={location}>
           {pages.map((p) => (
             <Route key={p.path} path={p.path} element={p.element} />
           ))}

@@ -21,10 +21,46 @@ import { BackupService } from './services/backup'
 import { registerIpc, type AppServices } from './ipc'
 import { logger } from './utils/logger'
 import { dataDir, dbFile, ensureDir } from './utils/paths'
+import type { LanguageCode } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let services: AppServices | null = null
+let isQuitting = false
+
+interface TrayLabels {
+  open: string
+  runCheck: string
+  notifications: string
+  report: string
+  pause: string
+  resume: string
+  settings: string
+  exit: string
+}
+
+const TRAY_LABELS: Record<LanguageCode, TrayLabels> = {
+  zh: {
+    open: '打开仪表盘',
+    runCheck: '立即检查',
+    notifications: '查看通知',
+    report: '生成报告',
+    pause: '暂停监控',
+    resume: '恢复监控',
+    settings: '设置',
+    exit: '退出'
+  },
+  en: {
+    open: 'Open Dashboard',
+    runCheck: 'Run Check Now',
+    notifications: 'View Notifications',
+    report: 'Generate Report',
+    pause: 'Pause Monitoring',
+    resume: 'Resume Monitoring',
+    settings: 'Settings',
+    exit: 'Exit'
+  }
+}
 
 if (process.env.BRANCHPULSE_USER_DATA_DIR) {
   app.setPath('userData', path.resolve(process.env.BRANCHPULSE_USER_DATA_DIR))
@@ -92,7 +128,7 @@ function createWindow(): BrowserWindow {
   }
 
   win.on('close', (event) => {
-    if (services?.settings.get().trayEnabled) {
+    if (!isQuitting && services?.settings.get().trayEnabled) {
       event.preventDefault()
       win.hide()
     }
@@ -125,45 +161,83 @@ function createTray(): void {
     mainWindow.show()
     mainWindow.focus()
   }
-  const menu = Menu.buildFromTemplate([
-    { label: 'Open Dashboard', click: showWindow },
+  tray.setContextMenu(buildTrayMenu(showWindow))
+  tray.on('double-click', showWindow)
+}
+
+function buildTrayMenu(showWindow: () => void): Electron.Menu {
+  const language: LanguageCode = services?.settings.get().language ?? 'zh'
+  const labels = TRAY_LABELS[language] ?? TRAY_LABELS.zh
+  const openRoute = (route: string): void => {
+    showWindow()
+    mainWindow?.webContents.send('branchpulse:navigate', route)
+  }
+  return Menu.buildFromTemplate([
+    { label: labels.open, click: () => openRoute('/') },
     {
-      label: 'Run Check Now',
+      label: labels.runCheck,
       click: () => {
         void services?.monitoring.runCheckNow({ bypassEnabledCheck: true, trigger: 'manual' })
-        showWindow()
+        openRoute('/monitoring')
       }
     },
-    { label: 'View Notifications', click: showWindow },
+    { label: labels.notifications, click: () => openRoute('/notifications') },
     {
-      label: 'Generate Report',
+      label: labels.report,
       click: () => {
         void services?.report.generateReport('on-demand', 'html')
-        showWindow()
+        openRoute('/reports')
       }
     },
     { type: 'separator' },
     {
-      label: 'Pause Monitoring',
+      label: labels.pause,
       click: () => {
         const job = services?.scheduler.listJobs().find((j) => j.enabled)
         if (job) services?.scheduler.saveJob({ ...job, enabled: false })
       }
     },
     {
-      label: 'Resume Monitoring',
+      label: labels.resume,
       click: () => {
         const job = services?.scheduler.listJobs().find((j) => !j.enabled)
         if (job) services?.scheduler.saveJob({ ...job, enabled: true })
       }
     },
     { type: 'separator' },
-    { label: 'Settings', click: showWindow },
+    { label: labels.settings, click: () => openRoute('/settings') },
     { type: 'separator' },
-    { label: 'Exit', click: () => app.quit() }
+    {
+      label: labels.exit,
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
   ])
-  tray.setContextMenu(menu)
-  tray.on('double-click', showWindow)
+}
+
+function refreshTrayMenu(): void {
+  if (!tray) return
+  const showWindow = (): void => {
+    if (!mainWindow) mainWindow = createWindow()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  tray.setContextMenu(buildTrayMenu(showWindow))
+}
+
+/** Keep the tray icon in sync with the `trayEnabled` setting. */
+function syncTray(): void {
+  const enabled = services?.settings.get().trayEnabled ?? false
+  if (enabled && !tray) {
+    createTray()
+    return
+  }
+  if (!enabled && tray) {
+    tray.destroy()
+    tray = null
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -206,11 +280,14 @@ async function bootstrap(): Promise<void> {
     monitoring, email, scheduler, report, reportSchedules, audit, settings, backup
   }
 
-  registerIpc(services)
+  registerIpc(services, () => {
+    refreshTrayMenu()
+    syncTray()
+  })
   scheduler.start()
   reportSchedules.start()
   createWindow()
-  createTray()
+  syncTray()
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -228,12 +305,17 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('window-all-closed', () => {
+    if (isQuitting) {
+      app.quit()
+      return
+    }
     if (process.platform !== 'darwin' && !services?.settings.get().trayEnabled) {
       app.quit()
     }
   })
 
   app.on('before-quit', () => {
+    isQuitting = true
     services?.storage.flush()
     services?.scheduler.stop()
     services?.reportSchedules.stop()

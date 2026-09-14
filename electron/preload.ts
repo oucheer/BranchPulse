@@ -100,6 +100,11 @@ const api: BranchApi = {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on('branchpulse:scan-progress', listener)
     return () => ipcRenderer.removeListener('branchpulse:scan-progress', listener)
+  },
+  onNavigate: (callback: (route: string) => void) => {
+    const listener = (_e: unknown, route: string): void => callback(route)
+    ipcRenderer.on('branchpulse:navigate', listener)
+    return () => ipcRenderer.removeListener('branchpulse:navigate', listener)
   }
 }
 

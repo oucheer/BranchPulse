@@ -211,7 +211,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="mt-4 flex items-center gap-2 text-xs text-muted">
             <Badge tone={monitoring.notificationEnabled ? 'ok' : 'warn'}>
-              {monitoring.notificationEnabled ? 'notifications on' : 'notifications off'}
+              {monitoring.notificationEnabled ? tr('notificationsOn') : tr('notificationsOff')}
             </Badge>
             <Badge tone="secondary">{tr('inspectionOnly')}</Badge>
           </div>

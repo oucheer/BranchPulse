@@ -118,7 +118,7 @@ export default function Audit(): JSX.Element {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{tr('auditLog')}</h1>
-          <div className="text-xs text-muted">{visibleAudit.length} {tr('entries') ?? 'entries'}</div>
+          <div className="text-xs text-muted">{visibleAudit.length} {tr('entries')}</div>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn" disabled={exporting} onClick={() => void exportLogs('csv')}>

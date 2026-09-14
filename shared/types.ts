@@ -545,6 +545,7 @@ export interface BranchApi {
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
+  onNavigate(callback: (route: string) => void): () => void
 }
 
 declare global {

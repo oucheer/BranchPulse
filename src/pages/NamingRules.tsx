@@ -168,7 +168,7 @@ export default function NamingRules(): JSX.Element {
                 {rule.description ? <div className="mt-0.5 text-xs text-muted">{rule.description}</div> : null}
               </div>
               <div className="flex items-center gap-1">
-                <button className="btn px-2" onClick={() => setEditRule({ ...rule })}>Edit</button>
+                <button className="btn px-2" onClick={() => setEditRule({ ...rule })}>{tr('edit')}</button>
                 <button className="btn px-2" onClick={() => void remove(rule.id)}><Trash2 size={13} className="text-danger" /></button>
               </div>
             </Card>
