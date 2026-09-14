@@ -64,6 +64,8 @@
 
 - 仓库里 `rg` 对中文模式偶尔会长时间无输出甚至卡住；查中文文案优先用 `rg -n -F "关键词"`，或用 `Select-String -SimpleMatch`。多文件大范围搜索要有超时预期。
 - 打包产物的字符串校验很慢（单个关键词 `Select-String` 在 `app.asar` 上可能耗时 30s~2min）。一次批量查多个关键词，不要逐个开进程。
+- 打包产物字符串校验优先用 `node scripts/asar-check.cjs`：它用 `@electron/asar` 直接读取归档内的 `out/main/index.js` 和 `out/renderer/assets/*.js`，一次校验托盘中文标签、`isQuitting` 守卫、标语术语和禁止术语，比 `Select-String` 快很多。新增用户可见文案后把关键词补进该脚本的 `needles`。
+- `@electron/asar` 的 `listPackage` 返回以反斜杠开头的路径（如 `\out\main\index.js`），但 `extractFile` 要用 `path.join('out','main','index.js')` 这种不带前导分隔符的写法，否则报 `was not found in this archive`。另外 `renderer` 这个子串会命中 `node_modules/three` 里的 `renderers` 目录，匹配渲染产物必须锚定 `\out\renderer` 前缀。
 - 托盘菜单与退出路径的黑盒验证：先跑 `scripts/run-tray-probe.ps1`（用 dev runtime 启动并开放 `--inspect=9338` 与 `--remote-debugging-port=9339`），再跑 `node scripts/tray-probe.mjs 9338 9339`。打包产物关闭了 `EnableNodeCliInspectArguments`，`--inspect` 在正式包上不可用，必须用 dev runtime 验证主进程行为。
 - 关闭窗口行为分两种情况，都要验证：`trayEnabled=true` 时关窗口只隐藏（托盘退出仍要能真正结束进程），`trayEnabled=false` 时关掉最后一个窗口必须结束进程。用 `scripts/close-window-probe.mjs 9338 9339` 覆盖后者。
 - dev runtime 复用同一个 userdata 目录时，上一次异常退出残留的 `DevToolsActivePort` 会让渲染进程调试端口起不来（9339 连接被拒，只剩主进程 inspector）。验证前确认上一个实例已退出，或换一个全新的 `.tmp-*` userdata 目录。
@@ -79,4 +81,5 @@
 - 配置回灌是高危路径：立即检查、表单刷新或页面重新加载时把数据库旧值写回表单，会让用户误以为开关或默认值被自动重置。
 - 报告文件存在但用户找不到，等同于功能失败。新增或修改报告输出时必须验证真实磁盘路径。
 - UI 截图中看不出交互逻辑，分支筛选、批量通知、立即检查和报告导出必须实际触发到状态变化或文件落盘才算通过。
+- 冒烟启动脚本以隐藏窗口运行时，`Page.captureScreenshot` 可能永远不返回（没有合成帧），表现为脚本挂起而不是报错。这种实例改用 `Runtime.evaluate` 抓 DOM 文案，或改用可见窗口 + 系统级截图；不要把 CDP 截图当作隐藏窗口下的验证手段。
 - 全局文字颜色集中在 `src/styles/index.css` 的 `--fg` 与 `--muted` 两个 token，页面文本几乎都经由 `text-muted`、`text-canvas-fg`、`.btn`、`.input` 派生。调暗色模式亮度只改这两个变量，并确认 `html.light` 有对应覆盖，避免连带改坏亮色主题。
