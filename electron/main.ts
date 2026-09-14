@@ -18,6 +18,7 @@ import { AuditService } from './services/audit'
 import { SettingsService } from './services/settings'
 import { GitLabService } from './services/gitlab'
 import { BackupService } from './services/backup'
+import { ConfigPortService } from './services/configPort'
 import { registerIpc, type AppServices } from './ipc'
 import { logger } from './utils/logger'
 import { dataDir, dbFile, ensureDir } from './utils/paths'
@@ -274,10 +275,11 @@ async function bootstrap(): Promise<void> {
     () => settings.get().gitPath || 'git',
     () => ensureDir(path.join(dataDir(), 'backups'))
   )
+  const configPort = new ConfigPortService(storage, () => app.getVersion())
 
   services = {
     storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens,
-    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup
+    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort
   }
 
   registerIpc(services, () => {

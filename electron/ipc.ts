@@ -15,6 +15,9 @@ import type {
   EmailConfig,
   EmailGroup,
   EmailSendResult,
+  ConfigExportResult,
+  ConfigExtras,
+  ConfigImportResult,
   GitLabConnectionConfig,
   GitLabProject,
   GitLabTestResult,
@@ -47,6 +50,7 @@ import type { ReportScheduleService } from './services/reportSchedule'
 import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
 import type { BackupService } from './services/backup'
+import type { ConfigPortService } from './services/configPort'
 
 export interface AppServices {
   storage: StorageService
@@ -66,6 +70,13 @@ export interface AppServices {
   audit: AuditService
   settings: SettingsService
   backup: BackupService
+  configPort: ConfigPortService
+}
+
+function dateStamp(): string {
+  const now = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
 }
 
 function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]): ScanRun {
@@ -103,7 +114,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function registerIpc(services: AppServices, onSettingsSaved?: (settings: AppSettings) => void): void {
-  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup } = services
+  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
 
   function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
     const rows = repositoryId
@@ -543,6 +554,57 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   })
 
   ipcMain.handle('branchpulse:getSettings', (): AppSettings => settings.get())
+  ipcMain.handle('branchpulse:exportConfig', async (_e, extras: ConfigExtras = {}): Promise<ConfigExportResult> => {
+    try {
+      const selected = await dialog.showSaveDialog({
+        title: '导出 BranchPulse 配置',
+        defaultPath: path.join(app.getPath('documents'), `branchpulse-config-${dateStamp()}.json`),
+        filters: [{ name: 'BranchPulse 配置', extensions: ['json'] }]
+      })
+      if (selected.canceled || !selected.filePath) return { ok: false, path: '', sections: [] }
+      const result = configPort.exportToFile(selected.filePath, extras)
+      audit.record('config_exported', { path: result.path, sections: result.sections.length })
+      return { ok: true, path: result.path, sections: result.sections }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      audit.record('config_export_failed', { error: message }, 'failure')
+      return { ok: false, path: '', sections: [], error: message }
+    }
+  })
+  ipcMain.handle('branchpulse:importConfig', async (_e, confirmReplace = true): Promise<ConfigImportResult> => {
+    try {
+      const selected = await dialog.showOpenDialog({
+        title: '选择 BranchPulse 配置文件',
+        defaultPath: app.getPath('documents'),
+        properties: ['openFile'],
+        filters: [{ name: 'BranchPulse 配置', extensions: ['json'] }]
+      })
+      if (selected.canceled || selected.filePaths.length === 0) {
+        return { ok: false, path: '', applied: [], warnings: [] }
+      }
+      const filePath = selected.filePaths[0]
+      if (confirmReplace) {
+        const confirmation = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['取消', '覆盖导入'],
+          defaultId: 0,
+          cancelId: 0,
+          title: '导入配置',
+          message: '导入将覆盖当前的规则、设置、邮箱分组、监控配置和仓库连接信息。',
+          detail: 'API Token、邮箱密码等敏感信息不会从配置文件写入，本机已保存的凭据保持不变。此操作无法撤销。'
+        })
+        if (confirmation.response !== 1) return { ok: false, path: filePath, applied: [], warnings: [] }
+      }
+      const summary = configPort.importFromFile(filePath)
+      audit.record('config_imported', { path: filePath, applied: summary.applied.length, warnings: summary.warnings.length })
+      onSettingsSaved?.(settings.get())
+      return { ok: true, path: filePath, ...summary }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      audit.record('config_import_failed', { error: message }, 'failure')
+      return { ok: false, path: '', applied: [], warnings: [], error: message }
+    }
+  })
   // The sidebar renders this, so the displayed version follows package.json /
   // the built exe instead of a hardcoded string that silently goes stale.
   ipcMain.handle('branchpulse:getAppVersion', (): string => app.getVersion())

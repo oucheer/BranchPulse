@@ -94,6 +94,31 @@ export function persistEffectSettings(next: EffectSettings): void {
   window.dispatchEvent(new Event(CHANGE_EVENT))
 }
 
+/** Current effect settings as a plain object, for config export. */
+export function serializeEffectSettings(): EffectSettings {
+  return { ...readEffectSettings() }
+}
+
+/**
+ * Apply effect settings restored from an exported config bundle.
+ * Unknown keys are ignored and missing keys keep their current value.
+ */
+export function applyImportedEffectSettings(raw: Record<string, unknown> | undefined): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const next = { ...readEffectSettings() }
+  let changed = false
+  for (const key of ['enabled', ...EFFECT_KEYS] as const) {
+    const value = raw[key]
+    if (typeof value === 'boolean' && next[key] !== value) {
+      next[key] = value
+      changed = true
+    }
+  }
+  if (!changed) return false
+  persistEffectSettings(next)
+  return true
+}
+
 function subscribeEffectSettings(onChange: () => void): () => void {
   const query = window.matchMedia(REDUCED_MOTION_QUERY)
   const onMediaChange = (): void => onChange()

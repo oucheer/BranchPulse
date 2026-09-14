@@ -26,7 +26,10 @@ const needles = [
   '宽限期内',
   '分支创始人',
   '已停更的分支',
-  'table-layout:fixed'
+  'table-layout:fixed',
+  '配置导入 / 导出',
+  'branchpulse:exportConfig',
+  'branchpulse:importConfig'
 ]
 
 const forbidden = ['过期', '已合并', '到期', '陈旧']
@@ -57,7 +60,7 @@ if (rendererEntries.length === 0) throw new Error('renderer bundle not found in 
 const renderer = rendererEntries
   .map((entry) => asar.extractFile(archive, entry.replace(/^\\/, '')).toString('utf8'))
   .join('\n')
-for (const needle of ['仪表盘', '宽限期内', '命名不规范', '分支创始人']) {
+for (const needle of ['仪表盘', '宽限期内', '命名不规范', '分支创始人', '配置导入 / 导出', '敏感凭据不会写入配置文件']) {
   const count = countOf(renderer, needle)
   const ok = count > 0
   if (!ok) failed = true

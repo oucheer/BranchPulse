@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Cloud, Eye, EyeOff, Mail, Save, Settings as SettingsIcon, Trash2 as TrashIcon } from 'lucide-react'
+import {
+  CheckCircle2,
+  Cloud,
+  Download,
+  Eye,
+  EyeOff,
+  Mail,
+  Save,
+  Settings as SettingsIcon,
+  Trash2 as TrashIcon,
+  Upload
+} from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import type { AppSettings, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
@@ -30,6 +41,7 @@ export default function Settings(): JSX.Element {
   const [savingApp, setSavingApp] = useState(false)
   const [savingEmail, setSavingEmail] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [portBusy, setPortBusy] = useState<'export' | 'import' | null>(null)
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
@@ -126,6 +138,40 @@ export default function Settings(): JSX.Element {
       setTesting(false)
     }
   }
+
+  const exportConfig = async (): Promise<void> => {
+    setPortBusy('export')
+    try {
+      const result = await useAppStore.getState().exportConfig()
+      if (!result.ok) {
+        if (result.error) toast(result.error, 'error')
+        return
+      }
+      toast(`配置已导出到 ${result.path}`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setPortBusy(null)
+    }
+  }
+
+  const importConfig = async (): Promise<void> => {
+    setPortBusy('import')
+    try {
+      const result = await useAppStore.getState().importConfig()
+      if (!result.ok) {
+        if (result.error) toast(result.error, 'error')
+        return
+      }
+      toast(`配置导入完成，共应用 ${result.applied.length} 项配置`, 'success')
+      result.warnings.forEach((warning) => toast(warning, 'warn'))
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setPortBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -308,6 +354,29 @@ export default function Settings(): JSX.Element {
             )}
           </div>
           <p className="mt-3 text-xs text-muted">邮箱分组为全局配置，可在监控、定时调度、报告收件人处直接选择分组名。</p>
+        </Card>
+
+        <Card className="p-5 xl:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-canvas-fg">
+              <Download size={15} className="text-primary" /> 配置导入 / 导出
+            </div>
+            <Badge tone="default">换机迁移</Badge>
+          </div>
+          <p className="text-sm text-muted">
+            导出内容包含命名规则、监控配置、定时调度、报告计划、白名单与保护分支、邮箱分组、外观与动效设置、语言、远程仓库连接信息和 GitLab 地址，导入后即可在另一台电脑还原当前配置。
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            API Token、邮箱密码等敏感凭据不会写入配置文件；导入时保留本机已保存的凭据，不会被覆盖。
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <button className="btn btn-primary" disabled={portBusy !== null} onClick={() => void exportConfig()}>
+              <Download size={14} /> {portBusy === 'export' ? '导出中…' : '导出配置'}
+            </button>
+            <button className="btn" disabled={portBusy !== null} onClick={() => void importConfig()}>
+              <Upload size={14} /> {portBusy === 'import' ? '导入中…' : '导入配置'}
+            </button>
+          </div>
         </Card>
       </div>
     </div>

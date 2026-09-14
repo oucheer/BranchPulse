@@ -4,6 +4,8 @@ import type {
   AuditEntry,
   BranchSummary,
   BackupRecord,
+  ConfigExportResult,
+  ConfigImportResult,
   DashboardSnapshot,
   EmailConfig,
   EmailGroup,
@@ -20,6 +22,7 @@ import type {
 } from '@shared/types'
 import { t, type Language } from '../lib/i18n'
 import { persistEffectSettings, readEffectSettings, type EffectSettings } from '../lib/effects'
+import { applyImportedEffectSettings, serializeEffectSettings } from '../lib/effects'
 
 interface Toast {
   id: number
@@ -58,6 +61,8 @@ interface AppState {
   setLanguage: (language: Language) => void
   setEffectSettings: (partial: Partial<EffectSettings>) => void
   setActiveRepositoryId: (repositoryId: string | null) => Promise<void>
+  exportConfig: () => Promise<ConfigExportResult>
+  importConfig: () => Promise<ConfigImportResult>
   setScanning: (scanning: boolean) => void
   setProgress: (progress: ScanProgress | null) => void
   toast: (message: string, level?: Toast['level']) => void
@@ -204,6 +209,27 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setScanning: (scanning) => set({ scanning }),
   setProgress: (progress) => set({ progress }),
+
+  exportConfig: async () => {
+    const result = await window.branchpulse.exportConfig({
+      effects: { ...serializeEffectSettings() },
+      language: get().language
+    })
+    return result
+  },
+
+  importConfig: async () => {
+    const result = await window.branchpulse.importConfig(true)
+    if (!result.ok) return result
+    if (typeof result.language === 'string') {
+      localStorage.setItem('branchpulse:language', result.language)
+    }
+    applyImportedEffectSettings(result.effects)
+    await get().refresh()
+    const settings = get().settings
+    set({ language: settings.language })
+    return result
+  },
 
   toast: (message, level = 'info') => set((state) => pushToast(state, message, level)),
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) }))

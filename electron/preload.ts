@@ -8,6 +8,7 @@ import type {
   GitLabConnectionConfig,
   EmailConfig,
   EmailGroup,
+  ConfigExtras,
   MonitoringConfig,
   NamingRule,
   ProtectionEntry,
@@ -97,6 +98,8 @@ const api: BranchApi = {
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('branchpulse:saveSettings', settings),
   getAppVersion: () => ipcRenderer.invoke('branchpulse:getAppVersion'),
+  exportConfig: (extras?: ConfigExtras) => ipcRenderer.invoke('branchpulse:exportConfig', extras),
+  importConfig: (confirmReplace?: boolean) => ipcRenderer.invoke('branchpulse:importConfig', confirmReplace),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on('branchpulse:scan-progress', listener)

@@ -320,6 +320,30 @@ export interface BackupOptions {
   folderPath?: string
 }
 
+export interface ConfigExportResult {
+  ok: boolean
+  path: string
+  /** Section/table names that were written into the bundle. */
+  sections: string[]
+  error?: string
+}
+
+export interface ConfigExtras {
+  effects?: Record<string, unknown>
+  language?: string
+}
+
+export interface ConfigImportResult {
+  ok: boolean
+  path: string
+  applied: string[]
+  warnings: string[]
+  effects?: Record<string, unknown>
+  language?: string
+  exportedAt?: string
+  error?: string
+}
+
 export interface AuditEntry {
   id: string
   at: string
@@ -545,6 +569,8 @@ export interface BranchApi {
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
   getAppVersion(): Promise<string>
+  exportConfig(extras?: ConfigExtras): Promise<ConfigExportResult>
+  importConfig(confirmReplace?: boolean): Promise<ConfigImportResult>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }
