@@ -543,6 +543,9 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   })
 
   ipcMain.handle('branchpulse:getSettings', (): AppSettings => settings.get())
+  // The sidebar renders this, so the displayed version follows package.json /
+  // the built exe instead of a hardcoded string that silently goes stale.
+  ipcMain.handle('branchpulse:getAppVersion', (): string => app.getVersion())
   ipcMain.handle('branchpulse:saveSettings', (_e, s: AppSettings): AppSettings => {
     try {
       const saved = settings.save(s)

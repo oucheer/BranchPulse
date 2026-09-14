@@ -30,6 +30,7 @@ interface Toast {
 interface AppState {
   ready: boolean
   startupError: string | null
+  appVersion: string
   language: Language
   effectSettings: EffectSettings
   repositories: Repository[]
@@ -75,6 +76,7 @@ function pushToast(state: AppState, message: string, level: Toast['level'] = 'in
 export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   startupError: null,
+  appVersion: '',
   language: (localStorage.getItem('branchpulse:language') as Language) || 'zh',
   effectSettings: readEffectSettings(),
   repositories: [],
@@ -134,7 +136,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const snapshot = await window.branchpulse.init()
       const activeId = snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null
-      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups] = await Promise.all([
+      const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups, appVersion] = await Promise.all([
         window.branchpulse.listJobs(),
         window.branchpulse.calendarRuns(),
         window.branchpulse.listReports(),
@@ -145,10 +147,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.branchpulse.listProtected(activeId),
         window.branchpulse.getEmailConfig(),
         window.branchpulse.listEmailGroups(),
-        window.branchpulse.listBackups()
+        window.branchpulse.listBackups(),
+        window.branchpulse.getAppVersion()
       ])
       set({
         ready: true,
+        appVersion: appVersion ?? '',
         repositories: snapshot.repositories,
         branches: snapshot.branches,
         scanRuns: snapshot.scanRuns,

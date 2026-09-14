@@ -71,6 +71,9 @@ const flatItems = sections.flatMap((s) => s.items)
 
 export default function Sidebar(): JSX.Element {
   const language = useAppStore((s) => s.language)
+  // Read the version from the main process (package.json / the built exe) so the
+  // footer can never drift out of sync with the package the user actually runs.
+  const appVersion = useAppStore((s) => s.appVersion)
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
   const effectSettings = useEffectSettings()
@@ -207,7 +210,7 @@ export default function Sidebar(): JSX.Element {
           <span className={`h-2 w-2 rounded-full ${scanning ? 'animate-pulse bg-primary' : 'bg-ok'}`} />
           {language === 'zh' ? '监控服务' : 'Monitoring service'}
         </div>
-        <div className="opacity-70">BranchPulse v0.1.1</div>
+        <div className="opacity-70">{appVersion ? `BranchPulse v${appVersion}` : 'BranchPulse'}</div>
       </div>
     </aside>
   )

@@ -96,6 +96,7 @@ const api: BranchApi = {
   exportAuditLogs: (format: 'csv' | 'json' | 'txt') => ipcRenderer.invoke('branchpulse:exportAuditLogs', format),
   getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('branchpulse:saveSettings', settings),
+  getAppVersion: () => ipcRenderer.invoke('branchpulse:getAppVersion'),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on('branchpulse:scan-progress', listener)

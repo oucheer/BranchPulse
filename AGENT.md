@@ -77,6 +77,7 @@
 - 托盘菜单是主进程用 `Menu.buildFromTemplate` 手工构造的，不会随 i18n 自动更新。新增或修改用户可见菜单项时，必须同步维护中英文 label 并在设置保存回调里 `setContextMenu` 重建。
 - 窗口 `close` 事件里无条件 `event.preventDefault()` 会拦截 `app.quit()`，表现为点击“退出”后应用关不掉。必须用 `isQuitting` 标志区分“用户关窗口”和“应用退出”。
 - 只重建不覆盖安装，会让用户继续打开旧副本，表现成“重新打包后仍然空白”。必须核对产物时间戳并明确用户应运行的新包路径。
+- `npm run package` 会在打包前清空并重写 `release/win-unpacked/`。只要有旧实例还在从该目录运行，就会报 `EBUSY: resource busy or locked, unlink 'release\win-unpacked\icudtl.dat'`。打包前先确认并退出 `release\win-unpacked\BranchPulse.exe` 实例；不要再三重复尝试，先解决文件锁。
 - 概念相似但文案不同的生命周期状态，会在仪表盘、分支列表、分支详情、报告、邮件、审计导出中出现不一致。文案修改要用仓库级搜索收尾。
 - 配置回灌是高危路径：立即检查、表单刷新或页面重新加载时把数据库旧值写回表单，会让用户误以为开关或默认值被自动重置。
 - 报告文件存在但用户找不到，等同于功能失败。新增或修改报告输出时必须验证真实磁盘路径。
