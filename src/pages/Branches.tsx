@@ -582,9 +582,6 @@ export default function Branches(): JSX.Element {
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
       ) : null}
         </div>
-        <div className="text-xs tabular-nums text-muted">
-          {filtered.length} / {branches.length} {zh ? '分支' : 'branches'}
-        </div>
       </div>
 
       {/* Delete Modal */}

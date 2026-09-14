@@ -97,6 +97,15 @@ function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdU
   return value * 24
 }
 
+/**
+ * 基准分支（main / develop / 仓库默认分支）是所有分支的评分参照物，
+ * 不参与生命周期评比：不计已停更、不计宽限期、不进清理候选、不进需要关注的列表。
+ */
+export function isBaselineBranch(name: string, baseBranch?: string | null): boolean {
+  if (/^(main|develop)$/i.test(name)) return true
+  return Boolean(baseBranch) && name === baseBranch
+}
+
 export interface RepositoryScanOptions {
   fetch?: boolean
   force?: boolean
@@ -437,7 +446,8 @@ export class BranchService {
     const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
     const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(facts.lastCommitAt, now)
-    const stale = inactiveHours >= thresholdHours
+    const baseline = isBaselineBranch(facts.name, facts.baseBranch)
+    const stale = !baseline && inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled
@@ -506,7 +516,8 @@ export class BranchService {
     const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
     const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(cached.lastCommitAt, now)
-    const stale = inactiveHours >= thresholdHours
+    const baseline = isBaselineBranch(cached.name, cached.baseBranch)
+    const stale = !baseline && inactiveHours >= thresholdHours
     const graceExpired = stale && inactiveHours > thresholdHours + graceHours
     const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
     const naming: NamingResult = monitoring.namingEnabled

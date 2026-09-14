@@ -20,6 +20,28 @@ function safeJson<T>(value: unknown, fallback: T): T {
   }
 }
 
+/** 报告是用户可见产物，状态与命名结果必须使用全局统一的中文术语，不能输出底层英文枚举。 */
+const REPORT_STATE_LABELS: Record<string, string> = {
+  active: '活跃',
+  stale: '已停更',
+  grace_period: '宽限期内',
+  grace_expired: '宽限期已过'
+}
+
+const REPORT_NAMING_LABELS: Record<string, string> = {
+  valid: '合规',
+  invalid: '命名不规范',
+  excluded: '豁免'
+}
+
+function reportStateLabel(state: string): string {
+  return REPORT_STATE_LABELS[state] ?? state
+}
+
+function reportNamingLabel(status: string): string {
+  return REPORT_NAMING_LABELS[status] ?? status
+}
+
 export class ReportService {
   constructor(
     private readonly storage: StorageService,
@@ -336,7 +358,7 @@ export class ReportService {
         <td>${escapeHtml(b.creator.name)}</td>
         <td>${b.inactiveDays} 天</td>
         <td>${escapeHtml(new Date(b.lastCommitAt ?? b.lastScannedAt).toLocaleString('zh-CN'))}</td>
-        <td><b class="${b.cleanupCandidate ? 'danger' : 'warn'}">${escapeHtml(b.state)}</b></td>
+        <td><b class="${b.cleanupCandidate ? 'danger' : 'warn'}">${escapeHtml(reportStateLabel(b.state))}</b></td>
         <td>${b.cleanupCandidate ? '是' : '否'}</td>
       </tr>`).join('') : '<tr><td colspan="7">当前没有超过阈值或待清理的分支。</td></tr>'
     const detailRows = branches.slice(0, 500).map((b) => `
@@ -346,8 +368,8 @@ export class ReportService {
         <td>${escapeHtml(b.creator.name)}</td>
         <td>${b.commitCount}</td>
         <td>${b.inactiveDays} 天</td>
-        <td>${escapeHtml(b.state)}</td>
-        <td>${escapeHtml(b.naming.status)}</td>
+        <td>${escapeHtml(reportStateLabel(b.state))}</td>
+        <td>${escapeHtml(reportNamingLabel(b.naming.status))}</td>
         <td>${b.health.score}</td>
         <td>${b.protection.isDefault ? '默认' : b.protection.protected ? '保护' : '普通'}</td>
       </tr>`).join('')

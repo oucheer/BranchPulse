@@ -44,7 +44,7 @@ function summary(overrides: Partial<EmailSummaryData> = {}): EmailSummaryData {
 
 describe('processingDeadlineNotice', () => {
   it('gives a one-month deadline counted from the send date', () => {
-    expect(processingDeadlineNotice('zh', new Date(2026, 8, 14, 10, 0, 0))).toContain('请在 1 个月内或 2026年10月14号')
+    expect(processingDeadlineNotice('zh', new Date(2026, 8, 14, 10, 0, 0))).toContain('请在2026年10月14号（从邮件发送当天开始计算1个月的时间点）对分支不合规处进行处理。')
   })
 
   it('rolls December into the next year', () => {
