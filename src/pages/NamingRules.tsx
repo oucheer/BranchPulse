@@ -46,9 +46,11 @@ export default function NamingRules(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const language = useAppStore((s) => s.language)
+  const zh = language === 'zh'
   const [editRule, setEditRule] = useState<Partial<NamingRule> & { id?: string } | null>(null)
   const [validateName, setValidateName] = useState('')
-  const [validationResult, setValidationResult] = useState<{ status: string; ruleName?: string } | null>(null)
+  const [validationResult, setValidationResult] = useState<{ status: string; ruleName?: string; reason?: string } | null>(null)
 
   const save = async (rule: Partial<NamingRule> & { id?: string }): Promise<void> => {
     try {
@@ -122,9 +124,21 @@ export default function NamingRules(): JSX.Element {
           <button className="btn" onClick={() => void validate()}><CheckCircle size={14} /> {tr('validate')}</button>
         </div>
         {validationResult ? (
-          <div className={`mt-2 text-sm ${validationResult.status === 'valid' ? 'text-ok' : validationResult.status === 'excluded' ? 'text-warn' : 'text-danger'}`}>
-            {validationResult.status === 'valid' ? '✔ Valid' : validationResult.status === 'excluded' ? '⚠ Excluded' : '✖ Invalid'}
-            {validationResult.ruleName ? ` — ${validationResult.ruleName}` : ''}
+          <div className="mt-2 space-y-1">
+            <div className={`text-sm font-medium ${validationResult.status === 'valid' ? 'text-ok' : validationResult.status === 'excluded' ? 'text-warn' : 'text-danger'}`}>
+              {validationResult.status === 'valid'
+                ? (zh ? '✔ 命名合规' : '✔ Valid')
+                : validationResult.status === 'excluded'
+                  ? (zh ? '⚠ 已豁免' : '⚠ Excluded')
+                  : (zh ? '✖ 命名不规范' : '✖ Invalid')}
+              {validationResult.ruleName ? ` — ${validationResult.ruleName}` : ''}
+            </div>
+            {validationResult.reason ? (
+              <div className={`rounded-md border px-3 py-2 text-xs leading-relaxed ${validationResult.status === 'invalid' ? 'border-danger/40 bg-danger/10 text-danger' : 'border-line bg-surface/60 text-muted'}`}>
+                {zh ? '原因：' : 'Reason: '}
+                {validationResult.reason}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Card>

@@ -80,7 +80,15 @@ describe('NamingService.validate', () => {
   it('returns invalid when no rule matches', () => {
     const result = service.validate('random-name', [allowFeature])
     expect(result.status).toBe('invalid')
-    expect(result.reason).toBe('不符合前缀规范')
+    expect(result.reason).toContain('不符合前缀规范')
+    expect(result.reason).toContain('feature/bugfix/hotfix/release/chore/docs')
+  })
+
+  it('explains which rule patterns were available when nothing matched', () => {
+    const result = service.validate('feature/login/page', [allowFeature])
+    expect(result.status).toBe('invalid')
+    expect(result.reason).toContain('未匹配任何启用规则')
+    expect(result.reason).toContain('feature/*')
   })
 
   it('ignores disabled rules', () => {
@@ -101,13 +109,12 @@ describe('base naming rules', () => {
     expect(baseNamingIssue('main2')).toBe('主分支必须直接为 main / develop')
     expect(baseNamingIssue('develop2')).toBe('主分支必须直接为 main / develop')
     expect(baseNamingIssue('main/foo')).toBe('主分支必须直接为 main / develop')
-    expect(baseNamingIssue('feature')).toBe('缺少具体功能描述')
+    expect(baseNamingIssue('feature')).toContain('缺少具体功能描述')
     expect(baseNamingIssue('feature/')).toBe('不能以 / 结尾')
-    expect(baseNamingIssue('xyz/foo')).toBe('前缀不在允许的前缀内')
-    expect(baseNamingIssue('admin/config')).toBe('前缀不在允许的前缀内')
-    expect(baseNamingIssue('fix/login')).toBe('前缀不在允许的前缀内')
-    expect(baseNamingIssue('refactor/core')).toBe('前缀不在允许的前缀内')
-    expect(baseNamingIssue('test/unit')).toBe('前缀不在允许的前缀内')
+    for (const name of ['xyz/foo', 'admin/config', 'fix/login', 'refactor/core', 'test/unit']) {
+      expect(baseNamingIssue(name)).toContain('不在允许范围内')
+      expect(baseNamingIssue(name)).toContain('feature/bugfix/hotfix/release/chore/docs')
+    }
   })
 
   it('allows conventional branches and direct main/develop branches', () => {

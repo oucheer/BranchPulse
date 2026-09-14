@@ -150,6 +150,25 @@ function stateLabel(state: string, lang: EmailLang): string {
   return STATE_LABELS[lang][state] ?? state
 }
 
+/** 处理期限：从邮件发送当天起算 1 个月，月末日期做钳制以避免跨月溢出。 */
+function processingDeadlineParts(now: Date): { year: number; month: number; day: number } {
+  const year = now.getFullYear()
+  const targetMonthIndex = now.getMonth() + 1
+  const targetYear = targetMonthIndex > 11 ? year + 1 : year
+  const targetMonth = (targetMonthIndex % 12) + 1
+  const lastDay = new Date(targetYear, targetMonth, 0).getDate()
+  return { year: targetYear, month: targetMonth, day: Math.min(now.getDate(), lastDay) }
+}
+
+/** 所有提醒邮件统一附带的处理期限提示。 */
+export function processingDeadlineNotice(lang: EmailLang, now = new Date()): string {
+  const { year, month, day } = processingDeadlineParts(now)
+  const text = lang === 'zh'
+    ? `请在 1 个月内或 ${year}年${String(month).padStart(2, '0')}月${String(day).padStart(2, '0')}号 对分支不合规处进行处理。`
+    : `Please handle the non-compliant branches within 1 month (by ${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}).`
+  return `<p style="margin:14px 0 0;padding:8px 10px;border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;font-size:12px;line-height:1.6">${text}</p>`
+}
+
 function namingLabel(status: string, lang: EmailLang): string {
   if (lang === 'zh') {
     if (status === 'invalid') return '<span style="color:#b42318">不规范</span>'
@@ -192,6 +211,7 @@ function htmlEmailShell(subject: string, body: string, lang: EmailLang = 'zh'): 
   <div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
     <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
     ${body}
+    ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
     <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
   </div>
@@ -436,6 +456,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     <h2 style="font-size:18px;margin:0 0 4px">${t.title}</h2>
     <div style="color:#6b7280;font-size:12px">${data.repositories} ${t.repositories} · ${t.generatedAt} ${escapeHtml(formatDateTime(data.generatedAt, lang))}</div>
     ${sections.join('')}
+    ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
     <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>

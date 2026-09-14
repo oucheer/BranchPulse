@@ -54,6 +54,8 @@ export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', 
 
 const allowedPrefixes = new Set(['feature', 'bugfix', 'hotfix', 'release', 'chore', 'docs'])
 
+const prefixHint = `允许的前缀为 ${[...allowedPrefixes].join('/')}，需形如 feature/login-page`
+
 export function baseNamingIssue(name: string): string | null {
   if (name.endsWith('/')) return '不能以 / 结尾'
   if (name.includes('//')) return '不能包含连续 /'
@@ -67,13 +69,14 @@ export function baseNamingIssue(name: string): string | null {
 
   const separatorIndex = name.indexOf('/')
   if (separatorIndex === -1) {
-    return allowedPrefixes.has(name) ? '缺少具体功能描述' : '不符合前缀规范'
+    if (allowedPrefixes.has(name)) return `缺少具体功能描述，${prefixHint}`
+    return `不符合前缀规范：${prefixHint}`
   }
 
   const prefix = name.slice(0, separatorIndex)
   const description = name.slice(separatorIndex + 1)
-  if (!description) return '缺少具体功能描述'
-  if (!allowedPrefixes.has(prefix)) return '前缀不在允许的前缀内'
+  if (!description) return `缺少具体功能描述，${prefixHint}`
+  if (!allowedPrefixes.has(prefix)) return `前缀「${prefix}」不在允许范围内：${prefixHint}`
   return null
 }
 
@@ -120,9 +123,15 @@ export class NamingService {
     if (baseIssue) {
       return { status: 'invalid', reason: baseIssue }
     }
+    const patterns = list
+      .filter((rule) => rule.enabled && rule.mode === 'allow')
+      .map((rule) => rule.pattern)
+    const ruleHint = patterns.length
+      ? `当前启用的规则模式：${[...new Set(patterns)].slice(0, 6).join('、')}`
+      : '当前没有启用任何命名规则'
     return {
       status: 'invalid',
-      reason: '不符合前缀规范'
+      reason: `基础格式正确，但未匹配任何启用规则。${ruleHint}；中文分支名需要额外的 regex / unicode 规则`
     }
   }
 }
