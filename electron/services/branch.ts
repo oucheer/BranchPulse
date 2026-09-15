@@ -18,10 +18,52 @@ import type { HealthService } from './health'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import type { SettingsService } from './settings'
-import type { GitLabBranchDto, GitLabCommitDto, GitLabService } from './gitlab'
+import type { BranchCreatorDto, GitLabBranchDto, GitLabCommitDto, GitLabService } from './gitlab'
 import { newId } from '../utils/ids'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Decide who created a remote branch.
+ *
+ * Order matters and both fallbacks are deliberate:
+ *  1. the branch's first own commit — authoritative and carries an email;
+ *  2. the forge's branch-creation event — the only signal for a branch that has
+ *     no commits yet (GitLab only), but its `public_email` is often blank;
+ *  3. unknown — never the base branch's latest committer. Guessing there sends
+ *     creator notifications to an unrelated person.
+ *
+ * Exported for unit tests; the attribution rules are easy to regress and hard to
+ * observe end to end.
+ */
+export function resolveRemoteCreator(
+  firstOwnCommit: GitLabCommitDto | null,
+  creationEvent: BranchCreatorDto | null
+): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
+  if (firstOwnCommit) {
+    return {
+      creator: {
+        name: firstOwnCommit.author_name,
+        email: firstOwnCommit.author_email,
+        firstCommitAt: firstOwnCommit.committed_date ?? firstOwnCommit.authored_date ?? null,
+        confidence: 'high'
+      }
+    }
+  }
+  if (creationEvent) {
+    return {
+      creator: {
+        name: creationEvent.name,
+        email: creationEvent.email,
+        firstCommitAt: creationEvent.createdAt,
+        // A known creator without an address is still a correct name, but it
+        // cannot be emailed, so it must not read as fully confident.
+        confidence: creationEvent.email ? 'high' : 'medium'
+      }
+    }
+  }
+  return { creator: { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' } }
+}
 
 interface AnalysisFacts {
   name: string
@@ -166,13 +208,15 @@ export class BranchService {
     const branches = await this.gitlab.listBranches(projectId, remoteConfig)
     const defaultBranch = repo.defaultBranch || branches.find((b) => b.default)?.name || 'main'
     progress(`Analyzing ${branches.length} GitLab branches...`)
-    const defaultShas = new Set(await this.gitlabCommitShas(projectId, defaultBranch, 5, remoteConfig))
+    // Branch creation is not derivable from commits, so ask the forge who
+    // created each branch. Empty for providers without that event stream.
+    const branchCreators = await this.gitlab.listBranchCreators(projectId, remoteConfig)
     const analyzed: BranchSummary[] = []
     const batchSize = 6
     for (let i = 0; i < branches.length; i += batchSize) {
       const batch = branches.slice(i, i + batchSize)
       const results = await Promise.all(
-        batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, defaultShas, monitoring, fp, remoteConfig))
+        batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, branchCreators, monitoring, fp, remoteConfig))
       )
       analyzed.push(...results)
       progress(`Analyzed ${Math.min(i + batchSize, branches.length)} of ${branches.length} branches...`)
@@ -216,22 +260,12 @@ export class BranchService {
     return analyzed
   }
 
-  private async gitlabCommitShas(projectId: number, refName: string, maxPages = 5, config?: GitLabConnectionConfig): Promise<string[]> {
-    const shas: string[] = []
-    for (let page = 1; page <= maxPages; page += 1) {
-      const pageCommits = await this.gitlab.listCommits(projectId, refName, page, 100, config)
-      shas.push(...pageCommits.map((c) => c.id))
-      if (pageCommits.length < 100) break
-    }
-    return shas
-  }
-
   private async analyzeGitLabBranch(
     repo: Repository,
     projectId: number,
     branch: GitLabBranchDto,
     defaultBranch: string,
-    defaultShas: Set<string>,
+    branchCreators: Map<string, BranchCreatorDto>,
     monitoring: MonitoringConfig,
     fp: string,
     config?: GitLabConnectionConfig
@@ -241,7 +275,8 @@ export class BranchService {
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    const cacheContentKey = `v3|${latestCommit?.id ?? ''}|${fp}`
+    // v4: creator attribution changed, so cached v3 summaries must be rebuilt.
+    const cacheContentKey = `v4|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -269,27 +304,31 @@ export class BranchService {
       }
     }
 
-    const commitSet = new Set(commits.map((c) => c.id))
-    const unique = commits.filter((c) => !defaultShas.has(c.id))
-    const firstUnique = unique.length > 0 ? unique[unique.length - 1] : null
-    const creator: BranchSummary['creator'] = firstUnique
-      ? {
-          name: firstUnique.author_name,
-          email: firstUnique.author_email,
-          firstCommitAt: firstUnique.committed_date ?? firstUnique.authored_date ?? null,
-          confidence: 'medium'
-        }
-      : latestCommit
-        ? {
-            name: latestCommit.author_name,
-            email: latestCommit.author_email,
-            firstCommitAt: latestCommit.authored_date ?? latestCommit.committed_date ?? null,
-            confidence: unique.length === 0 ? 'low' : 'medium'
-          }
-        : { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' }
+    // Commits this branch has and the default branch does not. Index 0 is the
+    // branch's first own commit, which is what identifies who started it.
+    //
+    // This replaces a previous "subtract the default branch's recent SHAs"
+    // heuristic. That heuristic could not tell a branch with no commits apart
+    // from one whose base was older than the fetched window, and it fell back to
+    // the default branch's latest committer — which sent creator emails to
+    // whoever happened to push to the base branch last.
+    const ownCommits: GitLabCommitDto[] = branch.name === defaultBranch
+      ? []
+      : await this.gitlab.compareCommits(projectId, defaultBranch, branch.name, config)
+    const firstOwn = ownCommits[0] ?? null
+    const creatorEvent = branchCreators.get(branch.name) ?? null
+
+    // Prefer the first own commit: it carries a usable author email, which the
+    // forge's branch-creation event often omits. When the branch has no commits
+    // of its own the commit APIs have nothing to report, so fall back to the
+    // creation event (GitLab only). Never fall back to the base branch author.
+    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent)
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
-    const createdAt = firstUnique?.committed_date ?? firstUnique?.authored_date ?? (commits.length > 0 ? (commits[commits.length - 1]?.committed_date ?? commits[commits.length - 1]?.authored_date ?? commits[commits.length - 1]?.created_at ?? null) : latestCommit?.created_at ?? null)
+    const oldestFetched = commits.length > 0
+      ? (commits[commits.length - 1]?.committed_date ?? commits[commits.length - 1]?.authored_date ?? commits[commits.length - 1]?.created_at ?? null)
+      : null
+    const createdAt = firstOwn?.committed_date ?? firstOwn?.authored_date ?? creatorEvent?.createdAt ?? oldestFetched ?? latestCommit?.created_at ?? null
     const ref: GitRefInfo = {
       fullRef: `refs/remotes/origin/${branch.name}`,
       refType: 'remotes',
@@ -314,15 +353,14 @@ export class BranchService {
       lastCommitSha: latestCommit?.id ?? '',
       lastAuthor: latestCommit?.author_name ?? '',
       commitCount: commits.length,
-      ahead: unique.length,
+      ahead: ownCommits.length,
       behind: 0,
-      merged: branch.merged === true || unique.length === 0,
-      mergedInto: branch.merged || unique.length === 0 ? defaultBranch : null,
+      merged: branch.merged === true || ownCommits.length === 0,
+      mergedInto: branch.merged || ownCommits.length === 0 ? defaultBranch : null,
       baseBranch: defaultBranch,
       gracePeriodDays: monitoring.gracePeriodDays,
       recentCommits: recentCommits.map((c) => this.gitLabCommitToInfo(c))
     }
-    void commitSet
     const result = this.buildFromFacts(facts, ref, repo.id, monitoring)
     await this.storage.run(
       `INSERT INTO branch_snapshots (key, sha, updated_at) VALUES (?, ?, ?)

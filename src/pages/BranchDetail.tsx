@@ -109,6 +109,16 @@ export default function BranchDetail(): JSX.Element {
                 {branch.creator.confidence === 'high' ? '高' : branch.creator.confidence === 'medium' ? '中' : branch.creator.confidence === 'low' ? '低' : '未知'}
               </Badge>
             </div>
+            {branch.creator.confidence === 'unknown' ? (
+              <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
+                该分支还没有自己的提交，且远程平台未提供分支创建记录（GitHub 不提供），因此无法确定分支创始人，也不会发送创始人邮件。
+              </div>
+            ) : null}
+            {branch.creator.confidence === 'medium' && !branch.creator.email ? (
+              <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
+                已从远程平台的分支创建记录确定创始人，但该账号未公开邮箱，因此不会发送创始人邮件。
+              </div>
+            ) : null}
             <div className="flex justify-between gap-3">
               <span className="text-muted">基准分支</span>
               <span className="font-mono text-xs text-canvas-fg">{branch.baseBranch}</span>

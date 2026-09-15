@@ -31,6 +31,20 @@ export interface GitLabBranchDto {
   }
 }
 
+/**
+ * Who created a branch. Only GitLab's project events expose this: the branch
+ * and commit APIs return commits, and a branch created without any commit has
+ * no commits of its own to attribute.
+ */
+export interface BranchCreatorDto {
+  name: string
+  email: string
+  /** Identity on the forge, when the API exposes it. */
+  username: string
+  createdAt: string | null
+  source: 'event'
+}
+
 export interface GitLabCommitDto {
   id: string
   short_id: string
@@ -373,33 +387,126 @@ export class GitLabService {
     }))
   }
 
+  /** GitHub and Gitee return the same commit shape; map it in one place. */
+  private mapGitHubCommit(row: Record<string, unknown>): GitLabCommitDto {
+    const commit = (row.commit ?? {}) as Record<string, unknown>
+    const author = (commit.author ?? {}) as Record<string, unknown>
+    const authorDate = String(author.date ?? '')
+    return {
+      id: String(row.sha ?? ''),
+      short_id: String(row.sha ?? '').slice(0, 8),
+      title: String(commit.message ?? '').split('\n')[0],
+      message: String(commit.message ?? ''),
+      created_at: authorDate,
+      authored_date: authorDate,
+      committed_date: authorDate,
+      author_name: String(author.name ?? ''),
+      author_email: String(author.email ?? ''),
+      committer_name: String(author.name ?? ''),
+      committer_email: String(author.email ?? ''),
+      web_url: String(row.html_url ?? '')
+    }
+  }
+
   async listCommits(projectId: number, refName: string, page = 1, perPage = 100, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
     const path = await this.projectPath(projectId, config)
     const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
     if (provider === 'github' || provider === 'gitee') {
       const rows = await this.request<Array<Record<string, unknown>>>(`/repos/${encodedPath}/commits?sha=${encodeURIComponent(refName)}&per_page=${perPage}&page=${page}`, config)
-      return rows.map((row) => {
-        const commit = (row.commit ?? {}) as Record<string, unknown>
-        const author = (commit.author ?? {}) as Record<string, unknown>
-        return {
-          id: String(row.sha ?? ''),
-          short_id: String(row.sha ?? '').slice(0, 8),
-          title: String(commit.message ?? '').split('\n')[0],
-          message: String(commit.message ?? ''),
-          created_at: String(author.date ?? ''),
-          authored_date: String(author.date ?? ''),
-          committed_date: String(author.date ?? ''),
-          author_name: String(author.name ?? ''),
-          author_email: String(author.email ?? ''),
-          committer_name: String(author.name ?? ''),
-          committer_email: String(author.email ?? ''),
-          web_url: String(row.html_url ?? '')
-        }
-      })
+      return rows.map((row) => this.mapGitHubCommit(row))
     }
     const qs = new URLSearchParams({ ref_name: refName, per_page: String(perPage), page: String(page) })
     return this.request<GitLabCommitDto[]>(`/projects/${encodedPath}/repository/commits?${qs.toString()}`, config)
+  }
+
+  /**
+   * Commits that `refName` has and `baseRef` does not, ordered from the
+   * merge-base forward, so index 0 is the branch's first own commit.
+   */
+  async compareCommits(
+    projectId: number,
+    baseRef: string,
+    refName: string,
+    config?: GitLabConnectionConfig
+  ): Promise<GitLabCommitDto[]> {
+    const { provider } = this.resolve(config)
+    const path = await this.projectPath(projectId, config)
+    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
+    if (provider === 'github' || provider === 'gitee') {
+      const row = await this.request<Record<string, unknown>>(
+        `/repos/${encodedPath}/compare/${encodeURIComponent(baseRef)}...${encodeURIComponent(refName)}`,
+        config
+      )
+      const commits = Array.isArray(row.commits) ? (row.commits as Array<Record<string, unknown>>) : []
+      // GitHub returns compare commits oldest-first with merge-base at index 0.
+      return commits.map((entry) => this.mapGitHubCommit(entry))
+    }
+    const qs = new URLSearchParams({ from: baseRef, to: refName })
+    const row = await this.request<Record<string, unknown>>(
+      `/projects/${encodedPath}/repository/compare?${qs.toString()}`,
+      config
+    )
+    const commits = Array.isArray(row.commits) ? (row.commits as GitLabCommitDto[]) : []
+    return commits
+  }
+
+  /**
+   * GitLab only: map every branch in this project to the user who created it.
+   *
+   * Branch creation is a ref push, so it appears as a project event with
+   * `push_data.action = 'created'` and `ref_type = 'branch'` — including when
+   * the branch carries no commits at all (`commit_count = 0`). This is the only
+   * way to attribute a branch that has no commits of its own: the branch and
+   * commit APIs simply have nothing to report.
+   *
+   * Returns an empty map for providers without branch-creation events (GitHub),
+   * so callers fall back to "unknown" instead of attributing the base branch's
+   * last commit to the new branch.
+   *
+   * Note: the author's `public_email` is frequently empty, so a resolved
+   * creator may have a name but no address. Callers must treat that as
+   * "known name, cannot send mail" rather than guessing an address.
+   */
+  async listBranchCreators(
+    projectId: number,
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, BranchCreatorDto>> {
+    const creators = new Map<string, BranchCreatorDto>()
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return creators
+    const path = await this.projectPath(projectId, config)
+    const encodedPath = encodeURIComponent(path)
+    // Newest first. Events only cover a bounded window, so older branches may
+    // simply not appear; stop early once a page comes back short.
+    for (let page = 1; page <= 5; page += 1) {
+      const qs = new URLSearchParams({ action: 'pushed', per_page: '100', page: String(page) })
+      let rows: Array<Record<string, unknown>>
+      try {
+        rows = await this.request<Array<Record<string, unknown>>>(`/projects/${encodedPath}/events?${qs.toString()}`, config)
+      } catch {
+        return creators
+      }
+      if (!Array.isArray(rows) || rows.length === 0) break
+      for (const row of rows) {
+        const push = (row.push_data ?? {}) as Record<string, unknown>
+        if (push.action !== 'created' || push.ref_type !== 'branch') continue
+        const branch = String(push.ref ?? '').trim()
+        if (!branch || creators.has(branch)) continue
+        const author = (row.author ?? {}) as Record<string, unknown>
+        const name = String(author.name ?? '').trim() || String(row.author_username ?? '').trim()
+        if (!name) continue
+        creators.set(branch, {
+          name,
+          email: String(author.public_email ?? '').trim(),
+          username: String(row.author_username ?? '').trim(),
+          createdAt: (row.created_at as string | null) ?? null,
+          source: 'event'
+        })
+      }
+      if (rows.length < 100) break
+    }
+    return creators
   }
 
   async deleteBranch(projectId: number, branch: string, config?: GitLabConnectionConfig): Promise<void> {

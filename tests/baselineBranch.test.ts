@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary } from '@shared/types'
-import { BranchService, isBaselineBranch } from '../electron/services/branch'
+import { BranchService, isBaselineBranch, resolveRemoteCreator } from '../electron/services/branch'
 import { HealthService } from '../electron/services/health'
 import { NamingService } from '../electron/services/naming'
 import { ProtectionService } from '../electron/services/protection'
@@ -97,6 +97,80 @@ describe('baseline branches stay out of lifecycle scoring', () => {
     expect(feature.state).toBe('grace_expired')
     expect(feature.stale).toBe(true)
     expect(feature.cleanupCandidate).toBe(true)
+  })
+})
+
+describe('resolveRemoteCreator', () => {
+  const commit = (overrides: Record<string, unknown> = {}) => ({
+    id: 'sha-1',
+    short_id: 'sha-1',
+    title: 'first',
+    message: 'first',
+    created_at: '2026-01-01T00:00:00.000Z',
+    authored_date: '2026-01-01T00:00:00.000Z',
+    committed_date: '2026-01-01T00:00:00.000Z',
+    author_name: '李四',
+    author_email: 'li@example.com',
+    committer_name: '李四',
+    committer_email: 'li@example.com',
+    web_url: '',
+    ...overrides
+  })
+
+  it('attributes the branch to its first own commit with high confidence', () => {
+    const { creator } = resolveRemoteCreator(commit() as never, null)
+    expect(creator.name).toBe('李四')
+    expect(creator.email).toBe('li@example.com')
+    expect(creator.confidence).toBe('high')
+  })
+
+  it('uses the forge creation event when the branch has no commits of its own', () => {
+    const { creator } = resolveRemoteCreator(null, {
+      name: '王五',
+      email: 'wang@example.com',
+      username: 'wangwu',
+      createdAt: '2026-02-02T00:00:00.000Z',
+      source: 'event'
+    })
+    expect(creator.name).toBe('王五')
+    expect(creator.email).toBe('wang@example.com')
+    expect(creator.firstCommitAt).toBe('2026-02-02T00:00:00.000Z')
+    expect(creator.confidence).toBe('high')
+  })
+
+  it('keeps the creator name but downgrades confidence when the event has no public email', () => {
+    // GitLab frequently returns an empty public_email, so the name is still
+    // correct while mail delivery is not possible.
+    const { creator } = resolveRemoteCreator(null, {
+      name: '赵六',
+      email: '',
+      username: 'zhaoliu',
+      createdAt: null,
+      source: 'event'
+    })
+    expect(creator.name).toBe('赵六')
+    expect(creator.email).toBe('')
+    expect(creator.confidence).toBe('medium')
+  })
+
+  it('never invents a creator when there are no commits and no creation event', () => {
+    // The reported bug: this used to return the base branch's last committer.
+    const { creator } = resolveRemoteCreator(null, null)
+    expect(creator.name).toBe('Unknown')
+    expect(creator.email).toBe('')
+    expect(creator.confidence).toBe('unknown')
+  })
+
+  it('prefers the first own commit over the creation event, because only the commit carries an email', () => {
+    const { creator } = resolveRemoteCreator(commit({ author_email: 'real@example.com' }) as never, {
+      name: '王五',
+      email: '',
+      username: 'wangwu',
+      createdAt: null,
+      source: 'event'
+    })
+    expect(creator.email).toBe('real@example.com')
+    expect(creator.confidence).toBe('high')
   })
 })
 
