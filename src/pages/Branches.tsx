@@ -15,6 +15,13 @@ import type { BranchSummary, DeleteAuthSession, BranchType } from '@shared/types
 type DeleteTarget = { criteria: { repositoryId: string; name: string; type: BranchType; remote?: string }; session: DeleteAuthSession }
 type IssueFilter = '' | 'stale' | 'grace_period' | 'grace_expired' | 'invalid'
 
+// The header row and every branch row share this exact column template, so the
+// values under 分支创始人 / 类别 / 未提交 / 健康分 line up instead of drifting with
+// the width of the neighbouring cell. Columns: checkbox · state dot · branch
+// name · creator · category · idle days · health · protected · actions.
+const ROW_GRID =
+  'grid grid-cols-[0.875rem_0.375rem_minmax(0,1fr)_6rem_4.5rem_4rem_2.75rem_2.5rem_6.75rem] items-center gap-2'
+
 function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): boolean {
   if (issue === 'stale') return branch.stale
   if (issue === 'grace_period') return branch.state === 'grace_period'
@@ -69,7 +76,7 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
   const creatorName = b.creator.name && b.creator.name !== 'Unknown' ? b.creator.name : ''
   return (
     <div
-      className={`group flex cursor-pointer items-center gap-2 border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
+      className={`group ${ROW_GRID} cursor-pointer border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
         selected ? 'bg-primary/5' : 'hover:bg-surface/60'
       }`}
       onClick={onSelect}
@@ -86,24 +93,26 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
         onChange={onToggle}
       />
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: sc }} />
-      <span className="min-w-0 flex-1 truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
-      {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono font-medium text-canvas-fg">{b.displayName}</span>
+        {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
+      </span>
       <span
-        className="w-24 shrink-0 truncate text-[10px] text-muted"
+        className="truncate text-[10px] text-muted"
         title={[zh ? '分支创始人' : 'Branch creator', creatorName, b.creator.email].filter(Boolean).join(' · ')}
       >
         {creatorName || '—'}
       </span>
-      <span className="shrink-0 text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
-      <span className="shrink-0 tabular-nums text-muted">{b.inactiveDays}d</span>
+      <span className="truncate text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
+      <span className="tabular-nums text-muted">{b.inactiveDays}d</span>
       <span
         className="shrink-0 rounded-full px-1.5 text-[10px] font-semibold tabular-nums"
         style={{ background: `${sc}1A`, color: sc }}
       >
         {b.health.score}
       </span>
-      {protected_ ? <Shield size={11} className="shrink-0 text-info" /> : null}
-      <div className="flex shrink-0 items-center gap-0.5">
+      <span className="flex items-center">{protected_ ? <Shield size={11} className="text-info" /> : null}</span>
+      <div className="flex min-w-0 items-center gap-0.5">
         <button className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:border-primary/40 hover:text-primary" onClick={(e) => { e.stopPropagation(); onView() }} title={zh ? '查看' : 'View'}>
           <Eye size={11} /> {zh ? '查看' : 'View'}
         </button>
@@ -723,15 +732,16 @@ export default function Branches(): JSX.Element {
             </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
           </div>
-          <div className="flex items-center gap-2 border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted">
-            <span className="shrink-0 text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
-            <span className="min-w-0 flex-1 truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
-            <span className="w-24 shrink-0 text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
-            <span className="shrink-0 text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
-            <div className="flex shrink-0 items-center gap-0.5"><span className="text-[10px]">{zh ? '操作' : 'Actions'}</span></div>
+          <div className={`${ROW_GRID} border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted`}>
+            <span aria-hidden="true" />
+            <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
+            <span className="truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
+            <span className="truncate text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
+            <span className="truncate text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
+            <span className="truncate text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
+            <span className="truncate text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
+            <span className="truncate text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
+            <span className="truncate text-[10px]">{zh ? '操作' : 'Actions'}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {filtered.length === 0 ? (

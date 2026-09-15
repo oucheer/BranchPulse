@@ -124,6 +124,37 @@ describe('config import', () => {
     expect(() => port.importFromFile(bogus)).toThrow(/不是 BranchPulse/)
   })
 
+  it('exports every repository, not only the active one', async () => {
+    seedSource()
+    source.update('app_settings', { active_repository_id: 'repo-1' }, 'id = 1')
+    source.insert('repositories', { id: 'repo-2', name: 'second', path: 'gitlab://2', source: 'gitlab', gitlab_project_id: 2, remote_project_path: 'group/second', created_at: '2026-01-02T00:00:00.000Z' })
+    source.insert('branch_naming_rules', { id: 'rule-2', name: 'hotfix/*', pattern: 'hotfix/*', type: 'glob', mode: 'allow', enabled: 1, priority: 1, repository_id: 'repo-2' })
+    source.insert('whitelist', { id: 'wl-2', pattern: 'keep/*', type: 'glob', created_at: '2026-01-02T00:00:00.000Z', repository_id: 'repo-2' })
+    source.insert('monitoring_rules_repo', { repository_id: 'repo-2', enabled: 1, stale_threshold_days: 200, grace_period_days: 30, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, auto_delete_enabled: 0, notify_target: 'self' })
+
+    const target = path.join(workDir, 'multi.json')
+    port.exportToFile(target, {})
+    const bundle = JSON.parse(fs.readFileSync(target, 'utf8')) as Record<string, any>
+
+    expect(new Set(bundle.sections.collections.repositories.map((r: any) => r.id))).toEqual(new Set(['repo-1', 'repo-2']))
+    const exportedRuleIds = bundle.sections.collections.branch_naming_rules.map((r: any) => r.id)
+    expect(exportedRuleIds).toContain('rule-1')
+    expect(exportedRuleIds).toContain('rule-2')
+    expect(new Set(bundle.sections.collections.whitelist.map((r: any) => r.id))).toEqual(new Set(['wl-1', 'wl-2']))
+    expect(bundle.sections.collections.monitoring_rules_repo).toHaveLength(2)
+
+    const fresh = await openStorage('multi-target.db')
+    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    freshPort.importFromFile(target)
+    expect(fresh.all('SELECT id FROM repositories')).toHaveLength(2)
+    const freshRuleIds = fresh.all<Record<string, unknown>>('SELECT id FROM branch_naming_rules').map((r) => String(r.id))
+    expect(freshRuleIds).toContain('rule-1')
+    expect(freshRuleIds).toContain('rule-2')
+    expect(fresh.all('SELECT id FROM whitelist')).toHaveLength(2)
+    expect(fresh.all('SELECT repository_id FROM monitoring_rules_repo')).toHaveLength(2)
+    fresh.close()
+  })
+
   it('warns that credentials must be re-entered on the new machine', async () => {
     seedSource()
     const target = path.join(workDir, 'bundle.json')
