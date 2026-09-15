@@ -9,7 +9,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@shared': fileURLToPath(new URL('./shared/', import.meta.url))
+      '@shared': fileURLToPath(new URL('./shared/', import.meta.url)),
+      '@node': fileURLToPath(new URL('./src-node/', import.meta.url))
     }
   }
 })

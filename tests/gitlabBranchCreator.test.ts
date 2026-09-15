@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { GitLabService } from '../electron/services/gitlab'
+import { GitLabService } from '../src-node/services/gitlab'
 
 /**
  * Locks in the branch-creation attribution contract:

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary, DeleteAuthorization } from '@shared/types'
 import { DeleteBlockLabels } from '@shared/types'
-import { DeletionPolicyEngine } from '../electron/services/deletion'
+import { DeletionPolicyEngine } from '../src-node/services/deletion'
 
 const baseProtection: BranchSummary['protection'] = {
   whitelisted: false,

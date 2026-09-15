@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { NamingRule } from '@shared/types'
-import { baseNamingIssue, globPatternToRegex, matchPattern, NamingService } from '../electron/services/naming'
-import type { StorageService } from '../electron/services/storage'
+import { baseNamingIssue, globPatternToRegex, matchPattern, NamingService } from '../src-node/services/naming'
+import type { StorageService } from '../src-node/services/storage'
 
 const service = new NamingService({} as StorageService)
 

@@ -14,8 +14,8 @@
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["shared/*"],
-      "@electron/*": ["electron/*"]
+      "@node/*": ["src-node/*"]
     }
   },
-  "include": ["electron", "shared", "tests"]
+  "include": ["src-node", "server", "shared", "scripts", "tests"]
 }

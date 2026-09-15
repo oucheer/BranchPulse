@@ -1,14 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-vi.mock('electron', () => ({
-  safeStorage: {
-    isEncryptionAvailable: () => true,
-    encryptString: (value: string) => Buffer.from(value).toString('base64'),
-    decryptString: (value: Buffer) => value.toString('utf8')
-  }
-}))
-
-import { apiBaseUrl, detectRemoteProvider } from '../electron/services/gitlab'
+import { apiBaseUrl, detectRemoteProvider } from '../src-node/services/gitlab'
 
 describe('remote providers', () => {
   it('detects supported platforms from service URLs', () => {
@@ -26,7 +18,7 @@ describe('remote providers', () => {
   })
 
   it('accepts .git suffix in GitHub URLs', async () => {
-    const { GitLabService } = await import('../electron/services/gitlab')
+    const { GitLabService } = await import('../src-node/services/gitlab')
     const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
     const svc = new GitLabService(settings as never)
     // pathSegments is private but we can test via isProjectUrl/listProjects indirectly
@@ -36,7 +28,7 @@ describe('remote providers', () => {
   })
 
   it('GitHub/Gitee API paths use real slashes (not %2F)', async () => {
-    const { GitLabService } = await import('../electron/services/gitlab')
+    const { GitLabService } = await import('../src-node/services/gitlab')
     const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
     const svc = new GitLabService(settings as never)
     const { provider } = (svc as unknown as { resolve: (c?: unknown) => { provider: string } }).resolve({
@@ -68,7 +60,7 @@ describe('report schedule timing', () => {
   }
 
   it('computes daily, weekly, monthly, and one-shot schedules', async () => {
-    const { computeNextReportRunAt } = await import('../electron/services/reportSchedule')
+    const { computeNextReportRunAt } = await import('../src-node/services/reportSchedule')
     expect(new Date(computeNextReportRunAt({ ...base, frequency: 'daily' }, from) ?? '').getHours()).toBe(9)
     expect(new Date(computeNextReportRunAt({ ...base, frequency: 'weekly', weekday: 1 }, from) ?? '').getDate()).toBe(7)
     expect(new Date(computeNextReportRunAt({ ...base, frequency: 'monthly', dayOfMonth: 15 }, from) ?? '').getDate()).toBe(15)

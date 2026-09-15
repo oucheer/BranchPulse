@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ConfigPortService } from '../electron/services/configPort'
-import { StorageService } from '../electron/services/storage'
+import { ConfigPortService } from '../src-node/services/configPort'
+import { StorageService } from '../src-node/services/storage'
 
 let workDir: string
 let source: StorageService

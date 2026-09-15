@@ -1,14 +1,14 @@
-import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 import type { BranchSummary, EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import { logger } from '../utils/logger'
 import { newId, nowIso } from '../utils/ids'
+import { decryptSecret, encryptSecret } from '../utils/secrets'
 
-const PLAIN_PREFIX = 'plain:'
 const OUTLOOK_TIMEOUT_MS = 120_000
 
 export interface EmailIssueRow {
@@ -631,24 +631,12 @@ export class EmailService {
   }
 
   private encrypt(value: string): string {
-    if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.encryptString(value).toString('base64')
-    }
-    logger.warn('safeStorage unavailable; storing email credential obfuscated only')
-    return PLAIN_PREFIX + Buffer.from(value, 'utf8').toString('base64')
+    return encryptSecret(value)
   }
 
   getPassword(): string {
     const encrypted = String(this.storage.get<Record<string, unknown>>('SELECT password_encrypted FROM email_config WHERE id = 1')?.password_encrypted ?? '')
-    if (!encrypted) return ''
-    if (encrypted.startsWith(PLAIN_PREFIX)) {
-      return Buffer.from(encrypted.slice(PLAIN_PREFIX.length), 'base64').toString('utf8')
-    }
-    try {
-      return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
-    } catch {
-      return ''
-    }
+    return decryptSecret(encrypted)
   }
 
   listGroups(): EmailGroup[] {
@@ -701,8 +689,8 @@ export class EmailService {
 
   private async runOutlookScript(script: string, payload?: Record<string, unknown>): Promise<string> {
     if (process.platform !== 'win32') throw new Error('本机 Outlook 发送仅支持 Windows。')
-    const scriptPath = path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.ps1`)
-    const payloadPath = payload ? path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.json`) : ''
+    const scriptPath = path.join(os.tmpdir(), `branchpulse-outlook-${newId()}.ps1`)
+    const payloadPath = payload ? path.join(os.tmpdir(), `branchpulse-outlook-${newId()}.json`) : ''
     if (payload) fs.writeFileSync(payloadPath, Buffer.from(JSON.stringify(payload, null, 2), 'utf8'))
     const args = payload ? [payloadPath] : []
     // Windows PowerShell 5.1 requires UTF-8 BOM to parse non-ASCII content correctly.

@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { shell } from 'electron'
 import type { BranchSummary, ReportRecord, ReportSummary, ScanRun } from '@shared/types'
 import type { StorageService } from './storage'
 import type { BranchService } from './branch'
@@ -10,6 +9,7 @@ import type { EmailSummaryData } from './email'
 import { buildBranchEmailHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
+import { openPath, showItemInFolder } from '../utils/open'
 
 function safeJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string') return fallback
@@ -211,16 +211,16 @@ export class ReportService {
 
   async openReportFolder(): Promise<void> {
     const dir = reportsDir()
-    await shell.openPath(dir)
+    await openPath(dir)
   }
 
   async openReportFile(id: string): Promise<void> {
     const report = this.listReports().find((r) => r.id === id)
     if (report?.path && fs.existsSync(report.path)) {
-      shell.showItemInFolder(report.path)
+      await showItemInFolder(report.path)
       return
     }
-    await shell.openPath(reportsDir())
+    await openPath(reportsDir())
   }
 
   private async writeFile(

@@ -1,9 +1,11 @@
-import { safeStorage } from 'electron'
 import type { GitLabConnectionConfig, GitLabProject, GitLabTestResult } from '@shared/types'
 import type { SettingsService } from './settings'
 import { logger } from '../utils/logger'
+import { decryptSecret, encryptSecret } from '../utils/secrets'
 
-const PLAIN_PREFIX = 'plain:'
+// Credential encryption lives in `utils/secrets` so the backend does not depend
+// on Electron. Re-exported here because repository/settings import it from here.
+export { decryptSecret, encryptSecret }
 
 export interface GitLabBranchDto {
   name: string
@@ -535,22 +537,3 @@ export class GitLabService {
   }
 }
 
-export function encryptSecret(value: string): string {
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.encryptString(value).toString('base64')
-  }
-  logger.warn('safeStorage unavailable; storing GitLab credential obfuscated only')
-  return PLAIN_PREFIX + Buffer.from(value, 'utf8').toString('base64')
-}
-
-export function decryptSecret(value: string | undefined | null): string {
-  if (!value) return ''
-  if (value.startsWith(PLAIN_PREFIX)) {
-    return Buffer.from(value.slice(PLAIN_PREFIX.length), 'base64').toString('utf8')
-  }
-  try {
-    return safeStorage.decryptString(Buffer.from(value, 'base64'))
-  } catch {
-    return ''
-  }
-}

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary } from '@shared/types'
-import { BranchService, isBaselineBranch, resolveRemoteCreator } from '../electron/services/branch'
-import { HealthService } from '../electron/services/health'
-import { NamingService } from '../electron/services/naming'
-import { ProtectionService } from '../electron/services/protection'
+import { BranchService, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
+import { HealthService } from '../src-node/services/health'
+import { NamingService } from '../src-node/services/naming'
+import { ProtectionService } from '../src-node/services/protection'
 
 const REPO_ID = 'repo-1'
 const LONG_AGO = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString()

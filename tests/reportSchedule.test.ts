@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ReportSchedule } from '@shared/types'
-import { computeNextReportRunAt } from '../electron/services/reportSchedule'
+import { computeNextReportRunAt } from '../src-node/services/reportSchedule'
 
 function schedule(overrides: Partial<ReportSchedule> = {}): ReportSchedule {
   return {

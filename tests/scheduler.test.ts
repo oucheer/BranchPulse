@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ScanRun, SchedulerJob } from '@shared/types'
-import type { AuditService } from '../electron/services/audit'
-import type { MonitoringService } from '../electron/services/monitoring'
-import { computeNextRunAt, SchedulerService } from '../electron/services/scheduler'
-import type { StorageService } from '../electron/services/storage'
+import type { AuditService } from '../src-node/services/audit'
+import type { MonitoringService } from '../src-node/services/monitoring'
+import { computeNextRunAt, SchedulerService } from '../src-node/services/scheduler'
+import type { StorageService } from '../src-node/services/storage'
 
 function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
   return {

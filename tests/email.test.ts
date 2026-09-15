@@ -4,7 +4,7 @@ import {
   processingDeadlineNotice,
   type EmailIssueRow,
   type EmailSummaryData
-} from '../electron/services/email'
+} from '../src-node/services/email'
 
 const row: EmailIssueRow = {
   repository: 'demo',

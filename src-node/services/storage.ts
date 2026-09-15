@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import initSqlJs, { type Database } from 'sql.js'
-import { dbFile } from '../utils/paths'
+import { appRoot, dbFile } from '../utils/paths'
 import { newId, nowIso } from '../utils/ids'
 import { logger } from '../utils/logger'
 
@@ -319,17 +319,21 @@ export class StorageService {
   }
 
   async init(): Promise<void> {
-    const require = createRequire(path.join(__dirname, 'index.js'))
+    // Resolve the wasm binary from the installed package first; fall back to a
+    // copy placed next to the compiled output (used by the bundled runtime).
+    const require = createRequire(path.join(appRoot(), 'package.json'))
     let wasmBinary: ArrayBuffer | null = null
     try {
       const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
       wasmBinary = fs.readFileSync(wasmPath) as unknown as ArrayBuffer
     } catch (err) {
       logger.warn(`sql.js wasm not resolved from node_modules: ${String(err)}`)
-      const packagedWasmPath = path.join(__dirname, 'sql-wasm.wasm')
-      if (fs.existsSync(packagedWasmPath)) {
-        wasmBinary = fs.readFileSync(packagedWasmPath) as unknown as ArrayBuffer
-        logger.info('Loaded sql.js wasm from packaged runtime.')
+      for (const candidate of [path.join(__dirname, 'sql-wasm.wasm'), path.join(appRoot(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')]) {
+        if (fs.existsSync(candidate)) {
+          wasmBinary = fs.readFileSync(candidate) as unknown as ArrayBuffer
+          logger.info(`Loaded sql.js wasm from ${candidate}.`)
+          break
+        }
       }
     }
     const SQL = await initSqlJs({ wasmBinary: wasmBinary ?? undefined })

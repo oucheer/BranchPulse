@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { buildBranchEmailHtml, EmailService, type EmailIssueRow, type EmailSummaryData } from '../electron/services/email'
+import { buildBranchEmailHtml, EmailService, type EmailIssueRow, type EmailSummaryData } from '../src-node/services/email'
 
 type PreviewLang = 'zh' | 'en'
 
