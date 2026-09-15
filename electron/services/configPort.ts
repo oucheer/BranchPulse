@@ -141,6 +141,22 @@ export class ConfigPortService {
       }
     }
 
+    // Credentials never travel inside the bundle by design, so on a fresh
+    // machine the imported repositories exist but cannot authenticate yet.
+    // Say so explicitly, otherwise it looks like the import silently failed.
+    const lockedRepos = this.storage
+      .all<Record<string, unknown>>(
+        "SELECT name FROM repositories WHERE source <> 'local' AND (remote_api_key IS NULL OR remote_api_key = '')"
+      )
+      .map((row) => String(row.name))
+    if (lockedRepos.length > 0) {
+      warnings.push(`以下远程仓库的 API Token 不会随配置文件迁移，请在本机重新填写后再扫描：${lockedRepos.join('、')}`)
+    }
+    const globalKey = this.storage.all<Record<string, unknown>>('SELECT gitlab_api_key FROM app_settings WHERE id = 1')[0]?.gitlab_api_key
+    if (!String(globalKey ?? '')) {
+      warnings.push('全局 Git API Token 不会随配置文件迁移，请在设置页重新填写。')
+    }
+
     return {
       applied,
       warnings,

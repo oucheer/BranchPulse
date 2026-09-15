@@ -124,6 +124,21 @@ describe('config import', () => {
     expect(() => port.importFromFile(bogus)).toThrow(/不是 BranchPulse/)
   })
 
+  it('warns that credentials must be re-entered on the new machine', async () => {
+    seedSource()
+    const target = path.join(workDir, 'bundle.json')
+    port.exportToFile(target, {})
+
+    const fresh = await openStorage('fresh-credentials.db')
+    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const summary = freshPort.importFromFile(target)
+    const text = summary.warnings.join(' ')
+    expect(text).toContain('API Token')
+    expect(text).toContain('demo')
+    expect(text).toContain('全局 Git API Token')
+    fresh.close()
+  })
+
   it('drops cached branches that point at repositories missing from the bundle', async () => {
     seedSource()
     const target = path.join(workDir, 'bundle.json')
