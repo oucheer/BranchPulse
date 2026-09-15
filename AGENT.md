@@ -29,6 +29,7 @@
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
 - 设置页必须保留「配置导入 / 导出」（`electron/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
+- 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。
 - 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
 - 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 BranchPulse 的统一文案。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
