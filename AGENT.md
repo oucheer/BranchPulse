@@ -104,3 +104,31 @@
 - 附件 HTML 报告（`buildBranchEmailHtml`）的三个明细列表按仓库分组渲染：组标题条（`仓库：xxx`）在最前面，表内不再保留「仓库」列。分组逻辑集中在 `groupedTables()`，新增列表复用它，不要退回逐行仓库列。创始人邮件正文表格（`scenarioRowsTable`）仍保留仓库列，两者是不同载体，不要互相「统一」掉。
 - 附件 HTML 里的分支名可能很长（`feature/...`），必须用 `table-layout:fixed` + `<colgroup>` 固定列宽 + `word-break:break-all`，否则表格会横向撑出外层白色卡片。渲染分支名的单元格统一走 `branchCell()`。
 - 邮件/报告排版改动属于黑盒可见产物，验证方式：`.\node_modules\.bin\vite-node scripts\preview-emails.ts` 生成 `out/email-previews/*.html`，然后用 `rg -F` 检查分组标题、表头不含「仓库」、`table-layout:fixed` 是否命中。`scripts/preview-emails.ts` 里保留了一条超长分支名样例，专门用于复现溢出回归。
+
+## 远程分支创始人归因
+
+- 分支创始人**绝不能**兜底成基准分支最后一次提交的作者。历史上 `analyzeGitLabBranch()` 用「默认分支最近 500 个 SHA 做差集」推断创始人，新建且未提交的分支差集为空，于是回填了基准分支的最后提交人。这不只是显示错误：`electron/services/email.ts` 按 `creatorEmail` 分组发信，`monitoring.ts` 不校验 `confidence`，**邮件会真的发给无关的人**。
+- 归因顺序固定为三级，集中在 `resolveRemoteCreator()`（`electron/services/branch.ts`，已导出以便单测）：
+  1. 分支第一个自有提交 → `confidence: high`，带邮箱，权威来源；
+  2. 平台的分支创建事件（仅 GitLab）→ 有邮箱 `high`，无邮箱 `medium`（名字对但**不可发信**）；
+  3. 都没有 → `unknown`，宁可不显示也不猜。
+- `confidence !== high` 或邮箱为空时，创始人邮件必须跳过。`medium` + 无邮箱在分支详情抽屉显示「未公开邮箱」说明卡，`unknown` 显示「无法确定分支创始人」说明卡。
+- 分支「自有提交」用 `compareCommits(projectId, defaultBranch, branchName)` 获取，**索引 0 就是分支第一个自有提交**（GitHub `/compare/base...head` 与 GitLab `/repository/compare?from=&to=` 都是 oldest-first）。不要退回本地差集启发式：差集分不清「分支没有提交」和「基准分支提交超出抓取窗口」两种情况。
+- GitLab 的 `/projects/:id/events?action=pushed` 是**唯一**能查到「无提交分支的创建人」的接口：`push_data.action === "created" && push_data.ref_type === "branch"`，`commit_count` 可以是 0。GitHub REST **没有**等价端点（`CreateEvent` 不出现在 `/repos/:o/:r/events`，实测 3 个仓库 100 条事件为 0 条），所以 `listBranchCreators()` 对非 GitLab 直接返回空 Map 且**不发请求**。
+- GitLab 事件的三个已知限制，不要当成 bug：① `author.public_email` 经常为空（实测 8 个创建者里 7 个为空）；② 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；③ 一次扫描只请求一次，不要按分支循环调 events。
+- 归因语义变更时必须同时 bump 分支缓存 key（`v3` → `v4`，`electron/services/branch.ts` 的 `cacheContentKey`），否则库里旧快照会继续返回错误创始人。
+
+## Git 工作流
+
+- **提交前先确认当前分支**：`git rev-parse --abbrev-ref HEAD`。本项目多次出现 HEAD 被切到 `pantum` 而非 `main`，导致 commit 落在错误分支上。发现错位后用 `git checkout main` + `git merge --ff-only <branch>` 归位（提交已在远程 `pantum` 上时也能快进），不要用 rebase 改写已推送历史。
+- 用户要求「推送到远程 + tag 最新 commit」时，先 `git log --oneline <tag>..HEAD` 确认 tag 是否落后，再 `git tag -f V0.1.x <sha>` 并 `git push origin main --follow-tags`（或 `git push -f origin V0.1.x`）。
+- **绝不要按进程名批量杀 `BranchPulse.exe` / `electron.exe`**。用户可能同时开着自己的实例，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里的 `--user-data-dir` 是否指向 `.tmp-*` 冒烟目录，或直接用 `scripts\run-smoke.ps1` 打印的 PID 加 `taskkill /PID <pid> /T`。
+- `npm run package` 前必须先确认没有实例占用 `release\win-unpacked\`：`Get-CimInstance Win32_Process -Filter "Name='BranchPulse.exe'"` 看 `CommandLine`，指向 `release\win-unpacked` 的才是需要退出的，`.tmp-*\userdata` 的是冒烟实例。
+- 工作区长期存在几个无关未跟踪文件（`BranchPulse-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
+
+## 定时调度
+
+- `scheduler_jobs` 是**全局表**，`listJobs()` 不带仓库过滤，`tick()` 每 30s 让所有 `enabled` 任务运行。因此调度页**不能**按 `activeRepositoryId` 过滤显示，否则会出现「任务在别处轮询发邮件但 UI 完全看不到」。当前实现：显示全部任务、按「本仓库优先」排序、非当前仓库的任务用 `text-warn` 高亮仓库名。
+- 托盘「暂停监控」必须作用于全部任务（`setAllEnabled()`），只改第一个 enabled 任务会让其余任务继续发信。
+- 「删除全部定时任务」走 `deleteAllJobs()`：`DELETE FROM scheduler_jobs WHERE 1 = 1` + 审计 `scheduler_jobs_deleted_all`，UI 侧必须用 `ConfirmCheckbox` 二次确认（未勾选时确认按钮 disabled）。
+- 配置导入会整表带入别的机器的 `scheduler_jobs`（`configPort.ts`），`pruneOrphans()` 只在仓库不存在时清理，所以跨机导入后残留任务需要用户手动一键删除——这是该功能存在的理由。
