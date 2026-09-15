@@ -732,18 +732,18 @@ export default function Branches(): JSX.Element {
             </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
           </div>
-          <div className={`${ROW_GRID} border-b border-line bg-surface-elevated/50 px-3 py-1.5 text-[10px] text-muted`}>
-            <span aria-hidden="true" />
-            <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
-            <span className="truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
-            <span className="truncate text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
-            <span className="truncate text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
-            <span className="truncate text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
-            <span className="truncate text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
-            <span className="truncate text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
-            <span className="truncate text-[10px]">{zh ? '操作' : 'Actions'}</span>
-          </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className={`${ROW_GRID} sticky top-0 z-10 border-b border-line bg-surface-elevated px-3 py-1.5 text-[10px] text-muted`}>
+              <span aria-hidden="true" />
+              <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
+              <span className="truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
+              <span className="truncate text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
+              <span className="truncate text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
+              <span className="truncate text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
+              <span className="truncate text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>
+              <span className="truncate text-[10px]" title={zh ? '受保护分支标记' : 'Protected branch marker'}>{zh ? '保护' : 'Prot'}</span>
+              <span className="truncate text-[10px]">{zh ? '操作' : 'Actions'}</span>
+            </div>
             {filtered.length === 0 ? (
               <div className="py-10 text-center">
                 <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
