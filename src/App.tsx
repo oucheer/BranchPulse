@@ -51,7 +51,6 @@ export default function App(): JSX.Element {
   const splashParticlesEnabled = isEffectOn(effectSettings, 'particleSplash')
   const location = useLocation()
   const navigate = useNavigate()
-  const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
   const [splashDone, setSplashDone] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
@@ -71,13 +70,12 @@ export default function App(): JSX.Element {
   }, [effectsEnabled])
 
   useEffect(() => {
-    if (desktopAvailable) void refresh()
-  }, [desktopAvailable, refresh])
+    void refresh()
+  }, [refresh])
 
   useEffect(() => {
-    if (!desktopAvailable) return
     return window.branchpulse.onNavigate((route) => navigate(route))
-  }, [desktopAvailable, navigate])
+  }, [navigate])
 
   useEffect(() => {
     const root = document.documentElement
@@ -98,19 +96,6 @@ export default function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.style.colorScheme = settings.backgroundTheme
   }, [settings.backgroundTheme])
-
-  if (!desktopAvailable) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-canvas">
-        <div className="text-center">
-          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
-          <div className="text-sm text-muted">
-            BranchPulse is a desktop application. Launch the installed app instead of opening this URL in a browser.
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   const showSplash = !splashDone
   if (showSplash && !startupError) {

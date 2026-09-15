@@ -12,8 +12,16 @@ import {
   Upload
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, Toggle } from '../components/ui'
+import { Badge, Card, Modal, Toggle } from '../components/ui'
+import FolderPicker from '../components/FolderPicker'
 import type { AppSettings, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
+
+/** Mirrors the server-side file name stamp used for exported config bundles. */
+function configDateStamp(): string {
+  const now = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+}
 
 export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
@@ -46,6 +54,8 @@ export default function Settings(): JSX.Element {
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
+  const [portPicker, setPortPicker] = useState<'export' | 'import' | null>(null)
+  const [pendingImport, setPendingImport] = useState('')
   useEffect(() => {
     setDraft(settings)
   }, [settings])
@@ -139,10 +149,13 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const exportConfig = async (): Promise<void> => {
+  // The desktop build opened native save/open dialogs and confirmed the import
+  // overwrite with a message box inside the main process. The web build collects
+  // the same choices in the page, with the identical wording.
+  const exportConfig = async (filePath: string): Promise<void> => {
     setPortBusy('export')
     try {
-      const result = await useAppStore.getState().exportConfig()
+      const result = await useAppStore.getState().exportConfig(filePath)
       if (!result.ok) {
         if (result.error) toast(result.error, 'error')
         return
@@ -155,10 +168,10 @@ export default function Settings(): JSX.Element {
     }
   }
 
-  const importConfig = async (): Promise<void> => {
+  const importConfig = async (filePath: string): Promise<void> => {
     setPortBusy('import')
     try {
-      const result = await useAppStore.getState().importConfig()
+      const result = await useAppStore.getState().importConfig(filePath)
       if (!result.ok) {
         if (result.error) toast(result.error, 'error')
         return
@@ -204,24 +217,28 @@ export default function Settings(): JSX.Element {
               </div>
             </div>
             <div className="space-y-3 border-t border-line pt-4">
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <Badge tone="default">桌面版专有</Badge>
+                <span>以下开关仅对桌面版生效，Web 版保留设置项、保存值不丢弃。</span>
+              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">{tr('trayEnabled')}</div>
-                  <div className="text-xs text-muted">关闭时驻留系统托盘，继续运行</div>
+                  <div className="text-xs text-muted">关闭时驻留系统托盘，继续运行（桌面版专有）</div>
                 </div>
                 <Toggle checked={draft.trayEnabled} onChange={(v) => setDraft({ ...draft, trayEnabled: v })} />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">启动时最小化</div>
-                  <div className="text-xs text-muted">启动时隐藏到托盘</div>
+                  <div className="text-xs text-muted">启动时隐藏到托盘（桌面版专有）</div>
                 </div>
                 <Toggle checked={draft.launchMinimized} onChange={(v) => setDraft({ ...draft, launchMinimized: v })} />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-canvas-fg">随 Windows 启动</div>
-                  <div className="text-xs text-muted">登录系统时自动启动</div>
+                  <div className="text-xs text-muted">登录系统时自动启动（桌面版专有）</div>
                 </div>
                 <Toggle checked={draft.startWithWindows} onChange={(v) => setDraft({ ...draft, startWithWindows: v })} />
               </div>
@@ -370,15 +387,66 @@ export default function Settings(): JSX.Element {
             API Token、邮箱密码等敏感凭据不会写入配置文件；导入时保留本机已保存的凭据，不会被覆盖。
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-            <button className="btn btn-primary" disabled={portBusy !== null} onClick={() => void exportConfig()}>
+            <button className="btn btn-primary" disabled={portBusy !== null} onClick={() => setPortPicker('export')}>
               <Download size={14} /> {portBusy === 'export' ? '导出中…' : '导出配置'}
             </button>
-            <button className="btn" disabled={portBusy !== null} onClick={() => void importConfig()}>
+            <button className="btn" disabled={portBusy !== null} onClick={() => setPortPicker('import')}>
               <Upload size={14} /> {portBusy === 'import' ? '导入中…' : '导入配置'}
             </button>
           </div>
         </Card>
       </div>
+
+      <FolderPicker
+        open={portPicker === 'export'}
+        mode="save"
+        initialPath=""
+        defaultFileName={`branchpulse-config-${configDateStamp()}.json`}
+        confirmLabel="导出"
+        onClose={() => setPortPicker(null)}
+        onSelect={(filePath) => {
+          setPortPicker(null)
+          void exportConfig(filePath)
+        }}
+      />
+      <FolderPicker
+        open={portPicker === 'import'}
+        mode="file"
+        initialPath=""
+        extensions={['json']}
+        onClose={() => setPortPicker(null)}
+        onSelect={(filePath) => {
+          setPortPicker(null)
+          setPendingImport(filePath)
+        }}
+      />
+      <Modal
+        open={pendingImport !== ''}
+        title="导入配置"
+        onClose={() => setPendingImport('')}
+        footer={
+          <>
+            <button className="btn" onClick={() => setPendingImport('')}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const filePath = pendingImport
+                setPendingImport('')
+                void importConfig(filePath)
+              }}
+            >
+              覆盖导入
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm text-muted">
+          <p className="font-medium text-canvas-fg">导入将覆盖当前的规则、设置、邮箱分组、监控配置和仓库连接信息。</p>
+          <p className="text-xs">API Token、邮箱密码等敏感信息不会从配置文件写入，本机已保存的凭据保持不变。此操作无法撤销。</p>
+        </div>
+      </Modal>
     </div>
   )
 }

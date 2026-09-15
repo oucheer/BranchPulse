@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { FolderOpen, FolderDown, Trash2, HardDrive } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState } from '../components/ui'
+import FolderPicker from '../components/FolderPicker'
 import { timeAgo } from '../lib/format'
 import type { BackupRecord } from '@shared/types'
 
@@ -17,6 +18,8 @@ export default function Backups(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const [folderPath, setFolderPath] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerStart, setPickerStart] = useState('')
 
   const startBackup = async (): Promise<void> => {
     setBusy(true)
@@ -33,8 +36,11 @@ export default function Backups(): JSX.Element {
 
   const chooseFolder = async (): Promise<void> => {
     try {
+      // The desktop build opened a native dialog here. The web build asks the
+      // backend for the default backup folder and opens the in-page picker.
       const selected = await window.branchpulse.selectBackupFolder()
-      if (selected) setFolderPath(selected)
+      setPickerStart(folderPath || selected)
+      setPickerOpen(true)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
@@ -125,6 +131,17 @@ export default function Backups(): JSX.Element {
           ))}
         </div>
       )}
+
+      <FolderPicker
+        open={pickerOpen}
+        title={tr('pickFolderTitle')}
+        initialPath={pickerStart}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(selected) => {
+          setFolderPath(selected)
+          setPickerOpen(false)
+        }}
+      />
     </div>
   )
 }

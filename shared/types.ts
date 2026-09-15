@@ -359,6 +359,35 @@ export interface AuditExportResult {
   error?: string
 }
 
+export interface FolderEntry {
+  name: string
+  path: string
+}
+
+/**
+ * One directory listing served to the in-page folder picker, the web
+ * replacement for the native `dialog.showOpenDialog`.
+ */
+export interface FolderListing {
+  /** Current directory (absolute), or '' when only the roots are listed. */
+  path: string
+  /** Parent directory, or '' when already at a root. */
+  parent: string
+  /** Immediate sub directories, sorted by name. */
+  entries: FolderEntry[]
+  /** Files in the directory; only filled when `includeFiles` is requested. */
+  files: FolderEntry[]
+  /** Quick locations plus drives/volumes, for one-click navigation. */
+  roots: FolderEntry[]
+}
+
+export interface FolderListingOptions {
+  /** Include files, used by the "pick a config file" picker. */
+  includeFiles?: boolean
+  /** Only list files with these extensions (lower case, no dot). */
+  extensions?: string[]
+}
+
 export interface AppSettings {
   theme: ThemeMode
   colorTheme: ColorTheme
@@ -557,10 +586,15 @@ export interface BranchApi {
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
-  exportAuditLogs(format: 'csv' | 'json' | 'txt'): Promise<AuditExportResult>
+  exportAuditLogs(format: 'csv' | 'json' | 'txt', directory?: string): Promise<AuditExportResult>
   listBackups(): Promise<BackupRecord[]>
   startBackup(options?: BackupOptions): Promise<BackupRecord>
   deleteBackup(id: string): Promise<void>
+  /**
+   * Returns the folder the backup should default to. The desktop build opened a
+   * native dialog here; the web build asks the in-page folder picker instead and
+   * only uses this value as its starting point.
+   */
   selectBackupFolder(): Promise<string>
   openBackupFolder(path: string): Promise<void>
   listEmailGroups(): Promise<EmailGroup[]>
@@ -570,8 +604,14 @@ export interface BranchApi {
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
   getAppVersion(): Promise<string>
-  exportConfig(extras?: ConfigExtras): Promise<ConfigExportResult>
-  importConfig(confirmReplace?: boolean): Promise<ConfigImportResult>
+  /** `filePath` is picked in the page; without it the file lands in the data directory. */
+  exportConfig(extras?: ConfigExtras, filePath?: string): Promise<ConfigExportResult>
+  /**
+   * `target` is the config file path picked in the page. The desktop build took
+   * a "confirm replace" flag here because it owned the confirmation dialog; in
+   * the web build the confirmation is rendered in the page before this is called.
+   */
+  importConfig(target?: boolean | string): Promise<ConfigImportResult>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

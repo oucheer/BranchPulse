@@ -1,6 +1,7 @@
 import { Download, ScrollText } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState } from '../components/ui'
+import FolderPicker from '../components/FolderPicker'
 import { useState } from 'react'
 import { timeAgo } from '../lib/format'
 
@@ -12,6 +13,7 @@ export default function Audit(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [exporting, setExporting] = useState(false)
+  const [pendingFormat, setPendingFormat] = useState<'csv' | 'json' | 'txt' | null>(null)
 
   const repoNames = new Map(repositories.map((r) => [r.id, r.name]))
   // Global actions (report schedules, emails, settings) are not repository-scoped and must
@@ -96,21 +98,27 @@ export default function Audit(): JSX.Element {
     return parts.filter(Boolean).join(' · ') || '应用操作已完成'
   }
 
-  const exportLogs = async (format: 'csv' | 'json' | 'txt'): Promise<void> => {
+  const exportLogs = async (format: 'csv' | 'json' | 'txt', directory: string): Promise<void> => {
     setExporting(true)
     try {
-      const result = await window.branchpulse.exportAuditLogs(format)
+      const result = await window.branchpulse.exportAuditLogs(format, directory)
       if (!result.ok) {
         toast(result.error || '审计日志导出失败', 'error')
         return
       }
-      toast(`已导出 ${result.count} 条审计日志`, 'success')
+      toast(`已导出 ${result.count} 条审计日志：${result.path}`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setExporting(false)
     }
+  }
+
+  // The desktop build popped a native "select folder" dialog; the web build
+  // collects the same choice in the page before writing the file.
+  const chooseExportFolder = (format: 'csv' | 'json' | 'txt'): void => {
+    setPendingFormat(format)
   }
 
   return (
@@ -121,13 +129,13 @@ export default function Audit(): JSX.Element {
           <div className="text-xs text-muted">{visibleAudit.length} {tr('entries')}</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn" disabled={exporting} onClick={() => void exportLogs('csv')}>
+          <button className="btn" disabled={exporting} onClick={() => chooseExportFolder('csv')}>
             <Download size={14} /> 导出 CSV
           </button>
-          <button className="btn" disabled={exporting} onClick={() => void exportLogs('txt')}>
+          <button className="btn" disabled={exporting} onClick={() => chooseExportFolder('txt')}>
             <Download size={14} /> 导出 TXT
           </button>
-          <button className="btn" disabled={exporting} onClick={() => void exportLogs('json')}>
+          <button className="btn" disabled={exporting} onClick={() => chooseExportFolder('json')}>
             <Download size={14} /> 导出 JSON
           </button>
         </div>
@@ -168,6 +176,17 @@ export default function Audit(): JSX.Element {
           </table>
         </div>
       )}
+
+      <FolderPicker
+        open={pendingFormat !== null}
+        initialPath=""
+        onClose={() => setPendingFormat(null)}
+        onSelect={(directory) => {
+          const format = pendingFormat
+          setPendingFormat(null)
+          if (format) void exportLogs(format, directory)
+        }}
+      />
     </div>
   )
 }

@@ -612,9 +612,9 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
     listBackups: async () => backup.list(),
     startBackup: (backupOptions = {}) => backup.start(backupOptions),
     deleteBackup: async (id) => backup.delete(id),
-    // The web build has no native directory dialog; the folder picker UI calls
-    // `/api/fs/folders` instead and only falls back here for the default path.
-    selectBackupFolder: async () => '',
+    // The web build has no native directory dialog: the in-page folder picker
+    // calls `/api/fs/folders` instead and uses this value as its start folder.
+    selectBackupFolder: async () => ensureDir(path.join(dataDir(), 'backups')),
     openBackupFolder: async (backupPath) => {
       const target = backupPath ? path.dirname(backupPath) : dataDir()
       await openPath(target)

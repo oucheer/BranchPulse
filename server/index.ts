@@ -15,7 +15,9 @@ async function main(): Promise<void> {
   let staticDir: string | undefined
   let rendererMiddleware: Middleware | undefined
   let viteServer: { close: () => Promise<void> } | null = null
-  let server: BranchPulseServer | null = null
+  // Assigned before `bootstrap` so the progress callback always has a target,
+  // even for a scan triggered while the socket is still binding.
+  const serverRef: { current: BranchPulseServer | null } = { current: null }
 
   if (DEV) {
     // Dev keeps a single origin: Vite runs in middleware mode so HMR and the
@@ -35,14 +37,15 @@ async function main(): Promise<void> {
   }
 
   const runtime = await bootstrap({
-    onProgress: (progress) => server?.broadcastProgress(progress)
+    onProgress: (progress) => serverRef.current?.broadcastProgress(progress)
   })
 
-  server = createServer({
+  const server = createServer({
     api: runtime.api,
     ...(staticDir ? { staticDir } : {}),
     ...(rendererMiddleware ? { rendererMiddleware } : {})
   })
+  serverRef.current = server
 
   const address = await server.listen(PORT, HOST)
   const url = `http://${address.host === '0.0.0.0' ? 'localhost' : address.host}:${address.port}`

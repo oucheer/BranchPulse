@@ -5,6 +5,7 @@ import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
 import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
+import { downloadReportFile } from '../lib/download'
 import type { ReportScheduleFrequency } from '@shared/types'
 
 const formats = ['html', 'csv']
@@ -127,6 +128,14 @@ export default function Reports(): JSX.Element {
   const openReportFile = async (id: string): Promise<void> => {
     try {
       await window.branchpulse.openReportFile(id)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  const downloadReport = async (id: string): Promise<void> => {
+    try {
+      await downloadReportFile(id)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
@@ -272,6 +281,9 @@ export default function Reports(): JSX.Element {
               <div className="flex items-center gap-1">
                 <button className="btn px-2 text-[11px]" onClick={() => void openReportFile(report.id)}>
                   <FolderOpen size={12} /> 打开
+                </button>
+                <button className="btn px-2 text-[11px]" onClick={() => void downloadReport(report.id)}>
+                  <Download size={12} /> {tr('download')}
                 </button>
                 {formats.filter((f) => f !== report.format).map((f) => (
                   <button key={f} className="btn px-2 text-[11px]" onClick={() => void exportReport(report.id, f)}>

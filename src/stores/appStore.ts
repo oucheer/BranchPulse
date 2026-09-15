@@ -61,8 +61,8 @@ interface AppState {
   setLanguage: (language: Language) => void
   setEffectSettings: (partial: Partial<EffectSettings>) => void
   setActiveRepositoryId: (repositoryId: string | null) => Promise<void>
-  exportConfig: () => Promise<ConfigExportResult>
-  importConfig: () => Promise<ConfigImportResult>
+  exportConfig: (filePath?: string) => Promise<ConfigExportResult>
+  importConfig: (filePath: string) => Promise<ConfigImportResult>
   setScanning: (scanning: boolean) => void
   setProgress: (progress: ScanProgress | null) => void
   toast: (message: string, level?: Toast['level']) => void
@@ -136,7 +136,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   refresh: async () => {
     try {
       if (!window.branchpulse) {
-        set({ startupError: 'BranchPulse desktop bridge is unavailable. Launch the installed app instead of opening this URL in a browser.' })
+        set({ startupError: 'BranchPulse 后端不可用：请通过 npm run dev 或 npm start 启动服务后访问本页面。' })
         return
       }
       const snapshot = await window.branchpulse.init()
@@ -210,16 +210,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   setScanning: (scanning) => set({ scanning }),
   setProgress: (progress) => set({ progress }),
 
-  exportConfig: async () => {
+  /** `filePath` comes from the in-page picker (the desktop build used a save dialog). */
+  exportConfig: async (filePath?: string) => {
     const result = await window.branchpulse.exportConfig({
       effects: { ...serializeEffectSettings() },
       language: get().language
-    })
+    }, filePath)
     return result
   },
 
-  importConfig: async () => {
-    const result = await window.branchpulse.importConfig(true)
+  /**
+   * `filePath` comes from the in-page picker. The desktop build confirmed the
+   * overwrite with a native message box inside the main process; the web build
+   * asks the page to confirm before calling this.
+   */
+  importConfig: async (filePath: string) => {
+    const result = await window.branchpulse.importConfig(filePath)
     if (!result.ok) return result
     if (typeof result.language === 'string') {
       localStorage.setItem('branchpulse:language', result.language)

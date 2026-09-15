@@ -1,31 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { FolderEntry, FolderListing, FolderListingOptions } from '@shared/types'
 import { userDataDir, dataDir, reportsDir } from './paths'
 
-export interface FolderEntry {
-  name: string
-  path: string
-}
-
-export interface FolderListing {
-  /** Current directory (absolute) or '' when the roots are being listed. */
-  path: string
-  /** Parent directory, or '' when already at a root. */
-  parent: string
-  /** Immediate sub directories, sorted by name. */
-  entries: FolderEntry[]
-  /** Files in the directory; only filled when `includeFiles` is requested. */
-  files: FolderEntry[]
-  roots: FolderEntry[]
-}
-
-export interface FolderListingOptions {
-  /** Include files, used by the "pick a config file" dialog. */
-  includeFiles?: boolean
-  /** Only list files with these extensions (lower case, no dot). */
-  extensions?: string[]
-}
+export type { FolderEntry, FolderListing, FolderListingOptions }
 
 function safeStat(target: string): fs.Stats | null {
   try {
