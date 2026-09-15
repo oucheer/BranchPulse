@@ -194,15 +194,13 @@ function buildTrayMenu(showWindow: () => void): Electron.Menu {
     {
       label: labels.pause,
       click: () => {
-        const job = services?.scheduler.listJobs().find((j) => j.enabled)
-        if (job) services?.scheduler.saveJob({ ...job, enabled: false })
+        services?.scheduler.setAllEnabled(false)
       }
     },
     {
       label: labels.resume,
       click: () => {
-        const job = services?.scheduler.listJobs().find((j) => !j.enabled)
-        if (job) services?.scheduler.saveJob({ ...job, enabled: true })
+        services?.scheduler.setAllEnabled(true)
       }
     },
     { type: 'separator' },

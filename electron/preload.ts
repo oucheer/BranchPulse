@@ -60,6 +60,7 @@ const api: BranchApi = {
   listJobs: () => ipcRenderer.invoke('branchpulse:listJobs'),
   saveJob: (job: Partial<SchedulerJob> & { id?: string }) => ipcRenderer.invoke('branchpulse:saveJob', job),
   deleteJob: (id: string) => ipcRenderer.invoke('branchpulse:deleteJob', id),
+  deleteAllJobs: () => ipcRenderer.invoke('branchpulse:deleteAllJobs'),
   runSchedulerJob: (id: string) => ipcRenderer.invoke('branchpulse:runSchedulerJob', id),
   listRuns: () => ipcRenderer.invoke('branchpulse:listRuns'),
   calendarRuns: () => ipcRenderer.invoke('branchpulse:calendarRuns'),

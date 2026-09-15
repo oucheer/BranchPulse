@@ -532,6 +532,7 @@ export interface BranchApi {
   listJobs(): Promise<SchedulerJob[]>
   saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
   deleteJob(id: string): Promise<SchedulerJob[]>
+  deleteAllJobs(): Promise<SchedulerJob[]>
   runSchedulerJob(id: string): Promise<ScanRun>
   listRuns(): Promise<ScanRun[]>
   calendarRuns(): Promise<{ date: string; status: ScanStatus; runs: number }[]>

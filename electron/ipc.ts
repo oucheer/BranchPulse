@@ -456,6 +456,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   ipcMain.handle('branchpulse:listJobs', (): SchedulerJob[] => scheduler.listJobs())
   ipcMain.handle('branchpulse:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] => scheduler.saveJob(job))
   ipcMain.handle('branchpulse:deleteJob', (_e, id: string): SchedulerJob[] => scheduler.deleteJob(id))
+  ipcMain.handle('branchpulse:deleteAllJobs', (): SchedulerJob[] => scheduler.deleteAllJobs())
   ipcMain.handle('branchpulse:runSchedulerJob', (_e, id: string): Promise<ScanRun> => scheduler.runSchedulerJob(id))
   ipcMain.handle('branchpulse:listRuns', (): ScanRun[] => {
     return listScanRuns(null, 100)

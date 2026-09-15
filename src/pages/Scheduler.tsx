@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CalendarClock, Play, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
+import { Badge, Card, ConfirmCheckbox, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
 import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
@@ -67,8 +67,20 @@ export default function Scheduler(): JSX.Element {
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
   const emailDisabled = !emailConfig?.enabled
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllConfirmed, setDeleteAllConfirmed] = useState(false)
 
-  const visibleJobs = activeRepositoryId ? jobs.filter((job) => job.repositoryId === activeRepositoryId || job.repositoryId === null) : jobs
+  // Every job is listed regardless of the active repository. The scheduler
+  // executes all enabled jobs, so hiding the ones bound to another repository
+  // made it impossible to notice or stop a schedule that kept firing.
+  const visibleJobs = [...jobs].sort((a, b) => {
+    const aMine = a.repositoryId === null || a.repositoryId === activeRepositoryId ? 0 : 1
+    const bMine = b.repositoryId === null || b.repositoryId === activeRepositoryId ? 0 : 1
+    return aMine - bMine || a.createdAt.localeCompare(b.createdAt)
+  })
+
+  const repositoryLabel = (repositoryId?: string | null): string =>
+    repositoryId ? repositories.find((repo) => repo.id === repositoryId)?.name ?? '未知仓库（已删除）' : '全部仓库'
 
   const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns
 
@@ -86,7 +98,21 @@ export default function Scheduler(): JSX.Element {
   const remove = async (id: string): Promise<void> => {
     try {
       await window.branchpulse.deleteJob(id)
-      toast('Job deleted', 'success')
+      toast('已删除定时任务', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  const removeAll = async (): Promise<void> => {
+    if (!deleteAllConfirmed) return
+    try {
+      const removed = jobs.length
+      await window.branchpulse.deleteAllJobs()
+      setDeleteAllOpen(false)
+      setDeleteAllConfirmed(false)
+      toast(`已删除全部 ${removed} 个定时任务`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -96,7 +122,7 @@ export default function Scheduler(): JSX.Element {
   const run = async (id: string): Promise<void> => {
     try {
       const runResult = await window.branchpulse.runSchedulerJob(id)
-      toast(`Check complete: ${runResult.branches} branches`, 'success')
+      toast(`检查完成：${runResult.branches} 个分支`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -107,9 +133,16 @@ export default function Scheduler(): JSX.Element {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('scheduler')}</h1>
-        <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
-          <Plus size={15} /> {tr('schedule')}
-        </button>
+        <div className="flex items-center gap-2">
+          {jobs.length > 0 ? (
+            <button className="btn text-danger" onClick={() => setDeleteAllOpen(true)}>
+              <Trash2 size={14} /> 删除全部定时任务
+            </button>
+          ) : null}
+          <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
+            <Plus size={15} /> {tr('schedule')}
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-1 rounded-card border border-line bg-surface p-1">
@@ -146,6 +179,9 @@ export default function Scheduler(): JSX.Element {
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
+                    <span className={job.repositoryId && job.repositoryId !== activeRepositoryId ? 'font-medium text-warn' : undefined}>
+                      · {repositoryLabel(job.repositoryId)}
+                    </span>
                     {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {job.autoDeleteEnabled ? tr('checkAndDelete') : tr('inspectionOnly')}</span>
                     <span>· {notifyLabel(job.notifyTarget)}</span>
@@ -343,6 +379,29 @@ export default function Scheduler(): JSX.Element {
               label="收件人"
               manualPlaceholder="you@example.com, team@example.com"
             />
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteAllOpen}
+        title="删除全部定时任务"
+        onClose={() => { setDeleteAllOpen(false); setDeleteAllConfirmed(false) }}
+        footer={
+          <div className="flex gap-2">
+            <button className="btn" onClick={() => { setDeleteAllOpen(false); setDeleteAllConfirmed(false) }}>{tr('cancel')}</button>
+            <button className="btn text-danger" disabled={!deleteAllConfirmed} onClick={() => void removeAll()}>
+              确认删除
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-muted">
+            将删除全部 <span className="font-semibold text-canvas-fg">{jobs.length}</span> 个定时任务，包含
+            <span className="font-semibold text-canvas-fg">其他仓库</span>以及「全部仓库」范围的任务。
+            删除后不会再有自动检查与定时邮件，且无法恢复。
+          </div>
+          <ConfirmCheckbox label="我已了解删除后无法恢复" checked={deleteAllConfirmed} onChange={setDeleteAllConfirmed} />
         </div>
       </Modal>
     </div>

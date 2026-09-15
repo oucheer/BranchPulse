@@ -156,6 +156,26 @@ export class SchedulerService {
     return this.listJobs()
   }
 
+  /** Remove every scheduled job regardless of which repository it targets. */
+  deleteAllJobs(): SchedulerJob[] {
+    const removed = this.listJobs()
+    this.storage.delete('scheduler_jobs', '1 = 1')
+    this.audit.record('scheduler_jobs_deleted_all', { count: removed.length, jobIds: removed.map((job) => job.id) })
+    return this.listJobs()
+  }
+
+  /**
+   * Enable or disable every job at once. The tray pause/resume entries used to
+   * touch only the first match, so schedules pointing at a non-active
+   * repository kept firing while the UI reported the scheduler as paused.
+   */
+  setAllEnabled(enabled: boolean): SchedulerJob[] {
+    const jobs = this.listJobs()
+    for (const job of jobs) this.saveJob({ ...job, enabled })
+    if (jobs.length > 0) this.audit.record('scheduler_jobs_enabled_changed', { enabled, count: jobs.length })
+    return this.listJobs()
+  }
+
   private monitoringEnabled(repositoryId?: string | null): boolean {
     const row = repositoryId
       ? (this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])

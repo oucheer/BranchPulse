@@ -134,6 +134,79 @@ describe('SchedulerService never deletes branches', () => {
   })
 })
 
+describe('SchedulerService bulk job management', () => {
+  function makeStorage(rows: SchedulerJob[]) {
+    const state = [...rows]
+    return {
+      state,
+      all: vi.fn(() => state.map((job) => jobRow({ ...job, repositoryId: job.repositoryId ?? null }))),
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn(),
+      insert: vi.fn(),
+      delete: vi.fn()
+    }
+  }
+
+  it('deletes every job regardless of which repository it targets', () => {
+    const storage = makeStorage([
+      sampleJob({ id: 'job-1', repositoryId: 'repo-a' }),
+      sampleJob({ id: 'job-2', repositoryId: 'repo-b' }),
+      sampleJob({ id: 'job-3', repositoryId: null })
+    ])
+    const audit = { record: vi.fn() } as unknown as AuditService
+    const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, audit)
+
+    service.deleteAllJobs()
+
+    expect(storage.delete).toHaveBeenCalledWith('scheduler_jobs', '1 = 1')
+    expect(audit.record).toHaveBeenCalledWith(
+      'scheduler_jobs_deleted_all',
+      expect.objectContaining({ count: 3, jobIds: ['job-1', 'job-2', 'job-3'] })
+    )
+  })
+
+  it('does not hide jobs that belong to a non-active repository', () => {
+    const jobs = [
+      sampleJob({ id: 'job-a', repositoryId: 'repo-active' }),
+      sampleJob({ id: 'job-b', repositoryId: 'repo-other' }),
+      sampleJob({ id: 'job-c', repositoryId: null })
+    ]
+    const storage = makeStorage(jobs)
+    const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, {
+      record: vi.fn()
+    } as unknown as AuditService)
+
+    // listJobs() is the single source of truth for both the UI and the engine:
+    // it must never filter by repository, otherwise a schedule can keep firing
+    // while being invisible on the scheduler page.
+    expect(service.listJobs().map((job) => job.id)).toEqual(['job-a', 'job-b', 'job-c'])
+    const queries = (storage.all as ReturnType<typeof vi.fn>).mock.calls.map((call) => String(call[0]))
+    expect(queries.every((sql) => !/repository_id\s*=/.test(sql))).toBe(true)
+  })
+
+  it('pauses and resumes every job, not just the first match', () => {
+    const jobs = [
+      sampleJob({ id: 'job-1', enabled: true }),
+      sampleJob({ id: 'job-2', enabled: true }),
+      sampleJob({ id: 'job-3', enabled: false })
+    ]
+    const storage = makeStorage(jobs)
+    const audit = { record: vi.fn() } as unknown as AuditService
+    const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, audit)
+
+    service.setAllEnabled(false)
+    expect(storage.update).toHaveBeenCalledTimes(3)
+    const paused = (storage.update as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[1])
+    expect(paused.every((row) => row.enabled === 0)).toBe(true)
+
+    ;(storage.update as ReturnType<typeof vi.fn>).mockClear()
+    service.setAllEnabled(true)
+    const resumed = (storage.update as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[1])
+    expect(resumed.every((row) => row.enabled === 1)).toBe(true)
+    expect(resumed).toHaveLength(3)
+  })
+})
+
 describe('computeNextRunAt', () => {
   it('adds the interval to the last run', () => {
     const job = sampleJob({ intervalMinutes: 1440, lastRunAt: '2026-09-03T10:00:00.000Z' })
