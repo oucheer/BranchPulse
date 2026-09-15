@@ -84,7 +84,9 @@
 - 分支创始人的中文称谓全局统一为 `分支创始人`，不要再用 `创建人`、`创建者`、`作者` 等混用词。涉及位置：分支列表列头与整行单元格、分支详情抽屉、报告 HTML 表头、审计动作标签、监控页说明、`i18n.creator` / `notifyBoth` / `notifyCreators`。邮件正文与附件早已使用 `分支创始人`，改文案时以邮件为基准对齐。
 - 分支列表的列顺序是「分支名 → 分支创始人 → 类别 → 未提交 → 健康分 → 保护 → 操作」，表头与 `ExplorerRow` 必须共用同一个 `ROW_GRID` 网格模板（不要一个用 flex、一个用 grid），两边列数错一个都会整体错位。
 - 表头必须放在同一个 `overflow-y-auto` 容器里用 `sticky top-0`（不透明背景 + `z-10`）。放在容器外面时，垂直滚动条会把行的可用宽度挤掉约 10px，而没有滚动条的表头不会收缩，结果是前半段对齐、后半段整体右移，看起来像「列没对齐」。
-「分支名 → 分支创始人 → 类别 → 未提交 → 健康分 → 保护 → 操作」，表头与 `ExplorerRow` 必须同步增删，两边列数不一致会整体错位。
+- Tailwind 颜色只在 `tailwind.config.js` 的 `theme.extend.colors` 里注册。历史上把 `--surface-elevated` 写成 `bg-surface-elevated`，而注册名其实是 `elevated`，导致 8 处（Dashboard/Branches/Animation/Monitoring/Settings）的 `bg-*` 全是无效类，编译后不进 CSS，元素背景静默变成 `rgba(0, 0, 0, 0)`。给 sticky 表头这类必须不透明的元素加背景前，先用 `Runtime.evaluate` 读 `getComputedStyle(el).backgroundColor` 确认真实生效值，别只看类名。
+- 校验 Tailwind 类是否真的生成，看 `out/renderer/assets/*.css` 里有没有对应的 `.类名 {` 选择器；改 `tailwind.config.js` 后必须重新 `electron-vite build`。
+
 - `creator.name` 在后端拿不到提交作者时会写成字面量 `'Unknown'`（`electron/services/branch.ts`）。任何展示用户可见文案的地方都要把它映射成 `—` 或 `未知`，不要把英文占位符直接渲染出去。
 - 托盘菜单是主进程用 `Menu.buildFromTemplate` 手工构造的，不会随 i18n 自动更新。新增或修改用户可见菜单项时，必须同步维护中英文 label 并在设置保存回调里 `setContextMenu` 重建。
 - 窗口 `close` 事件里无条件 `event.preventDefault()` 会拦截 `app.quit()`，表现为点击“退出”后应用关不掉。必须用 `isQuitting` 标志区分“用户关窗口”和“应用退出”。

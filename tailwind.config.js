@@ -8,6 +8,7 @@ module.exports = {
         canvas: 'rgb(var(--canvas) / <alpha-value>)',
         surface: 'rgb(var(--surface) / <alpha-value>)',
         elevated: 'rgb(var(--surface-elevated) / <alpha-value>)',
+        'surface-elevated': 'rgb(var(--surface-elevated) / <alpha-value>)',
         line: 'rgb(var(--line) / <alpha-value>)',
         primary: 'rgb(var(--primary) / <alpha-value>)',
         secondary: 'rgb(var(--secondary) / <alpha-value>)',
