@@ -22,11 +22,17 @@ async function main(): Promise<void> {
   if (DEV) {
     // Dev keeps a single origin: Vite runs in middleware mode so HMR and the
     // API/SSE endpoints share one port, exactly like the packaged build.
+    //
+    // `appType: 'spa'` is required, not cosmetic: with `custom` Vite installs
+    // neither the HTML fallback nor the index-HTML middleware, so `GET /` would
+    // fall through to the 404 handler and the page would never load. The `spa`
+    // type makes Vite serve and transform `index.html` (injecting the HMR
+    // client) for every non-API navigation, mirroring `handleStatic` below.
     const { createServer: createViteServer } = await import('vite')
     const vite = await createViteServer({
       root: appRoot(),
       server: { middlewareMode: true, hmr: { port: PORT + 1 } },
-      appType: 'custom'
+      appType: 'spa'
     })
     viteServer = vite
     rendererMiddleware = (req, res, next) => {

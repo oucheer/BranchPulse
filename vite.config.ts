@@ -10,6 +10,9 @@ import react from '@vitejs/plugin-react'
  */
 export default defineConfig({
   root: '.',
+  // `build/` holds the generated brand icon; copying it as a static asset keeps
+  // the browser tab icon identical to the former desktop window icon.
+  publicDir: 'build',
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
