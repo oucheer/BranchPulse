@@ -1,6 +1,8 @@
 # BranchPulse
 
-BranchPulse 是一个 Git 分支生命周期监控与管理桌面应用，用于帮助团队识别长期未提交分支、宽限期状态、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
+BranchPulse 是一个 Git 分支生命周期监控与管理应用，用于帮助团队识别长期未提交分支、宽限期状态、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
+
+当前版本是 **Web 版**：后端是本机 Node 服务，界面在浏览器中打开。功能、操作、设置与 UI 布局与桌面版保持一致，差异只出现在浏览器物理边界（原生目录对话框、托盘等），详见 `docs/web-port.md`。
 
 ## 功能概览
 
@@ -16,14 +18,14 @@ BranchPulse 是一个 Git 分支生命周期监控与管理桌面应用，用于
 
 ## 技术栈
 
-- Electron
+- Node.js 20+（后端运行时）
 - React 18
 - TypeScript
-- Vite / electron-vite
+- Vite（渲染层构建）+ esbuild（后端打包）
 - Tailwind CSS
 - Zustand
 - sql.js
-- Three.js、GSAP、Recharts
+- Three.js、OGL（启动动效）
 
 ## 快速开始
 
@@ -34,26 +36,49 @@ npm install
 npm run dev
 ```
 
+浏览器打开 `http://127.0.0.1:4173`。开发模式下渲染层走 Vite HMR，后端改动会自动重新打包并重启进程，两者共用同一端口。
+
+生产模式：
+
+```bash
+npm run build
+npm start
+```
+
+`npm run build` 产出 `dist/renderer`（前端资源）与 `dist/server/index.cjs`（后端 bundle），`npm start` 启动后端并在同一端口同时提供 API 与静态资源。
+
+端口与监听地址可用环境变量覆盖：`BRANCHPULSE_PORT`（默认 `4173`）、`BRANCHPULSE_HOST`（默认 `127.0.0.1`）。
+
 ## 常用命令
 
 ```bash
-npm run typecheck
-npm run test -- --run
-npm run build
-npm run package:dir
-npm run package
-npm run package:portable
+npm run dev        # 开发模式（Vite HMR + 后端热重启，单端口）
+npm run build      # 构建渲染层与后端产物
+npm start          # 运行已构建的后端
+npm run typecheck  # 渲染层 + 后端的 TypeScript 检查
+npm run test       # vitest 单元测试
+npm run smoke      # Web 冒烟测试（需先 npm run build）
+npm run build:icon # 重新生成品牌图标
 ```
 
-## 打包产物
+`npm run smoke` 会用独立的临时数据目录启动构建产物，再用无头 Chromium 遍历所有路由，检查页面渲染、术语与关键开关。可用 `BRANCHPULSE_BROWSER` 指定浏览器可执行文件。
 
-完整打包输出位于 `release/`：
+## 数据目录
 
-- Windows 安装包：`BranchPulse-<version>-x64.exe`
-- Windows 便携版：`BranchPulse-Portable-<version>.exe`
-- 快速本地验证产物：`release/win-unpacked/BranchPulse.exe`
+后端沿用桌面版的用户数据目录规则，升级后数据无需迁移：
 
-打包或发布前必须运行类型检查和单元测试；涉及启动流程、主界面、监控、通知、报告或持久化配置时，还应使用最新打包产物做实际启动冒烟。
+| 平台 | 用户数据目录 |
+| --- | --- |
+| Windows | `%APPDATA%\branchpulse` |
+| macOS | `~/Library/Application Support/branchpulse` |
+| Linux | `$XDG_CONFIG_HOME/branchpulse` |
+
+- 数据库：`<userData>/data/branchpulse.db`
+- 报告：`<userData>/data/reports`
+- 备份：`<userData>/data/backups`
+- 日志：`<userData>/logs`
+
+可用 `BRANCHPULSE_USER_DATA_DIR`、`BRANCHPULSE_DATA_DIR`、`BRANCHPULSE_PORTABLE=1` 覆盖。
 
 ## 术语约定
 
@@ -72,22 +97,35 @@ npm run package:portable
 ## 项目结构
 
 ```text
-src/
+src/                React 渲染层（浏览器）
   components/       通用 UI 组件
   design-system/    设计系统组件
-  lib/              工具函数、i18n、格式化与平台逻辑
+  lib/              工具函数、i18n、桥接 HTTP/SSE、格式化
   pages/            主要页面
   shell/            应用壳层、侧边栏与命令面板
   stores/           全局状态与数据加载
+src-node/           浏览器无关的后端（Node）
+  api.ts            传输无关的 API 实现
+  services/         业务服务
+  utils/            paths / logger / ids / secrets / open / folders
+server/             HTTP + SSE 服务入口
+  http.ts           静态资源、RPC、SSE、下载路由
+  rpc.ts            方法派发与参数校验
+  services.ts       服务装配与生命周期
+shared/             前后端共享类型与 RPC 契约
+scripts/            开发、构建、冒烟与工具脚本
 tests/              单元测试
-release/            本地打包产物
+docs/               迁移与设计说明
 ```
+
+`src/` 由 `tsconfig.json` 检查，`src-node/`、`server/`、`shared/` 由 `tsconfig.node.json` 检查。
 
 ## 验证建议
 
 1. 执行 `npm run typecheck`。
-2. 执行 `npm run test -- --run`。
-3. 使用 `npm run package:dir` 生成可启动产物。
-4. 启动 `release/win-unpacked/BranchPulse.exe`，确认启动动效后进入主界面。
+2. 执行 `npm run test`。
+3. 执行 `npm run build`，随后 `npm run smoke`。
+4. 启动 `npm start`，确认启动动效后进入主界面。
 5. 遍历仪表盘、仓库、分支、监控、命名规则、白名单、备份、通知、报告、定时调度、审计日志和设置页面。
-6. 修改监控、通知、报告、Token 或仓库配置后重启应用，确认数据仍然保留。
+6. 修改监控、通知、报告、Token 或仓库配置后重启服务并刷新页面，确认数据仍然保留。
+7. 检查生成的报告文件能否在磁盘上定位到完整路径。
