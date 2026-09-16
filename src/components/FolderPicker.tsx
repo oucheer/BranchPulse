@@ -56,6 +56,12 @@ export default function FolderPicker({
   const [error, setError] = useState('')
   const [fileName, setFileName] = useState(defaultFileName)
 
+  // `extensions` defaults to a fresh `[]` on every render, so depending on the
+  // array itself would rebuild `load` each time and make the effect below fetch
+  // in a loop: setState → render → new callback → effect → fetch → setState.
+  // The joined string is compared by value, which keeps `load` stable.
+  const extensionKey = extensions.join(',')
+
   const load = useCallback(
     async (target: string): Promise<void> => {
       setLoading(true)
@@ -65,7 +71,7 @@ export default function FolderPicker({
         params.set('path', target)
         if (mode === 'file') {
           params.set('files', '1')
-          if (extensions.length > 0) params.set('ext', extensions.join(','))
+          if (extensionKey) params.set('ext', extensionKey)
         }
         const response = await fetch(`${FOLDERS_PATH}?${params.toString()}`)
         const payload = (await response.json()) as FolderListing & { error?: string }
@@ -78,7 +84,7 @@ export default function FolderPicker({
         setLoading(false)
       }
     },
-    [extensions, mode]
+    [extensionKey, mode]
   )
 
   useEffect(() => {

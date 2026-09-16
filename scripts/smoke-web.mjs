@@ -42,6 +42,14 @@ const ROUTES = [
 /** Terms that must never reach user-visible copy. */
 const BANNED_TERMS = ['已合并', '过期', '到期', '陈旧']
 
+/**
+ * The in-page folder picker must list its directory exactly once when it opens.
+ * A past regression made `load` change identity on every render, so the picker
+ * fetched thousands of times and never left its loading state. Anything above
+ * this ceiling is that loop coming back.
+ */
+const MAX_FOLDER_REQUESTS_WHEN_IDLE = 5
+
 const browserCandidates = [
   process.env.BRANCHPULSE_BROWSER,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -128,9 +136,14 @@ async function connectCdp() {
 
   const socket = new WebSocket(target.webSocketDebuggerUrl)
   const pending = new Map()
+  // Network events are forwarded here so a check can count requests later.
+  const networkRequests = []
   let messageId = 0
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Network.requestWillBeSent') {
+      networkRequests.push(message.params.request.url)
+    }
     if (!message.id || !pending.has(message.id)) return
     const { resolve, reject } = pending.get(message.id)
     pending.delete(message.id)
@@ -156,7 +169,54 @@ async function connectCdp() {
     return result.result.value
   }
 
-  return { socket, send, evaluate }
+  return { socket, send, evaluate, networkRequests }
+}
+
+/**
+ * Open the in-page folder picker, let it settle, and return how many directory
+ * listings it asked the backend for. A healthy picker needs exactly one; the
+ * regression this guards against needed thousands per second.
+ */
+async function checkFolderPickerStability(send, evaluate, networkRequests) {
+  await send('Network.enable')
+  await evaluate(`location.hash = '#/settings'`)
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  // Nothing else in the app asks for /api/fs/folders, so everything from here
+  // on belongs to the picker. Snapshot the index instead of clearing the array:
+  // the first listing request can leave before a reset would run.
+  const startIndex = networkRequests.length
+  const opened = await evaluate(`(() => {
+    const button = [...document.querySelectorAll('main button')].find((b) => b.textContent.includes('导出配置'))
+    if (!button) return 'missing 导出配置 button'
+    button.click()
+    return true
+  })()`)
+  if (opened !== true) return { opened: false, detail: String(opened), listings: 0, roots: 0 }
+
+  await new Promise((resolve) => setTimeout(resolve, 3000))
+
+  const state = await evaluate(`(() => {
+    const modal = document.querySelector('.fixed.inset-0.z-50')
+    if (!modal) return { modal: false, roots: 0, spinning: false, path: '' }
+    const cells = [...modal.querySelectorAll('button')].map((b) => b.textContent.trim())
+    return {
+      modal: true,
+      // Quick locations (drive roots) render as one button per entry. The regex
+      // stays free of escaped slashes because it lives inside a template literal.
+      roots: cells.filter((t) => /^[A-Za-z]:/.test(t) || t === '/').length,
+      spinning: Boolean(modal.querySelector('svg.animate-spin')),
+      path: [...modal.querySelectorAll('input')].map((i) => i.value).join('|')
+    }
+  })()`)
+  const listings = networkRequests
+    .slice(startIndex)
+    .filter((url) => url.includes('/api/fs/folders')).length
+  await evaluate(`(() => {
+    const modal = document.querySelector('.fixed.inset-0.z-50')
+    const cancel = modal && [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === '取消')
+    if (cancel) cancel.click()
+  })()`)
+  return { opened: true, ...state, listings }
 }
 
 async function main() {
@@ -212,7 +272,7 @@ async function main() {
     }
 
     browserProcess = launchBrowser(browser, profileDir)
-    const { socket, send, evaluate } = await connectCdp()
+    const { socket, send, evaluate, networkRequests } = await connectCdp()
     await send('Page.enable')
     await send('Runtime.enable')
 
@@ -255,6 +315,31 @@ async function main() {
         console.log(`[smoke] FAIL ${route} -> ${problems.join('; ')}`)
       } else {
         console.log(`[smoke] OK   ${route} -> ${state.heading}`)
+      }
+    }
+
+    const picker = await checkFolderPickerStability(send, evaluate, networkRequests)
+    if (!picker.opened) {
+      failures.push(`Folder picker: ${picker.detail}`)
+      console.log(`[smoke] FAIL folder picker -> ${picker.detail}`)
+    } else {
+      const problems = []
+      if (picker.listings === 0) problems.push('the picker never listed a directory')
+      if (picker.listings > MAX_FOLDER_REQUESTS_WHEN_IDLE) {
+        problems.push(`the picker fetched ${picker.listings} directory listings while idle`)
+      }
+      if (!picker.modal) problems.push('the picker modal closed on its own')
+      else {
+        if (picker.spinning) problems.push('the picker still spun after 3s of idle time')
+        if (picker.roots === 0) problems.push('the picker rendered no quick-location buttons')
+      }
+      if (problems.length > 0) {
+        failures.push(`Folder picker: ${problems.join('; ')}`)
+        console.log(`[smoke] FAIL folder picker -> ${problems.join('; ')}`)
+      } else {
+        console.log(
+          `[smoke] OK   folder picker -> ${picker.listings} listing request(s), ${picker.roots} quick location(s)`
+        )
       }
     }
 
