@@ -290,7 +290,21 @@ export function createServer(options: ServerOptions): BranchPulseServer {
       const current = server
       server = null
       if (!current) return
-      await new Promise<void>((resolve) => current.close(() => resolve()))
+      // Browsers keep connections alive and `close()` waits for every open
+      // socket, so an idle tab would otherwise stall shutdown for the whole
+      // keep-alive window (65s here). A single `closeIdleConnections()` call is
+      // not enough: a socket that has just finished a response is not marked
+      // idle until the server processes it, so the call can miss it entirely.
+      // Polling catches those and keeps the shutdown prompt without ever
+      // cutting off a request that is still being served.
+      const idleSweep = setInterval(() => current.closeIdleConnections(), 50)
+      idleSweep.unref()
+      await new Promise<void>((resolve) => {
+        current.close(() => {
+          clearInterval(idleSweep)
+          resolve()
+        })
+      })
     },
     broadcastProgress: (progress) => broadcast('scan-progress', progress),
     broadcastNavigate: (route) => broadcast('navigate', route)
