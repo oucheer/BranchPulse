@@ -78,7 +78,15 @@ export default function Audit(): JSX.Element {
       report_schedule_deleted: '删除定时报告',
       report_schedule_run: '执行定时报告',
       report_schedule_email_skipped: '定时报告未发送',
-      email_report_sent: '发送报告邮件'
+      email_report_sent: '发送报告邮件',
+      email_group_saved: '保存分支组',
+      email_group_updated: '更新分支组',
+      email_group_deleted: '删除分支组',
+      group_report_generated: '导出分支组数据',
+      group_email_sent: '发送分支组邮件',
+      group_email_failed: '分支组邮件发送失败',
+      report_schedule_group_email_sent: '定时报告已发分支组',
+      report_schedule_group_email_skipped: '定时报告分支组未发送'
     }
     return language === 'zh' ? (zhLabels[action] ?? action) : action.replace(/_/g, ' ')
   }

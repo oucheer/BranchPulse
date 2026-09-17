@@ -225,7 +225,7 @@ export default function Settings(): JSX.Element {
   const deleteGroup = async (id: string): Promise<void> => {
     try {
       await window.branchpulse.deleteEmailGroup(id)
-      toast('邮箱分组已删除', 'success')
+      toast('分支组已删除', 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -634,7 +634,7 @@ export default function Settings(): JSX.Element {
             <Badge tone="default">换机迁移</Badge>
           </div>
           <p className="text-sm text-muted">
-            导出内容包含命名规则、监控配置、定时调度、报告计划、白名单与保护分支、邮箱分组、外观与动效设置、语言、远程仓库连接信息和 GitLab 地址，导入后即可在另一台电脑还原当前配置。
+            导出内容包含命名规则、监控配置、定时调度、报告计划、白名单与保护分支、分支组、外观与动效设置、语言、远程仓库连接信息和 GitLab 地址，导入后即可在另一台电脑还原当前配置。
           </p>
           <p className="mt-2 text-xs text-muted">
             API Token、邮箱密码等敏感凭据不会写入配置文件；导入时保留本机已保存的凭据，不会被覆盖。
@@ -696,7 +696,7 @@ export default function Settings(): JSX.Element {
         }
       >
         <div className="space-y-2 text-sm text-muted">
-          <p className="font-medium text-canvas-fg">导入将覆盖当前的规则、设置、邮箱分组、监控配置和仓库连接信息。</p>
+          <p className="font-medium text-canvas-fg">导入将覆盖当前的规则、设置、分支组、监控配置和仓库连接信息。</p>
           <p className="text-xs">API Token、邮箱密码等敏感信息不会从配置文件写入，本机已保存的凭据保持不变。此操作无法撤销。</p>
         </div>
       </Modal>

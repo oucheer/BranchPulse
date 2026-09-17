@@ -51,6 +51,7 @@ const detailLabels: Record<string, string> = {
   description: '描述', frequency: '频率', format: '格式', period: '报告周期',
   transport: '发送通道', schedule: '计划', run: '巡检记录', report: '报告', sent: '已发送',
   skipped: '已跳过', staleThresholdDays: '未提交阈值数值',
+  group: '分支组', groupId: '分支组 ID', message: '说明', members: '组员数',
   gracePeriodDays: '宽限期数值', staleThresholdUnit: '未提交阈值单位', gracePeriodUnit: '宽限期单位'
 }
 

@@ -204,7 +204,7 @@ export default function Reports(): JSX.Element {
               selfEmail={emailConfig?.selfEmail ?? ''}
               disabled={emailDisabled}
               allowSelf
-              manualPlaceholder="多个邮箱或分组用逗号、分号或换行分隔"
+              manualPlaceholder="多个邮箱或分支组用逗号、分号或换行分隔"
               rows={5}
             />
           </div>

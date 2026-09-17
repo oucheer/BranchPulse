@@ -43,7 +43,7 @@ export class GroupService {
 
   private find(groupId: string): EmailGroup {
     const group = this.list().find((item) => item.id === groupId)
-    if (!group) throw new Error('邮箱分组不存在，请刷新后重试。')
+    if (!group) throw new Error('分支组不存在，请刷新后重试。')
     return group
   }
 
