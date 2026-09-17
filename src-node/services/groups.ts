@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BranchSummary, EmailGroup, ReportRecord, ReportSummary } from '@shared/types'
-import { groupBranchStats, groupMemberNames, groupRecipients, parseGroupMembers } from '@shared/groups'
+import { branchBelongsToGroup, groupBranchStats, groupMemberNames, groupRecipients } from '@shared/groups'
 import type { GroupBranchStats } from '@shared/groups'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
@@ -52,7 +52,7 @@ export class GroupService {
     const group = this.find(groupId)
     const all = this.branchService.listBranches()
       .filter((branch) => !repositoryId || branch.repositoryId === repositoryId)
-    return { group, branches: all.filter((branch) => groupCovers(group, branch)) }
+    return { group, branches: all.filter((branch) => branchBelongsToGroup(group, branch)) }
   }
 
   private groupDisplay(group: EmailGroup): string {
@@ -193,17 +193,6 @@ export class GroupService {
     const { branches } = this.branchesFor(groupId, repositoryId)
     return { ...groupBranchStats(branches), branches }
   }
-}
-
-function groupCovers(group: EmailGroup, branch: BranchSummary): boolean {
-  const name = String(branch.creator.name ?? '').trim().toLowerCase()
-  const email = String(branch.creator.email ?? '').trim().toLowerCase()
-  for (const member of parseGroupMembers(group.members)) {
-    if (name && member.name.trim().toLowerCase() === name) return true
-    if (email && member.email.trim().toLowerCase() === email) return true
-  }
-  if (email && groupRecipients(group).some((item) => item.trim().toLowerCase() === email)) return true
-  return false
 }
 
 function groupCsv(group: EmailGroup, branches: BranchSummary[]): string {
