@@ -35,6 +35,8 @@ export const EXPOSED_METHODS = [
   'listEmailGroups',
   'saveEmailGroup',
   'deleteEmailGroup',
+  'exportGroupBranches',
+  'emailGroupBranches',
   'listJobs',
   'saveJob',
   'deleteJob',

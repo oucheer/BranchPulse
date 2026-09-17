@@ -45,6 +45,7 @@ import type { GitLabService } from './services/gitlab'
 import type { SchedulerService } from './services/scheduler'
 import type { ReportService } from './services/report'
 import type { ReportScheduleService } from './services/reportSchedule'
+import type { GroupService } from './services/groups'
 import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
 import type { BackupService } from './services/backup'
@@ -66,6 +67,7 @@ export interface AppServices {
   scheduler: SchedulerService
   report: ReportService
   reportSchedules: ReportScheduleService
+  groups: GroupService
   audit: AuditService
   settings: SettingsService
   backup: BackupService
@@ -122,6 +124,8 @@ export interface BranchPulseApi {
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>
+  exportGroupBranches(groupId: string, format: string, repositoryId?: string | null): Promise<ReportRecord>
+  emailGroupBranches(groupId: string, repositoryId?: string | null): Promise<{ sent: number; message: string }>
 
   listJobs(): Promise<SchedulerJob[]>
   saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
@@ -208,7 +212,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function createBranchPulseApi(services: AppServices, options: BranchPulseApiOptions): BranchPulseApi {
-  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
+  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort } = services
 
   let progressSink = options.onProgress ?? ((): void => {})
 
@@ -441,6 +445,8 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
     listEmailGroups: async () => email.listGroups(),
     saveEmailGroup: async (group) => email.saveGroup(group),
     deleteEmailGroup: async (id) => email.deleteGroup(id),
+    exportGroupBranches: (groupId, format, repositoryId) => groups.exportBranches(groupId, format, repositoryId),
+    emailGroupBranches: (groupId, repositoryId) => groups.emailBranches(groupId, repositoryId),
 
     getMonitoring: (repositoryId) => getMonitoring(repositoryId),
     saveMonitoring: (config, repositoryId) => saveMonitoring(config, repositoryId),

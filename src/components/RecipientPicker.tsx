@@ -24,7 +24,7 @@ export default function RecipientPicker({
   disabled = false,
   allowSelf = false,
   allowCreator = false,
-  label = '收件邮箱 / 邮箱分组',
+  label = '收件邮箱 / 分支组',
   manualPlaceholder = 'you@example.com, team@example.com',
   rows = 4
 }: RecipientPickerProps): JSX.Element {
@@ -87,21 +87,21 @@ export default function RecipientPicker({
             apply({ groupTokens: [group] })
           }}
         >
-          <option value="">选择邮箱分组</option>
+          <option value="">选择分支组</option>
           {groups.map((group) => (
             <option key={group.id} value={group.name}>{group.name}</option>
           ))}
         </select>
         {readOnly ? (
           <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>
-            清除分组
+            清除分支组
           </button>
         ) : null}
       </div>
       {readOnly ? (
-        <p className="text-xs text-muted">已按分组显示收件人，分组收件人不可直接编辑。</p>
+        <p className="text-xs text-muted">已按分支组显示收件人：该组只会收到自己组员的分支情况，不会收到整仓汇总。</p>
       ) : (
-        <p className="text-xs text-muted">可填写邮箱；选择分组后按分组配置只读展示并运行时解析收件人。</p>
+        <p className="text-xs text-muted">可填写邮箱或分支组名；填写组名时只把该组自己的分支情况发给组员。</p>
       )}
 
       {allowSelf ? (

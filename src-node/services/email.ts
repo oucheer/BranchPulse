@@ -3,6 +3,7 @@ import path from 'node:path'
 import nodemailer from 'nodemailer'
 import type { Transporter } from 'nodemailer'
 import type { BranchSummary, EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
+import { groupRecipients, parseGroupMembers, serializeGroupMembers } from '@shared/groups'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import { logger } from '../utils/logger'
@@ -48,6 +49,8 @@ export interface EmailSummaryData {
   generatedAt: string
   branches: EmailIssueRow[]
   thresholdHint?: string
+  /** 非空时表示这是「某个组」的专项邮件，标题与主题都带上组名。 */
+  scopeLabel?: string
 }
 
 export type EmailLang = 'en' | 'zh'
@@ -88,7 +91,7 @@ export function resolveRecipients(input: string, groups: EmailGroup[] = []): str
   for (const token of tokens) {
     const group = groups.find((item) => item.name.trim().toLowerCase() === token)
     if (group) {
-      for (const recipient of resolveRecipients(group.recipients, [])) {
+      for (const recipient of resolveRecipients(groupRecipients(group).join(', '), [])) {
         if (!resolved.includes(recipient)) resolved.push(recipient)
       }
     } else if (!resolved.includes(token)) {
@@ -493,7 +496,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
 <body style="font-family:'Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
   <div style="max-width:860px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
-    <h2 style="font-size:18px;margin:0 0 4px">${t.title}</h2>
+    <h2 style="font-size:18px;margin:0 0 4px">${t.title}${data.scopeLabel ? ' · ' + escapeHtml(data.scopeLabel) : ''}</h2>
     <div style="color:#6b7280;font-size:12px">${data.repositories} ${t.repositories} · ${t.generatedAt} ${escapeHtml(formatDateTime(data.generatedAt, lang))}</div>
     ${sections.join('')}
     ${processingDeadlineNotice(lang)}
@@ -648,7 +651,8 @@ export class EmailService {
     return this.storage.all<Record<string, unknown>>('SELECT * FROM email_groups ORDER BY created_at ASC').map((r) => ({
       id: String(r.id),
       name: String(r.name),
-      recipients: String(r.recipients),
+      recipients: String(r.recipients ?? ''),
+      members: parseGroupMembers(r.members_json),
       createdAt: String(r.created_at)
     }))
   }
@@ -659,14 +663,21 @@ export class EmailService {
     const id = existing ? String(existing.id) : newId()
     const name = String(group.name ?? existing?.name ?? '').trim()
     const recipients = String(group.recipients ?? existing?.recipients ?? '').trim()
-    if (!name || !recipients) throw new Error('Group name and recipients are required.')
+    const members = group.members !== undefined
+      ? parseGroupMembers(group.members)
+      : parseGroupMembers(existing?.members_json)
+    // 组员邮箱也算收件人，所以「只有组员、没有额外收件邮箱」的组是合法的。
+    if (!name || (!recipients && members.every((member) => !member.email))) {
+      throw new Error('Group name and at least one recipient are required.')
+    }
     this.storage.upsert('email_groups', {
       id,
       name,
       recipients,
+      members_json: serializeGroupMembers(members),
       created_at: existing ? String(existing.created_at) : now
     })
-    this.audit.record(existing ? 'email_group_updated' : 'email_group_saved', { id, name, recipients })
+    this.audit.record(existing ? 'email_group_updated' : 'email_group_saved', { id, name, recipients, members: members.length })
     return this.listGroups()
   }
 
@@ -837,9 +848,12 @@ export class EmailService {
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }
     }
     try {
+      const scope = String(data.scopeLabel ?? '').trim()
       await this.sendWithSmtp({
         to: recipientList,
-        subject: lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary',
+        subject: scope
+          ? (lang === 'zh' ? `【BranchPulse】${scope} 分支情况` : `BranchPulse: branches of ${scope}`)
+          : (lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary'),
         body: '',
         html: buildBranchEmailHtml(data, lang, 'summary'),
         config

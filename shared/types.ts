@@ -236,10 +236,18 @@ export interface NotificationRecord {
   read: boolean
 }
 
+/** 组员：人名用于匹配分支创始人，邮箱用于发送该组的分支情况。 */
+export interface EmailGroupMember {
+  name: string
+  email: string
+}
+
 export interface EmailGroup {
   id: string
   name: string
   recipients: string
+  /** 组员名单，人名为空时只作为收件邮箱使用。 */
+  members: EmailGroupMember[]
   createdAt: string
 }
 
@@ -553,6 +561,10 @@ export interface BranchApi {
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>
+  /** 导出某个组的分支数据（HTML/CSV），返回落盘的报告记录。 */
+  exportGroupBranches(groupId: string, format: string, repositoryId?: string | null): Promise<ReportRecord>
+  /** 把某个组的分支情况邮件发送给该组的组员。 */
+  emailGroupBranches(groupId: string, repositoryId?: string | null): Promise<{ sent: number; message: string }>
 
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>

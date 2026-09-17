@@ -14,6 +14,10 @@ import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
 import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
+import { partitionRecipientTokens } from '@shared/groups'
+import { groupCoversCreator } from '@shared/groups'
+import type { EmailGroup } from '@shared/types'
+import type { GroupService } from './groups'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 import { parseThresholdRules } from './branch'
@@ -26,7 +30,8 @@ export class MonitoringService {
     private readonly branchService: BranchService,
     private readonly repositoryService: RepositoryService,
     private readonly email: EmailService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly groups?: GroupService
   ) {}
 
   private emitProgress(runId: string, activity: ActivityItem[], summary?: ScanProgress['summary']): void {
@@ -59,6 +64,50 @@ export class MonitoringService {
       if (row) return row
     }
     return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1') ?? null
+  }
+
+  /**
+   * 汇总邮件 + 命中的分组邮件。
+   *
+   * 只有存在普通收件人（或「通知自己」）时才发整仓汇总；只勾组名时，组员只收到
+   * 自己组的分支情况，不会被整仓汇总刷屏。
+   */
+  private async sendSummaryWithGroups(input: {
+    groupTargets: EmailGroup[]
+    data: EmailSummaryData
+    recipients: string[]
+    branches: BranchSummary[]
+    addActivity: (message: string, level?: ActivityItem['level']) => void
+  }): Promise<{ ok: boolean; message: string; sent: number }> {
+    let sent = 0
+    let ok = false
+    let message = 'Email is disabled or no recipient is configured.'
+    if (input.recipients.length > 0) {
+      const result = await this.email.sendSummaryEmail(input.data, undefined, input.recipients)
+      if (result.ok) {
+        sent += result.emailsSent ?? 0
+        ok = true
+      } else {
+        message = result.message
+      }
+    }
+    for (const group of input.groupTargets) {
+      if (!this.groups) {
+        message = '分组邮件不可用：分组服务未初始化。'
+        continue
+      }
+      const branches = input.branches.filter((branch) => groupCoversCreator(group, branch.creator))
+      const result = await this.groups.emailGroup(group, branches)
+      if (result.ok) {
+        sent += result.sent
+        ok = true
+        input.addActivity('分组「' + group.name + '」邮件已发送（' + branches.length + ' 个分支）。', 'success')
+      } else {
+        message = result.message
+        input.addActivity(result.message, 'error')
+      }
+    }
+    return { ok, message, sent }
   }
 
   private thresholdHint(row?: Record<string, unknown> | null): string {
@@ -179,16 +228,21 @@ export class MonitoringService {
         const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
         const targetRecipients: string[] = []
         if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
-        if (parsedNotify.recipients) targetRecipients.push(...resolveRecipients(parsedNotify.recipients, groups))
+        // 组名 token 不能混进汇总收件人：它表示「把这个组自己的分支情况发给组员」，
+        // 混进来会让组员同时收到整仓汇总和分组邮件两封。
+        const { matched: groupTargets, plain } = partitionRecipientTokens(parsedNotify.recipients, groups)
+        if (plain) targetRecipients.push(...resolveRecipients(plain, []))
         const uniqueRecipients = [...new Set(targetRecipients.filter(Boolean))]
-        const result = await this.email.sendSummaryEmail(
+        const result = await this.sendSummaryWithGroups({
+          groupTargets,
           data,
-          undefined,
-          uniqueRecipients.length > 0 ? uniqueRecipients : undefined
-        )
+          recipients: uniqueRecipients,
+          branches: allBranches,
+          addActivity
+        })
         if (result.ok) {
-          emailsSent += result.emailsSent ?? 0
-          addActivity('Summary email sent to self (1 email).', 'success')
+          emailsSent += result.sent
+          addActivity('Summary email sent (' + result.sent + ' email' + (result.sent === 1 ? '' : 's') + ').', 'success')
         } else {
           addActivity(result.message, 'error')
         }

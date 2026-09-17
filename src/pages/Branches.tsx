@@ -2,15 +2,16 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch,
-  Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, X, XCircle
+  AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Download, Eye, GitBranch,
+  Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, Users, X, XCircle
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { matchPattern } from '../lib/protection'
 import { Badge, Card, EmptyState } from '../components/ui'
 import { stateLabel, stateTone, timeAgo } from '../lib/format'
 import { motion as motionToken, shadow } from '../design-system/tokens'
-import type { BranchSummary } from '@shared/types'
+import type { BranchSummary, EmailGroup } from '@shared/types'
+import { branchBelongsToGroup, branchMatchesCreatorOption, creatorOptionKey, creatorOptions } from '@shared/groups'
 
 type IssueFilter = '' | 'stale' | 'grace_period' | 'grace_expired' | 'invalid'
 
@@ -290,6 +291,7 @@ export default function Branches(): JSX.Element {
   const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
+  const emailGroups = useAppStore((s) => s.emailGroups)
   const whitelist = useAppStore((s) => s.whitelist)
   const protectedList = useAppStore((s) => s.protected)
   const language = useAppStore((s) => s.language)
@@ -299,6 +301,8 @@ export default function Branches(): JSX.Element {
   const [search, setSearch] = useState('')
   const [repoFilter, setRepoFilter] = useState('')
   const [issueFilter, setIssueFilter] = useState<IssueFilter>('')
+  const [creatorFilter, setCreatorFilter] = useState('')
+  const [groupFilter, setGroupFilter] = useState('')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
@@ -306,16 +310,32 @@ export default function Branches(): JSX.Element {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const effectiveRepo = repoFilter || activeRepositoryId || ''
+
+  // 人员下拉的候选来自「当前仓库范围内」的分支，切仓库后能选的人随之变化。
+  const scoped = useMemo(
+    () => (effectiveRepo ? branches.filter((b) => b.repositoryId === effectiveRepo) : branches),
+    [branches, effectiveRepo]
+  )
+  const people = useMemo(() => creatorOptions(scoped), [scoped])
+  const activePerson = people.find((option) => creatorOptionKey(option) === creatorFilter)
+  const activeGroup = emailGroups.find((group) => group.id === groupFilter)
+
+  // 选中的组被删掉（或导入配置后 id 变了）时自动清空，避免列表永久空城。
+  useEffect(() => {
+    if (groupFilter && !emailGroups.some((group) => group.id === groupFilter)) setGroupFilter('')
+  }, [emailGroups, groupFilter])
+
   const filtered = useMemo(() => {
-    let list = branches
-    if (effectiveRepo) list = list.filter((b) => b.repositoryId === effectiveRepo)
+    let list = scoped
     if (search) {
       const q = search.toLowerCase()
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
     if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))
+    if (activePerson) list = list.filter((b) => branchMatchesCreatorOption(b, activePerson))
+    if (activeGroup) list = list.filter((b) => branchBelongsToGroup(activeGroup, b))
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [branches, search, effectiveRepo, issueFilter])
+  }, [scoped, search, issueFilter, activePerson, activeGroup])
 
   const attention = useMemo(() =>
     filtered
@@ -386,6 +406,26 @@ export default function Branches(): JSX.Element {
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
   }
 
+
+  /** 按当前筛选出的组发信/导出：只处理该组自己的分支。 */
+  const emailActiveGroup = async (): Promise<void> => {
+    if (!activeGroup) return
+    if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
+    try {
+      const result = await window.branchpulse.emailGroupBranches(activeGroup.id, effectiveRepo || null)
+      toast(result.message, result.sent > 0 ? 'success' : 'warn')
+      void refresh()
+    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
+  }
+
+  const exportActiveGroup = async (): Promise<void> => {
+    if (!activeGroup) return
+    try {
+      const report = await window.branchpulse.exportGroupBranches(activeGroup.id, 'csv', effectiveRepo || null)
+      toast('已导出「' + activeGroup.name + '」分支数据：' + report.summary.totalBranches + ' 个分支', 'success')
+      void refresh()
+    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
+  }
 
   const notifyStaleDisabled = issueFilter === 'invalid'
   const notifyInvalidDisabled = issueFilter === 'stale' || issueFilter === 'grace_period' || issueFilter === 'grace_expired'
@@ -482,6 +522,36 @@ export default function Branches(): JSX.Element {
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg"><X size={12} /></button>
       ) : null}
         </div>
+        {/* 按人员筛选：候选项是当前仓库范围内出现过的分支创始人。 */}
+        <select
+          value={creatorFilter}
+          onChange={(e) => setCreatorFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+          title={zh ? '按分支创始人筛选' : 'Filter by branch creator'}
+          style={{ maxWidth: 190 }}
+        >
+          <option value="">{zh ? '所有人员' : 'All people'}</option>
+          {people.map((option) => (
+            <option key={creatorOptionKey(option)} value={creatorOptionKey(option)}>
+              {(option.name || option.email) + ' (' + option.branches + ')'}
+            </option>
+          ))}
+        </select>
+        {/* 按组筛选：组员命中分支创始人即归属该组。 */}
+        <select
+          value={groupFilter}
+          onChange={(e) => setGroupFilter(e.target.value)}
+          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
+          title={zh ? '按分支组筛选' : 'Filter by group'}
+          style={{ maxWidth: 190 }}
+        >
+          <option value="">{zh ? '所有分组' : 'All groups'}</option>
+          {emailGroups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name + ' (' + scoped.filter((b) => branchBelongsToGroup(group, b)).length + ')'}
+            </option>
+          ))}
+        </select>
       </div>
 
 
@@ -518,6 +588,26 @@ export default function Branches(): JSX.Element {
             >
               <Bell size={12} /> {zh ? '通知命名不规范创始人' : 'Notify invalid creators'}
             </button>
+            {/* 选中分组时，把该组自己的分支情况发给组员 / 导出该组数据。 */}
+            {activeGroup ? (
+              <>
+                <button
+                  className="btn text-xs"
+                  disabled={!emailConfig?.enabled}
+                  onClick={() => void emailActiveGroup()}
+                  title={zh ? '把该组的分支情况发给组员' : 'Email this group\'s branches to its members'}
+                >
+                  <Users size={12} /> {zh ? '发送给「' + activeGroup.name + '」组员' : 'Email group members'}
+                </button>
+                <button
+                  className="btn text-xs"
+                  onClick={() => void exportActiveGroup()}
+                  title={zh ? '导出该组的分支数据' : 'Export this group\'s branches'}
+                >
+                  <Download size={12} /> {zh ? '导出组数据' : 'Export group'}
+                </button>
+              </>
+            ) : null}
           </div>
       </Card>
 
@@ -569,7 +659,7 @@ export default function Branches(): JSX.Element {
                 <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
                 <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
                 <button
-                  onClick={() => { setSearch(''); setIssueFilter('') }}
+                  onClick={() => { setSearch(''); setIssueFilter(''); setCreatorFilter(''); setGroupFilter('') }}
                   className="mt-3 text-xs font-medium text-primary hover:underline"
                 >
                   {zh ? '清除筛选' : 'Clear Filters'}

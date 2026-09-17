@@ -6,16 +6,48 @@ import {
   Eye,
   EyeOff,
   Mail,
+  Plus,
   Save,
   Settings as SettingsIcon,
   Trash2 as TrashIcon,
   Upload,
-  Wrench
+  Users,
+  Wrench,
+  X
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Modal, Toggle } from '../components/ui'
 import FolderPicker from '../components/FolderPicker'
-import type { AppSettings, EmailConfig, EmailGroup, LanguageCode } from '@shared/types'
+import type { AppSettings, BranchSummary, EmailConfig, EmailGroup, EmailGroupMember, LanguageCode } from '@shared/types'
+import { branchesForGroup, groupBranchStats, groupMemberNames } from '@shared/groups'
+
+interface GroupDraft {
+  id?: string
+  name: string
+  recipients: string
+  members: EmailGroupMember[]
+}
+
+function emptyGroupDraft(): GroupDraft {
+  return { name: '', recipients: '', members: [{ name: '', email: '' }] }
+}
+
+/**
+ * 组的一行摘要。分支归属按「分支创始人命中组员」判定，与后端 GroupService 用同一份
+ * @shared/groups 实现，避免两边口径漂移。
+ */
+function groupSummary(group: EmailGroup, members: BranchSummary[]): string {
+  const stats = groupBranchStats(members)
+  if (stats.total === 0) return '当前没有归属该组的分支'
+  return [
+    '分支 ' + stats.total + ' 个',
+    '活跃 ' + stats.active,
+    '已停更 ' + stats.stale,
+    '宽限期内 ' + stats.gracePeriod,
+    '宽限期已过 ' + stats.graceExpired,
+    '命名不规范 ' + stats.namingInvalid
+  ].join(' · ')
+}
 
 /** Mirrors the server-side file name stamp used for exported config bundles. */
 function configDateStamp(): string {
@@ -28,6 +60,8 @@ export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const emailGroups = useAppStore((s) => s.emailGroups)
+  const branches = useAppStore((s) => s.branches)
+  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const toast = useAppStore((s) => s.toast)
@@ -55,7 +89,8 @@ export default function Settings(): JSX.Element {
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [showEmailPassword, setShowEmailPassword] = useState(false)
-  const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
+  const [groupDraft, setGroupDraft] = useState<GroupDraft>(emptyGroupDraft())
+  const [groupBusy, setGroupBusy] = useState('')
   const [portPicker, setPortPicker] = useState<'export' | 'import' | null>(null)
   const [pendingImport, setPendingImport] = useState('')
   useEffect(() => {
@@ -119,12 +154,71 @@ export default function Settings(): JSX.Element {
   }
   const saveGroup = async (): Promise<void> => {
     try {
-      await window.branchpulse.saveEmailGroup(groupDraft)
-      setGroupDraft({ name: '', recipients: '' })
-      toast('邮箱分组已保存', 'success')
+      await window.branchpulse.saveEmailGroup({
+        ...(groupDraft.id ? { id: groupDraft.id } : {}),
+        name: groupDraft.name,
+        recipients: groupDraft.recipients,
+        members: groupDraft.members.filter((member) => member.name.trim() || member.email.trim())
+      })
+      setGroupDraft(emptyGroupDraft())
+      toast('分支组已保存', 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  const branchesForGroupId = (groupId: string): BranchSummary[] => {
+    const group = emailGroups.find((item) => item.id === groupId)
+    return group ? branchesForGroup(group, branches) : []
+  }
+
+  const editGroup = (group: EmailGroup): void => {
+    setGroupDraft({
+      id: group.id,
+      name: group.name,
+      recipients: group.recipients,
+      members: group.members.length > 0 ? group.members.map((member) => ({ ...member })) : [{ name: '', email: '' }]
+    })
+  }
+
+  const updateMember = (index: number, patch: Partial<EmailGroupMember>): void => {
+    setGroupDraft((current) => ({
+      ...current,
+      members: current.members.map((member, i) => (i === index ? { ...member, ...patch } : member))
+    }))
+  }
+
+  const addMember = (): void => setGroupDraft((current) => ({ ...current, members: [...current.members, { name: '', email: '' }] }))
+
+  const removeMember = (index: number): void =>
+    setGroupDraft((current) => ({ ...current, members: current.members.filter((_, i) => i !== index) }))
+
+  /** 导出该组的分支数据；HTML 与 CSV 都落在报告目录并出现在报告页。 */
+  const exportGroup = async (group: EmailGroup, format: 'html' | 'csv'): Promise<void> => {
+    setGroupBusy(group.id + ':' + format)
+    try {
+      const report = await window.branchpulse.exportGroupBranches(group.id, format, activeRepositoryId)
+      toast('已导出「' + group.name + '」分支数据（' + format.toUpperCase() + '）：' + report.summary.totalBranches + ' 个分支', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setGroupBusy('')
+    }
+  }
+
+  /** 把该组自己的分支情况发给组员。 */
+  const emailGroupMembers = async (group: EmailGroup): Promise<void> => {
+    setGroupBusy(group.id + ':mail')
+    try {
+      const result = await window.branchpulse.emailGroupBranches(group.id, activeRepositoryId)
+      toast(result.message, result.sent > 0 ? 'success' : 'warn')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setGroupBusy('')
     }
   }
 
@@ -399,53 +493,137 @@ export default function Settings(): JSX.Element {
         <Card className="p-5 xl:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-              <Mail size={15} className="text-secondary" /> 全局邮箱分组
+              <Users size={15} className="text-secondary" /> 分支组（组名与组员）
             </div>
-            <Badge tone="default">{emailGroups.length} 个分组</Badge>
+            <Badge tone="default">{emailGroups.length} 个组</Badge>
           </div>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[12rem_1fr_auto]">
-            <input
-              className="input"
-              placeholder="分组名称，如 aaa"
-              value={groupDraft.name}
-              onChange={(e) => setGroupDraft({ ...groupDraft, name: e.target.value })}
-            />
-            <textarea
-              className="input min-h-[72px] font-mono text-sm"
-              rows={3}
-              placeholder="111@qq.com, 222@qq.com（多个邮箱用逗号、分号或换行分隔）"
-              value={groupDraft.recipients}
-              onChange={(e) => setGroupDraft({ ...groupDraft, recipients: e.target.value })}
-            />
-            <button className="btn btn-primary h-fit" disabled={!groupDraft.name || !groupDraft.recipients} onClick={() => void saveGroup()}>
-              <Save size={14} /> 保存分组
-            </button>
+          <p className="mb-4 text-xs text-muted">
+            组员填「人名 + 邮箱」：分支的分支创始人命中组员人名或邮箱时，该分支就属于这个组。
+            组名作为收件人填写时，只把该组自己的分支情况发给组员；在监控页、定时调度、报告计划里同样生效。
+          </p>
+
+          <div className="rounded-md border border-line p-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[12rem_1fr]">
+              <input
+                className="input"
+                placeholder="组名，如 支付组"
+                value={groupDraft.name}
+                onChange={(e) => setGroupDraft({ ...groupDraft, name: e.target.value })}
+              />
+              <textarea
+                className="input min-h-[72px] font-mono text-sm"
+                rows={3}
+                placeholder="组内额外收件邮箱（选填），如 group@example.com"
+                value={groupDraft.recipients}
+                onChange={(e) => setGroupDraft({ ...groupDraft, recipients: e.target.value })}
+              />
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="label">组员（人名用于匹配分支创始人）</span>
+                <button className="btn px-2 text-xs" onClick={addMember} type="button">
+                  <Plus size={13} /> 添加组员
+                </button>
+              </div>
+              {groupDraft.members.length === 0 ? (
+                <div className="rounded-md bg-surface-elevated px-3 py-2 text-xs text-muted">还没有组员，添加后该组才会有归属分支。</div>
+              ) : (
+                groupDraft.members.map((member, index) => (
+                  <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <input
+                      className="input"
+                      placeholder="人名，如 张三"
+                      value={member.name}
+                      onChange={(e) => updateMember(index, { name: e.target.value })}
+                    />
+                    <input
+                      className="input font-mono"
+                      placeholder="邮箱，如 zhangsan@example.com"
+                      value={member.email}
+                      onChange={(e) => updateMember(index, { email: e.target.value })}
+                    />
+                    <button className="btn px-2" onClick={() => removeMember(index)} title="移除组员" type="button">
+                      <X size={13} className="text-danger" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <button className="btn btn-primary" disabled={!groupDraft.name.trim()} onClick={() => void saveGroup()}>
+                <Save size={14} /> {groupDraft.id ? '更新组' : '保存组'}
+              </button>
+              {groupDraft.id ? (
+                <button className="btn" onClick={() => setGroupDraft(emptyGroupDraft())}>
+                  <X size={14} /> 取消编辑
+                </button>
+              ) : null}
+            </div>
           </div>
+
           <div className="mt-4 space-y-2">
             {emailGroups.length === 0 ? (
-              <div className="rounded-md bg-surface-elevated p-4 text-center text-sm text-muted">暂无邮箱分组</div>
+              <div className="rounded-md bg-surface-elevated p-4 text-center text-sm text-muted">暂无分支组</div>
             ) : (
-              emailGroups.map((group) => (
-                <div key={group.id} className="flex items-start gap-3 rounded-md border border-line p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-canvas-fg">{group.name}</div>
-                    <div className="mt-0.5 break-all text-xs text-muted">{group.recipients}</div>
+              emailGroups.map((group) => {
+                const names = groupMemberNames(group)
+                return (
+                  <div key={group.id} className="rounded-md border border-line p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-canvas-fg">{group.name}</span>
+                          <Badge tone="default">{group.members.length} 位组员</Badge>
+                        </div>
+                        <div className="mt-0.5 break-all text-xs text-muted">
+                          {names.length > 0 ? names.join('、') : '未配置人名'}
+                          {group.recipients ? ' · ' + group.recipients : ''}
+                        </div>
+                      </div>
+                      <button className="btn px-2" onClick={() => editGroup(group)} title="编辑组">
+                        <SettingsIcon size={13} />
+                      </button>
+                      <button className="btn px-2" onClick={() => void deleteGroup(group.id)} title="删除组">
+                        <TrashIcon size={13} className="text-danger" />
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2">
+                      <span className="text-xs text-muted">
+                        {groupSummary(group, branchesForGroupId(group.id))}
+                      </span>
+                      <div className="flex-1" />
+                      <button
+                        className="btn px-2 text-xs"
+                        disabled={groupBusy !== ''}
+                        onClick={() => void exportGroup(group, 'html')}
+                        title="导出该组分支数据（HTML）"
+                      >
+                        <Download size={12} /> HTML
+                      </button>
+                      <button
+                        className="btn px-2 text-xs"
+                        disabled={groupBusy !== ''}
+                        onClick={() => void exportGroup(group, 'csv')}
+                        title="导出该组分支数据（CSV）"
+                      >
+                        <Download size={12} /> CSV
+                      </button>
+                      <button
+                        className="btn px-2 text-xs"
+                        disabled={groupBusy !== '' || !emailConfig?.enabled}
+                        onClick={() => void emailGroupMembers(group)}
+                        title={emailConfig?.enabled ? '把该组的分支情况发给组员' : '邮件发送未启用'}
+                      >
+                        <Mail size={12} /> 发送给组员
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    className="btn px-2"
-                    onClick={() => setGroupDraft({ id: group.id, name: group.name, recipients: group.recipients })}
-                    title="编辑分组"
-                  >
-                    <SettingsIcon size={13} />
-                  </button>
-                  <button className="btn px-2" onClick={() => void deleteGroup(group.id)} title="删除分组">
-                    <TrashIcon size={13} className="text-danger" />
-                  </button>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
-          <p className="mt-3 text-xs text-muted">邮箱分组为全局配置，可在监控、定时调度、报告收件人处直接选择分组名。</p>
         </Card>
 
         <Card className="p-5 xl:col-span-2">

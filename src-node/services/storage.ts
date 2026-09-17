@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS email_groups (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   recipients TEXT NOT NULL,
+  members_json TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -361,6 +362,7 @@ export class StorageService {
     this.ensureColumn('monitoring_rules', 'threshold_rules', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
+    this.ensureColumn('email_groups', 'members_json', 'TEXT')
     this.ensureColumn('scan_runs', 'health_avg', 'REAL')
     this.ensureColumn('scan_runs', 'health_best', 'REAL')
     this.ensureColumn('scan_runs', 'health_worst', 'REAL')

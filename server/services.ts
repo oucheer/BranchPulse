@@ -17,6 +17,7 @@ import { SettingsService } from '../src-node/services/settings'
 import { GitLabService } from '../src-node/services/gitlab'
 import { BackupService } from '../src-node/services/backup'
 import { ConfigPortService } from '../src-node/services/configPort'
+import { GroupService } from '../src-node/services/groups'
 import { createBranchPulseApi, type AppServices, type BranchPulseApi } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { appRoot, dataDir, dbFile, ensureDir } from '../src-node/utils/paths'
@@ -64,10 +65,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   const health = new HealthService()
   const branch = new BranchService(storage, git, repository, gitlab, naming, protection, health, audit, settings)
   const email = new EmailService(storage, audit)
-  const monitoring = new MonitoringService(storage, branch, repository, email, audit)
+  const groups = new GroupService(storage, branch, email, audit)
+  const monitoring = new MonitoringService(storage, branch, repository, email, audit, groups)
   const scheduler = new SchedulerService(storage, monitoring, audit)
   const report = new ReportService(storage, branch, repository, audit)
-  const reportSchedules = new ReportScheduleService(storage, report, email, audit)
+  const reportSchedules = new ReportScheduleService(storage, report, email, audit, groups)
   const backup = new BackupService(
     storage,
     repository,
@@ -80,7 +82,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
 
   const services: AppServices = {
     storage, git, gitlab, repository, branch, naming, protection,
-    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort
+    monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort
   }
 
   const api = createBranchPulseApi(services, {

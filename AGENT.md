@@ -30,6 +30,9 @@
 - 监控页不要单独出现“发送邮件通知”开关。是否通知由“通知自己”“通知分支创始人”等对象开关决定。立即检查必须使用当前表单配置，结束后不能用数据库旧配置回灌表单。
 - Git API Token、设置项和仓库配置必须持久化。重启、重进页面或连接成功后应回填已保存值；Token 默认掩码展示，可手动切换可见性。
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
+- **分支组（组名 + 组员）**是全局配置，存在 `email_groups` 表（新增 `members_json` 列存 `{ name, email }[]`，见 `shared/types.ts` 的 `EmailGroupMember`）。归属规则只有一个口径：**分支的分支创始人（人名或邮箱）命中组员即为该组的分支**，实现集中在 `shared/groups.ts` 的 `branchBelongsToGroup()`，前后端必须共用这一份，不要在页面或服务里另写一套 filter。匹配是忽略大小写的精确匹配，**不做模糊匹配**（否则「张三」会命中「张三丰」）。
+- 组名作为收件人 token 时的语义是「**只把这个组自己的分支情况发给组员**」，**不是**「把整仓汇总也发给这些人」。`partitionRecipientTokens()`（`shared/groups.ts`）负责把收件人输入拆成「命中的组 + 其余普通收件人」，`MonitoringService.sendSummaryWithGroups()` 与 `ReportScheduleService.tick()` 都必须走它；若把组名直接丢给 `resolveRecipients()`，组员会同时收到整仓汇总和分组邮件两封。只有普通收件人（或 `self`）时才发整仓汇总。
+- 组的导出走 `GroupService.exportBranches()`（`src-node/services/groups.ts`），报告格式同样只用 `HTML` / `CSV`，CSV 额外带 `group` 与 `creator_email` 列，落盘到报告目录并写入 `reports` 表，因此在报告页可见可下载。组相关 RPC 是 `exportGroupBranches` / `emailGroupBranches`，新增或改名时两边都要改（`shared/rpc.ts` + `src-node/api.ts` 的 `BranchPulseApi`，`tests/rpcContract.test.ts` 会编译期校验）。
 - 设置页必须保留「配置导入 / 导出」（`src-node/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
 - 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。

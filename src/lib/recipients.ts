@@ -1,4 +1,5 @@
 import type { EmailGroup, NotifyTarget } from '@shared/types'
+import { groupRecipients } from '@shared/groups'
 
 export interface RecipientDraft {
   self: boolean
@@ -74,7 +75,8 @@ export function resolveRecipientDisplay(
   for (const token of tokens) {
     const group = groupByName.get(token.toLowerCase())
     if (group) {
-      for (const recipient of splitRecipientTokens(group.recipients)) add(recipient)
+      // 组员邮箱与额外收件邮箱都要展示，否则用户会以为组员没配上。
+      for (const recipient of groupRecipients(group)) add(recipient)
     } else if (!['self', 'creator', 'both', 'none'].includes(token.toLowerCase())) {
       add(token)
     }
