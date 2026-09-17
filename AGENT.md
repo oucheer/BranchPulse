@@ -116,8 +116,9 @@
 - `confidence !== high` 或邮箱为空时，创始人邮件必须跳过。`medium` + 无邮箱在分支详情抽屉显示「未公开邮箱」说明卡，`unknown` 显示「无法确定分支创始人」说明卡。
 - 分支「自有提交」用 `compareCommits(projectId, defaultBranch, branchName)` 获取，**索引 0 就是分支第一个自有提交**（GitHub `/compare/base...head` 与 GitLab `/repository/compare?from=&to=` 都是 oldest-first）。不要退回本地差集启发式：差集分不清「分支没有提交」和「基准分支提交超出抓取窗口」两种情况。
 - GitLab 的 `/projects/:id/events?action=pushed` 是**唯一**能查到「无提交分支的创建人」的接口：`push_data.action === "created" && push_data.ref_type === "branch"`，`commit_count` 可以是 0。GitHub REST **没有**等价端点（`CreateEvent` 不出现在 `/repos/:o/:r/events`，实测 3 个仓库 100 条事件为 0 条），所以 `listBranchCreators()` 对非 GitLab 直接返回空 Map 且**不发请求**。
-- GitLab 事件的三个已知限制，不要当成 bug：① `author.public_email` 经常为空（实测 8 个创建者里 7 个为空）；② 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；③ 一次扫描只请求一次，不要按分支循环调 events。
-- 归因语义变更时必须同时 bump 分支缓存 key（`v3` → `v4`，`src-node/services/branch.ts` 的 `cacheContentKey`），否则库里旧快照会继续返回错误创始人。
+- GitLab 事件的两个已知限制，不要当成 bug：① 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；② 一次扫描只请求一次，不要按分支循环调 events。
+- `author.public_email` 经常为空（实测 8 个创建者里 7 个为空），这不再算限制：`listBranchCreators()` 收集完事件后，对「有 username 但没邮箱」的创建者再查一次 `/users?username=`（`GitLabService.resolveUserEmails()`），取 `public_email`，为空再退到账号 `email`。用户目录是 GitLab 唯一会给出「从未提交过的账号」邮箱的地方，这是需求「分支创始人邮箱拿不到」的修复点。约束：按 `MAX_CREATOR_EMAIL_LOOKUPS`（50）截断，结果按 `<host>|<username 小写>` 缓存在进程内，单个用户查询失败只跳过该用户、不影响扫描，非 GitLab provider 直接返回空 Map。
+- 归因语义变更时必须同时 bump 分支缓存 key（当前是 `v5`，`src-node/services/branch.ts` 的 `cacheContentKey`，远程与本地两处），否则库里旧快照会继续返回旧的创始人数据。`v5` 的变更点是创始人邮箱改由 forge profile 补齐。
 
 ## Git 工作流
 

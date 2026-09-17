@@ -107,10 +107,21 @@ export function projectIdOrPath(input: number | string): string {
   return encodeURIComponent(String(input).replaceAll('/', '%2F'))
 }
 
+/** Upper bound on profile lookups per scan, so a huge repository stays responsive. */
+const MAX_CREATOR_EMAIL_LOOKUPS = 50
+
 export class GitLabService {
   constructor(private readonly settings: SettingsService) {}
 
   private projectPathCache = new Map<string, string>()
+  /** `<host>|<username>` -> public address; empty string means "looked up, none public". */
+  private userEmailCache = new Map<string, string>()
+
+  /** Cache key: the same login can exist on two hosts with different addresses. */
+  private userEmailKey(username: string): string {
+    const host = this.settings.get().gitlabUrl.replace(/\/+$/, '')
+    return `${host}|${username.toLowerCase()}`
+  }
 
   private resolve(config?: GitLabConnectionConfig): { url: string; token: string; provider: 'gitlab' | 'github' | 'gitee' } {
     const appSettings = this.settings.get()
@@ -467,8 +478,9 @@ export class GitLabService {
    * last commit to the new branch.
    *
    * Note: the author's `public_email` is frequently empty, so a resolved
-   * creator may have a name but no address. Callers must treat that as
-   * "known name, cannot send mail" rather than guessing an address.
+   * creator may have a name but no address. The missing address is looked up
+   * from the same author's profile (`/users?username=`), which is the only
+   * place GitLab exposes a mail address for an account that never committed.
    */
   async listBranchCreators(
     projectId: number,
@@ -508,7 +520,62 @@ export class GitLabService {
       }
       if (rows.length < 100) break
     }
+    const missing = [...creators.values()].filter((creator) => !creator.email && creator.username)
+    if (missing.length > 0) {
+      const emails = await this.resolveUserEmails(missing.map((creator) => creator.username), config)
+      for (const creator of creators.values()) {
+        if (creator.email || !creator.username) continue
+        const email = emails.get(creator.username)
+        if (email) creator.email = email
+      }
+    }
     return creators
+  }
+
+  /**
+   * Resolve the public address of forge accounts by username.
+   *
+   * GitLab hides `public_email` on commit and event payloads whenever the user
+   * did not opt in, but the user directory still reports it (and, on instances
+   * that expose it, the account `email`). Without this lookup a branch created
+   * from the web UI that carries no commit has a correct creator name and no
+   * way to reach them.
+   *
+   * Bounded on purpose: one request per distinct username per scan, cached for
+   * the process lifetime, and any failure degrades to "no address" instead of
+   * failing the scan.
+   */
+  async resolveUserEmails(
+    usernames: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>()
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return resolved
+    const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
+      .filter((username) => {
+        const cached = this.userEmailCache.get(this.userEmailKey(username))
+        if (cached === undefined) return true
+        if (cached) resolved.set(username, cached)
+        return false
+      })
+      .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
+    for (const username of pending) {
+      const qs = new URLSearchParams({ username })
+      let rows: Array<Record<string, unknown>>
+      try {
+        rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+      } catch {
+        continue
+      }
+      const match = Array.isArray(rows)
+        ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase()) ?? rows[0]
+        : undefined
+      const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
+      this.userEmailCache.set(this.userEmailKey(username), email)
+      if (email) resolved.set(username, email)
+    }
+    return resolved
   }
 
   async getProject(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabProject> {
