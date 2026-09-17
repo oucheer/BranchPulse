@@ -76,10 +76,8 @@ const dictionaries = {
     health: 'Health',
     view: 'View',
     notify: 'Notify',
-
     cancel: 'Cancel',
     confirm: 'Confirm',
-
     noBranches: 'No branches found',
     runCheckDescription: '从远程仓库 API 获取最新分支并生成通知。',
     noEmail: 'No email',
@@ -251,10 +249,8 @@ const dictionaries = {
     health: '健康度',
     view: '查看',
     notify: '通知',
-
     cancel: '取消',
     confirm: '确认',
-
     noBranches: '没有找到分支',
     runCheckDescription: '从远程仓库 API 获取最新分支并生成通知。',
     noEmail: '不发送邮件',
