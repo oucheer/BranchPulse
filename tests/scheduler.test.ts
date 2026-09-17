@@ -18,7 +18,6 @@ function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
     endDate: null,
     emailPolicy: 'none',
     fetchEnabled: true,
-    autoDeleteEnabled: false,
     notifyTarget: 'self',
     lastRunAt: null,
     nextRunAt: null,
@@ -41,7 +40,6 @@ function jobRow(job: SchedulerJob): Record<string, unknown> {
     end_date: job.endDate,
     email_policy: job.emailPolicy,
     fetch_enabled: job.fetchEnabled ? 1 : 0,
-    auto_delete_enabled: job.autoDeleteEnabled ? 1 : 0,
     notify_target: job.notifyTarget,
     last_run_at: job.lastRunAt,
     next_run_at: job.nextRunAt,
@@ -65,7 +63,6 @@ function sampleRun(): ScanRun {
     merged: 1,
     namingInvalid: 1,
     cleanupCandidates: 1,
-    deleted: 0,
     notifications: 2,
     emailsSent: 0,
     error: null,
@@ -97,8 +94,7 @@ describe('SchedulerService never deletes branches', () => {
       trigger: 'scheduler',
       fetch: true,
       emailPolicy: 'none',
-      notifyTarget: 'self',
-      autoDelete: false
+      notifyTarget: 'self'
     })
     expect(storage.delete).not.toHaveBeenCalled()
     expect(storage.update).toHaveBeenCalledTimes(1)
@@ -113,6 +109,8 @@ describe('SchedulerService never deletes branches', () => {
 
     expect((service as unknown as Record<string, unknown>).deleteBranch).toBeUndefined()
     expect((monitoring as unknown as Record<string, unknown>).deleteBranch).toBeUndefined()
+    // The monitoring check never asks for an automatic cleanup run.
+    expect((monitoring as unknown as Record<string, unknown>).autoDeleteExpiredBranches).toBeUndefined()
   })
 
   it('does not run scheduler jobs while monitoring is disabled', async () => {

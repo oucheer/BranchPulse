@@ -7,7 +7,6 @@ import { BranchService } from '../src-node/services/branch'
 import { NamingService } from '../src-node/services/naming'
 import { ProtectionService } from '../src-node/services/protection'
 import { HealthService } from '../src-node/services/health'
-import { DeletionPolicyEngine, DeletionTokenRegistry } from '../src-node/services/deletion'
 import { MonitoringService } from '../src-node/services/monitoring'
 import { EmailService } from '../src-node/services/email'
 import { SchedulerService } from '../src-node/services/scheduler'
@@ -69,8 +68,6 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   const scheduler = new SchedulerService(storage, monitoring, audit)
   const report = new ReportService(storage, branch, repository, audit)
   const reportSchedules = new ReportScheduleService(storage, report, email, audit)
-  const deletionEngine = new DeletionPolicyEngine()
-  const deletionTokens = new DeletionTokenRegistry()
   const backup = new BackupService(
     storage,
     repository,
@@ -82,7 +79,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   const configPort = new ConfigPortService(storage, () => appVersion)
 
   const services: AppServices = {
-    storage, git, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens,
+    storage, git, gitlab, repository, branch, naming, protection,
     monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort
   }
 

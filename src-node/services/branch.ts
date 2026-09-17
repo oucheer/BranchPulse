@@ -182,7 +182,6 @@ export class BranchService {
       namingEnabled: (row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none') as MonitoringConfig['emailPolicy'],
       notificationEnabled: (row?.notification_enabled ?? 1) === 1,
-      autoDeleteEnabled: Number(row?.auto_delete_enabled ?? 0) === 1,
       notifyTarget: ((row?.notify_target as MonitoringConfig['notifyTarget']) ?? 'self')
     }
   }
@@ -649,46 +648,4 @@ export class BranchService {
     }
   }
 
-  async autoDeleteExpiredBranches(branches: BranchSummary[]): Promise<number> {
-    const targets = branches.filter((b) => b.cleanupCandidate && b.existsRemotely)
-    let deleted = 0
-    for (const branch of targets) {
-      const repo = this.repositoryService.get(branch.repositoryId)
-      if (!repo) continue
-      try {
-        if (repo.source !== 'local' && repo.gitlabProjectId) {
-          await this.gitlab.deleteBranch(repo.gitlabProjectId, branch.name, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken()))
-          this.deleteRemoteRecord({ repositoryId: branch.repositoryId, name: branch.name, type: 'remote' })
-        } else {
-          throw new Error('远程仓库配置不完整，无法通过 API 删除分支。')
-        }
-        this.audit.record('branch_auto_deleted', {
-          repository: repo.name,
-          branch: branch.name,
-          source: repo.source,
-          reason: 'grace_expired_auto_cleanup'
-        })
-        deleted += 1
-      } catch (err) {
-        this.audit.record('branch_auto_delete_failed', {
-          repository: repo.name,
-          branch: branch.name,
-          error: err instanceof Error ? err.message : String(err)
-        }, 'failure')
-      }
-    }
-    return deleted
-  }
-
-  deleteLocalRecord(criteria: BranchCriteria): void {
-    const key = `${criteria.repositoryId}|local|${criteria.name}`
-    this.storage.delete('branches', 'key = ?', [key])
-    this.storage.delete('branch_snapshots', 'key = ?', [key])
-  }
-
-  deleteRemoteRecord(criteria: BranchCriteria): void {
-    const key = `${criteria.repositoryId}|remote|${criteria.name}`
-    this.storage.delete('branches', 'key = ?', [key])
-    this.storage.delete('branch_snapshots', 'key = ?', [key])
-  }
 }

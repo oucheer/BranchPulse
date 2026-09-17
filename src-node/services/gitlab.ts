@@ -511,22 +511,6 @@ export class GitLabService {
     return creators
   }
 
-  async deleteBranch(projectId: number, branch: string, config?: GitLabConnectionConfig): Promise<void> {
-    const { provider } = this.resolve(config)
-    const path = await this.projectPath(projectId, config)
-    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
-    const encodedBranch = encodeURIComponent(branch)
-    if (provider === 'github') {
-      await this.request<void>(`/repos/${encodedPath}/git/refs/heads/${encodedBranch}`, config, { method: 'DELETE' })
-      return
-    }
-    if (provider === 'gitee') {
-      await this.request<void>(`/repos/${encodedPath}/branches/${encodedBranch}`, config, { method: 'DELETE' })
-      return
-    }
-    await this.request<void>(`/projects/${encodedPath}/repository/branches/${encodedBranch}`, config, { method: 'DELETE' })
-  }
-
   async getProject(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabProject> {
     const { provider } = this.resolve(config)
     const cachedPath = this.projectPathCache.get(`${provider}:${this.resolve(config).url}:${projectId}`)

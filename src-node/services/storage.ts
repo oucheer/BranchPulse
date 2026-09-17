@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS monitoring_rules (
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL,
   notification_enabled INTEGER NOT NULL DEFAULT 1,
-  auto_delete_enabled INTEGER NOT NULL DEFAULT 0,
   notify_target TEXT NOT NULL DEFAULT 'self'
 );
 
@@ -87,7 +86,6 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
   end_date TEXT,
   email_policy TEXT NOT NULL,
   fetch_enabled INTEGER NOT NULL DEFAULT 1,
-  auto_delete_enabled INTEGER NOT NULL DEFAULT 0,
   notify_target TEXT NOT NULL DEFAULT 'self',
   last_run_at TEXT,
   next_run_at TEXT,
@@ -168,7 +166,6 @@ CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL DEFAULT 'none',
   notification_enabled INTEGER NOT NULL DEFAULT 1,
-  auto_delete_enabled INTEGER NOT NULL DEFAULT 0,
   notify_target TEXT NOT NULL DEFAULT 'self'
 );
 
@@ -231,8 +228,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   gitlab_url TEXT,
   gitlab_api_key TEXT,
   gitlab_has_key INTEGER NOT NULL DEFAULT 0,
-  active_repository_id TEXT,
-  deletion_disabled INTEGER NOT NULL DEFAULT 0
+  active_repository_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -253,7 +249,6 @@ CREATE TABLE IF NOT EXISTS scan_runs (
   merged INTEGER NOT NULL DEFAULT 0,
   naming_invalid INTEGER NOT NULL DEFAULT 0,
   cleanup_candidates INTEGER NOT NULL DEFAULT 0,
-  deleted INTEGER NOT NULL DEFAULT 0,
   notifications INTEGER NOT NULL DEFAULT 0,
   emails_sent INTEGER NOT NULL DEFAULT 0,
   error TEXT,
@@ -360,12 +355,9 @@ export class StorageService {
     this.ensureColumn('monitoring_rules', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('monitoring_rules', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
-    this.ensureColumn('monitoring_rules', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
-    this.ensureColumn('scheduler_jobs', 'auto_delete_enabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
-    this.ensureColumn('scan_runs', 'deleted', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('scan_runs', 'health_avg', 'REAL')
     this.ensureColumn('scan_runs', 'health_best', 'REAL')
     this.ensureColumn('scan_runs', 'health_worst', 'REAL')
@@ -381,7 +373,6 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
-    this.ensureColumn('app_settings', 'deletion_disabled', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'color_theme', "TEXT NOT NULL DEFAULT 'default'")
     this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
@@ -415,8 +406,8 @@ export class StorageService {
   }
 
   private seed(): void {
-    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, auto_delete_enabled, notify_target)
-      VALUES (1, 1, 180, 60, 1, 1, 'none', 1, 0, 'self')`)
+    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, notify_target)
+      VALUES (1, 1, 180, 60, 1, 1, 'none', 1, 'self')`)
     this.run(`INSERT OR IGNORE INTO app_settings (id, theme, language, notifications_enabled, tray_enabled, launch_minimized, start_with_windows, fetch_policy)
       VALUES (1, 'dark', 'zh', 1, 1, 0, 0, 'auto')`)
     this.run(`INSERT OR IGNORE INTO email_config (id, server, port, from_address, secure, tls, enabled)

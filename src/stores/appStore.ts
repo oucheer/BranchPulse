@@ -102,8 +102,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     fetchPolicy: 'auto',
     gitlabUrl: '',
     hasGitlabApiKey: false,
-    activeRepositoryId: null,
-    deletionDisabled: false
+    activeRepositoryId: null
   },
   monitoring: {
     enabled: true,
@@ -115,7 +114,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     namingEnabled: true,
     emailPolicy: 'none',
     notificationEnabled: true,
-    autoDeleteEnabled: false,
     notifyTarget: 'self'
   },
   jobs: [],

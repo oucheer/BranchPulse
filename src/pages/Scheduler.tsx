@@ -49,7 +49,6 @@ const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'creat
   emailPolicy: 'none',
 
   fetchEnabled: true,
-  autoDeleteEnabled: false,
   notifyTarget: 'self'
 })
 
@@ -183,7 +182,7 @@ export default function Scheduler(): JSX.Element {
                       · {repositoryLabel(job.repositoryId)}
                     </span>
                     {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
-                    <span>· {job.autoDeleteEnabled ? tr('checkAndDelete') : tr('inspectionOnly')}</span>
+                    <span>· {tr('inspectionOnly')}</span>
                     <span>· {notifyLabel(job.notifyTarget)}</span>
                   </div>
                 </div>
@@ -354,19 +353,6 @@ export default function Scheduler(): JSX.Element {
           <div className="flex items-center justify-between">
             <span className="text-sm text-canvas-fg">{tr('fetchEnabled')}</span>
             <Toggle checked={editJob?.fetchEnabled ?? true} onChange={(v) => setEditJob({ ...editJob, fetchEnabled: v })} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm text-canvas-fg">{tr('autoDeleteEnabled')}</div>
-              <div className="text-xs text-muted">
-                {settings.deletionDisabled ? '全局禁止删除分支已开启，自动删除被禁用。' : tr('autoDeleteHint')}
-              </div>
-            </div>
-            <Toggle
-              checked={settings.deletionDisabled ? false : editJob?.autoDeleteEnabled ?? false}
-              disabled={settings.deletionDisabled}
-              onChange={(v) => setEditJob({ ...editJob, autoDeleteEnabled: v })}
-            />
           </div>
             <RecipientPicker
               value={editJob?.notifyTarget ?? 'none'}
