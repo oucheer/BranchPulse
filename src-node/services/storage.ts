@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS monitoring_rules (
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL,
   notification_enabled INTEGER NOT NULL DEFAULT 1,
-  notify_target TEXT NOT NULL DEFAULT 'self'
+  notify_target TEXT NOT NULL DEFAULT 'self',
+  threshold_rules TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scheduler_jobs (
@@ -166,7 +167,8 @@ CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL DEFAULT 'none',
   notification_enabled INTEGER NOT NULL DEFAULT 1,
-  notify_target TEXT NOT NULL DEFAULT 'self'
+  notify_target TEXT NOT NULL DEFAULT 'self',
+  threshold_rules TEXT
 );
 
 CREATE TABLE IF NOT EXISTS email_groups (
@@ -356,6 +358,7 @@ export class StorageService {
     this.ensureColumn('monitoring_rules', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
+    this.ensureColumn('monitoring_rules', 'threshold_rules', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
     this.ensureColumn('scan_runs', 'health_avg', 'REAL')
@@ -379,6 +382,7 @@ export class StorageService {
     this.ensureColumn('monitoring_rules_repo', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules_repo', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules_repo', 'notification_enabled', 'INTEGER NOT NULL DEFAULT 1')
+    this.ensureColumn('monitoring_rules_repo', 'threshold_rules', 'TEXT')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
     this.ensureColumn('branch_naming_rules', 'repository_id', 'TEXT')

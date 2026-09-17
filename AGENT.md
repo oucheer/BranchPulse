@@ -22,6 +22,8 @@
 - 分支筛选统一为问题维度：`所有分支`、`已停更`、`宽限期内`、`宽限期已过`、`命名不规范`。不要恢复独立的“所有状态/所有问题”双下拉，不要显示 `已合并`。
 - 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选停更或宽限期状态时禁用命名不规范创始人通知。
 - 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天，宽限期为 60 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
+- 未提交阈值支持**按分支前缀覆盖**：`MonitoringConfig.thresholdRules`（`{ prefix, value, unit }[]`，存在 `monitoring_rules.threshold_rules` / `monitoring_rules_repo.threshold_rules` 的 JSON 文本里）。解析与序列化只有 `src-node/services/branch.ts` 的 `parseThresholdRules()` / `serializeThresholdRules()` 两个出口，匹配规则只有 `effectiveThreshold()` 一个实现，**必须**同时被 `buildFromFacts()` 与 `refreshComputed()` 调用；前缀最长（最具体）者优先，未命中任何规则时回落到全局阈值。新增/修改阈值语义时必须同步改 `fingerprint()`（已含 `thresholdRuleFingerprint()`），否则旧缓存会继续用旧阈值判定。分支实际生效的阈值写进 `BranchSummary.thresholdDays` / `thresholdUnit`，邮件阈值提示由 `MonitoringService.thresholdHint()` 输出。
+- 监控页的「提醒宽限期」已按用户要求灰掉：数值与单位输入框 `disabled`，并标注“本页暂不提供调整入口”。底层 `gracePeriodDays` / `gracePeriodUnit` 字段与生命周期判定（`grace_period` / `grace_expired`）**保留不动**，不要顺手删除，也不要恢复可编辑入口，除非用户明确要求。
 - 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不计宽限期、不进清理候选、不进"需要关注"列表。豁免必须落在 `src-node/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
 - 应用**不提供任何删除远程分支的能力**（2026-09 移除）。`shared/rpc.ts` 不再暴露 `beginDelete` / `deleteBranch` / `batchDelete`，`DeletionPolicyEngine` 与 `src-node/services/deletion.ts` 已删除，`git.ts` 不再有 `deleteRemoteBranch()` / `deleteLocalBranch()`，监控与巡检只做只读检查。不要重新引入删除按钮、删除策略、`autoDeleteEnabled`、`deletionDisabled` 或任何 `deleted` 运行计数，也不要按“清理候选”自动删分支；「清理候选」只是提示，处置动作由人工在 Git 平台完成。「删除全部定时任务」是调度页的合法功能，不受此约束。
 - 用户说"某个分支不该出现在某某列表"时，先查状态字段（`stale` / `state` / `cleanupCandidate`）的产生位置，再查消费位置。只改页面过滤会留下缓存、邮件和报告三条漏网路径。

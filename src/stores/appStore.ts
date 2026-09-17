@@ -110,6 +110,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     gracePeriodDays: 60,
     staleThresholdUnit: 'days' as const,
     gracePeriodUnit: 'days' as const,
+    thresholdRules: [],
     fetchEnabled: true,
     namingEnabled: true,
     emailPolicy: 'none',

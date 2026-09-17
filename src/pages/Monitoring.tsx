@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Bell, Mail, Play, Save, Scale, Timer } from 'lucide-react'
+import { Activity, Bell, Mail, Play, Plus, Save, Scale, Timer, X } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
-import type { MonitoringConfig, NotifyTarget } from '@shared/types'
+import type { MonitoringConfig, NotifyTarget, ThresholdRule } from '@shared/types'
 
 type ThresholdUnit = MonitoringConfig['staleThresholdUnit']
 
@@ -26,6 +26,7 @@ export default function Monitoring(): JSX.Element {
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
+  const [ruleDraft, setRuleDraft] = useState<ThresholdRule>({ prefix: '', value: 90, unit: 'days' })
   const [saving, setSaving] = useState(false)
   const suppressDraftSync = useRef(false)
 
@@ -58,6 +59,29 @@ export default function Monitoring(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
       void refresh()
     }
+  }
+
+  const rules = draft.thresholdRules ?? []
+
+  const addRule = (): void => {
+    const prefix = ruleDraft.prefix.trim()
+    if (!prefix) { toast('请填写分支前缀，例如 release/', 'warn'); return }
+    if (!Number.isFinite(ruleDraft.value) || ruleDraft.value <= 0) { toast('阈值必须是大于 0 的数值', 'warn'); return }
+    const next = rules.filter((rule) => rule.prefix !== prefix)
+    next.push({ ...ruleDraft, prefix, value: ruleDraft.value })
+    setDraft({ ...draft, thresholdRules: next })
+    setRuleDraft({ prefix: '', value: 90, unit: 'days' })
+  }
+
+  const removeRule = (prefix: string): void => {
+    setDraft({ ...draft, thresholdRules: rules.filter((rule) => rule.prefix !== prefix) })
+  }
+
+  const updateRule = (prefix: string, patch: Partial<ThresholdRule>): void => {
+    setDraft({
+      ...draft,
+      thresholdRules: rules.map((rule) => (rule.prefix === prefix ? { ...rule, ...patch } : rule))
+    })
   }
 
   const runCheck = async (): Promise<void> => {
@@ -112,7 +136,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创始人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创始人。
             </div>
             <div className="grid grid-cols-[1fr_5.5rem] gap-2">
               <div>
@@ -140,31 +164,90 @@ export default function Monitoring(): JSX.Element {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-[1fr_5.5rem] gap-2">
-              <div>
-                <div className="label mb-1.5">提醒宽限期</div>
+            <div className="space-y-2 rounded-md border border-line p-3">
+              <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Timer size={13} className="text-secondary" /> 按前缀覆盖阈值</div>
+              <p className="text-xs text-muted">命中前缀的分支使用这里的阈值，未命中任何前缀时使用上面的全局阈值；前缀最长（最具体）的规则优先。</p>
+              {rules.length === 0 ? (
+                <div className="rounded-md bg-surface-elevated px-3 py-2 text-xs text-muted">暂无前缀规则，所有分支共用全局阈值</div>
+              ) : (
+                <div className="space-y-2">
+                  {[...rules]
+                    .sort((a, b) => b.prefix.length - a.prefix.length)
+                    .map((rule) => (
+                      <div key={rule.prefix} className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-center gap-2">
+                        <input className="input font-mono text-xs" value={rule.prefix} readOnly />
+                        <input
+                          type="number"
+                          min={1}
+                          max={maxByUnit[rule.unit]}
+                          className="input"
+                          value={rule.value}
+                          onChange={(e) => updateRule(rule.prefix, { value: Math.max(1, Number(e.target.value) || 1) })}
+                        />
+                        <select
+                          className="input"
+                          value={rule.unit}
+                          onChange={(e) => updateRule(rule.prefix, { unit: e.target.value as ThresholdUnit })}
+                        >
+                          <option value="weeks">周</option>
+                          <option value="days">天</option>
+                          <option value="hours">小时</option>
+                          <option value="minutes">分钟</option>
+                        </select>
+                        <button className="btn px-2" onClick={() => removeRule(rule.prefix)} title={`删除 ${rule.prefix} 规则`}>
+                          <X size={13} className="text-danger" />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+              <div className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-center gap-2">
+                <input
+                  className="input font-mono text-xs"
+                  placeholder="前缀，如 release/"
+                  value={ruleDraft.prefix}
+                  onChange={(e) => setRuleDraft({ ...ruleDraft, prefix: e.target.value })}
+                />
                 <input
                   type="number"
-                  min={0}
-                  max={maxByUnit[draft.gracePeriodUnit]}
+                  min={1}
+                  max={maxByUnit[ruleDraft.unit]}
                   className="input"
-                  value={draft.gracePeriodDays}
-                  onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
+                  value={ruleDraft.value}
+                  onChange={(e) => setRuleDraft({ ...ruleDraft, value: Math.max(1, Number(e.target.value) || 1) })}
                 />
-              </div>
-              <div>
-                <div className="label mb-1.5">单位</div>
                 <select
                   className="input"
-                  value={draft.gracePeriodUnit}
-                  onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as ThresholdUnit })}
+                  value={ruleDraft.unit}
+                  onChange={(e) => setRuleDraft({ ...ruleDraft, unit: e.target.value as ThresholdUnit })}
                 >
                   <option value="weeks">周</option>
                   <option value="days">天</option>
                   <option value="hours">小时</option>
                   <option value="minutes">分钟</option>
                 </select>
+                <button className="btn px-2" disabled={!ruleDraft.prefix.trim()} onClick={addRule}>
+                  <Plus size={13} />
+                </button>
               </div>
+            </div>
+            <div className="rounded-md border border-line bg-surface-elevated p-3 opacity-60">
+              <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+                <div>
+                  <div className="label mb-1.5">提醒宽限期</div>
+                  <input type="number" className="input" value={draft.gracePeriodDays} disabled readOnly />
+                </div>
+                <div>
+                  <div className="label mb-1.5">单位</div>
+                  <select className="input" value={draft.gracePeriodUnit} disabled>
+                    <option value="weeks">周</option>
+                    <option value="days">天</option>
+                    <option value="hours">小时</option>
+                    <option value="minutes">分钟</option>
+                  </select>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted">宽限期当前固定为上面显示的值，本页暂不提供调整入口。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>

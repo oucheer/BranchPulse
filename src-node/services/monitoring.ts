@@ -16,6 +16,7 @@ import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
 import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
+import { parseThresholdRules } from './branch'
 
 export class MonitoringService {
   onProgress: ((progress: ScanProgress) => void) | null = null
@@ -63,7 +64,14 @@ export class MonitoringService {
   private thresholdHint(row?: Record<string, unknown> | null): string {
     const unitLabel = (unit: string): string => unit === 'weeks' ? '周' : unit === 'hours' ? '小时' : unit === 'minutes' ? '分钟' : '天'
     const staleValue = Number(row?.stale_threshold_days ?? 180)
-    return `阈值 ${staleValue} ${unitLabel(String(row?.stale_threshold_unit ?? 'days'))}`
+    const base = `阈值 ${staleValue} ${unitLabel(String(row?.stale_threshold_unit ?? 'days'))}`
+    const rules = parseThresholdRules(row?.threshold_rules)
+    if (rules.length === 0) return base
+    const detail = [...rules]
+      .sort((a, b) => b.prefix.length - a.prefix.length)
+      .map((rule) => `${rule.prefix} ${rule.value} ${unitLabel(rule.unit)}`)
+      .join('、')
+    return `${base}；按前缀覆盖：${detail}`
   }
 
   async runCheckNow(options: RunCheckOptions = {}): Promise<ScanRun> {

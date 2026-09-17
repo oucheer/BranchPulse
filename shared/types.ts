@@ -81,6 +81,9 @@ export interface BranchSummary {
   state: BranchState
   stale: boolean
   gracePeriodDays: number
+  /** 该分支实际生效的未提交阈值（命中前缀规则时是规则值）。 */
+  thresholdDays: number
+  thresholdUnit: ThresholdUnit
   graceExpired: boolean
   cleanupCandidate: boolean
   recentCommits: CommitInfo[]
@@ -135,12 +138,25 @@ export interface ProtectionEntry {
   createdAt: string
 }
 
+/**
+ * 按分支前缀覆盖未提交阈值。
+ *
+ * 空数组表示所有分支共用全局阈值；命中多条时取最长前缀（最具体的那条）。
+ */
+export interface ThresholdRule {
+  prefix: string
+  value: number
+  unit: ThresholdUnit
+}
+
 export interface MonitoringConfig {
   enabled: boolean
   staleThresholdDays: number
   gracePeriodDays: number
   staleThresholdUnit: 'minutes' | 'hours' | 'days' | 'weeks'
   gracePeriodUnit: 'minutes' | 'hours' | 'days' | 'weeks'
+  /** 按前缀覆盖的未提交阈值，按前缀长度从长到短匹配。 */
+  thresholdRules: ThresholdRule[]
   fetchEnabled: boolean
   namingEnabled: boolean
   emailPolicy: EmailPolicy

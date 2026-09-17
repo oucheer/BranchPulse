@@ -50,6 +50,8 @@ function cachedBranch(overrides: Partial<BranchSummary>): BranchSummary {
     state: 'active',
     stale: false,
     gracePeriodDays: 60,
+    thresholdDays: 180,
+    thresholdUnit: 'days',
     graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],

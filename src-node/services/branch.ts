@@ -7,7 +7,8 @@ import type {
   MonitoringConfig,
   NamingResult,
   ProtectionInfo,
-  Repository
+  Repository,
+  ThresholdRule,
 } from '@shared/types'
 import type { GitLabConnectionConfig } from '@shared/types'
 import type { GitRefInfo, GitService } from './git'
@@ -129,7 +130,51 @@ function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protec
     .join('|')
   const wl = protection.listWhitelist(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
   const pr = protection.listProtected(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
-  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
+  const thresholds = thresholdRuleFingerprint(monitoring)
+  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${thresholds}|${rules}|${wl}|${pr}`
+}
+
+/** 存储里的前缀规则是 JSON 文本；坏数据降级为空数组而不是抛错。 */
+export function parseThresholdRules(raw: unknown): ThresholdRule[] {
+  if (Array.isArray(raw)) return normalizeThresholdRules(raw)
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    return normalizeThresholdRules(JSON.parse(raw))
+  } catch {
+    return []
+  }
+}
+
+function normalizeThresholdRules(input: unknown): ThresholdRule[] {
+  if (!Array.isArray(input)) return []
+  const rules: ThresholdRule[] = []
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const record = entry as Record<string, unknown>
+    const prefix = String(record.prefix ?? '').trim()
+    const value = Number(record.value)
+    const unit = String(record.unit ?? 'days') as ThresholdRule['unit']
+    if (!prefix || !Number.isFinite(value) || value <= 0) continue
+    if (![
+      'minutes',
+      'hours',
+      'days',
+      'weeks'
+    ].includes(unit)) continue
+    rules.push({ prefix, value, unit })
+  }
+  return rules
+}
+
+/** 存储格式唯一出口：写库时序列化，读库时用 parseThresholdRules() 解析。 */
+export function serializeThresholdRules(rules: ThresholdRule[] | undefined): string {
+  return JSON.stringify(normalizeThresholdRules(rules ?? []))
+}
+
+function thresholdRuleFingerprint(monitoring: MonitoringConfig): string {
+  return (monitoring.thresholdRules ?? [])
+    .map((rule) => `${rule.prefix}:${rule.unit}:${rule.value}`)
+    .join(',')
 }
 
 function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdUnit']): number {
@@ -137,6 +182,23 @@ function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdU
   if (unit === 'hours') return value
   if (unit === 'weeks') return value * 24 * 7
   return value * 24
+}
+
+/**
+ * 分支实际生效的未提交阈值。
+ *
+ * 前缀规则里前缀最长（最具体）的那条优先，`release/` 与 `release/1.x/` 同时配置时后者胜出；
+ * 未命中任何规则时回落到全局阈值。基准分支同样按此计算，但生命周期评比本身会豁免它们。
+ */
+export function effectiveThreshold(
+  monitoring: MonitoringConfig,
+  branchName: string
+): { hours: number; value: number; unit: MonitoringConfig['staleThresholdUnit'] } {
+  const rules = [...(monitoring.thresholdRules ?? [])].sort((a, b) => b.prefix.length - a.prefix.length)
+  const match = rules.find((rule) => branchName.startsWith(rule.prefix))
+  const value = match ? match.value : monitoring.staleThresholdDays
+  const unit = match ? match.unit : monitoring.staleThresholdUnit
+  return { hours: thresholdToHours(value, unit), value, unit }
 }
 
 /**
@@ -178,6 +240,7 @@ export class BranchService {
       gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
       gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
+      thresholdRules: parseThresholdRules(row?.threshold_rules),
       fetchEnabled: (row?.fetch_enabled ?? 1) === 1,
       namingEnabled: (row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none') as MonitoringConfig['emailPolicy'],
@@ -480,7 +543,10 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(facts.lastCommitAt, now)
     const ageDays = elapsedDays(facts.createdAt, now)
-    const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
+    // 前缀规则优先，未命中时回落到全局阈值；两处生命周期判定共用 effectiveThreshold()，
+    // 避免新扫描与缓存刷新各算一套。
+    const effective = effectiveThreshold(monitoring, facts.name)
+    const thresholdHours = effective.hours
     const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(facts.lastCommitAt, now)
     const baseline = isBaselineBranch(facts.name, facts.baseBranch)
@@ -539,6 +605,8 @@ export class BranchService {
       state,
       stale,
       gracePeriodDays: monitoring.gracePeriodDays,
+      thresholdDays: Math.max(effective.hours / 24, 1 / 1440),
+      thresholdUnit: effective.unit,
       graceExpired,
       cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
       recentCommits: facts.recentCommits,
@@ -550,7 +618,8 @@ export class BranchService {
     const now = Date.now()
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
-    const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
+    const effective = effectiveThreshold(monitoring, cached.name)
+    const thresholdHours = effective.hours
     const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(cached.lastCommitAt, now)
     const baseline = isBaselineBranch(cached.name, cached.baseBranch)
@@ -586,6 +655,8 @@ export class BranchService {
       ageDays,
       state,
       stale,
+      thresholdDays: Math.max(effective.hours / 24, 1 / 1440),
+      thresholdUnit: effective.unit,
       graceExpired,
       cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
       naming,

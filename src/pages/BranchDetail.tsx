@@ -148,7 +148,7 @@ export default function BranchDetail(): JSX.Element {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-muted">未提交阈值</span>
-              <span className="font-mono text-sm text-canvas-fg">{durationLabel(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)}</span>
+              <span className="font-mono text-sm text-canvas-fg">{durationLabel(branch.thresholdDays, branch.thresholdUnit)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted">提醒宽限期</span>

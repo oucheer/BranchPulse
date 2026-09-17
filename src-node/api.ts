@@ -35,6 +35,7 @@ import { exportAuditLogs } from './services/audit-export'
 import type { StorageService } from './services/storage'
 import type { GitService } from './services/git'
 import type { RepositoryService } from './services/repository'
+import { parseThresholdRules, serializeThresholdRules } from './services/branch'
 import type { BranchService } from './services/branch'
 import type { NamingService } from './services/naming'
 import type { ProtectionService } from './services/protection'
@@ -255,6 +256,7 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
       gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
       gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
+      thresholdRules: parseThresholdRules(row?.threshold_rules),
       fetchEnabled: Number(row?.fetch_enabled ?? 1) === 1,
       namingEnabled: Number(row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none'),
@@ -270,6 +272,7 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
       grace_period_days: config.gracePeriodDays,
       stale_threshold_unit: config.staleThresholdUnit,
       grace_period_unit: config.gracePeriodUnit,
+      threshold_rules: serializeThresholdRules(config.thresholdRules),
       fetch_enabled: config.fetchEnabled ? 1 : 0,
       naming_enabled: config.namingEnabled ? 1 : 0,
       email_policy: config.emailPolicy,
@@ -292,7 +295,8 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
       staleThresholdDays: config.staleThresholdDays,
       gracePeriodDays: config.gracePeriodDays,
       staleThresholdUnit: config.staleThresholdUnit,
-      gracePeriodUnit: config.gracePeriodUnit
+      gracePeriodUnit: config.gracePeriodUnit,
+      thresholdRules: config.thresholdRules ?? []
     })
     return getMonitoring(repositoryId)
   }
