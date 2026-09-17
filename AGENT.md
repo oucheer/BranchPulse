@@ -23,6 +23,7 @@
 - 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选停更或宽限期状态时禁用命名不规范创始人通知。
 - 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天，宽限期为 60 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
 - 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不计宽限期、不进清理候选、不进"需要关注"列表。豁免必须落在 `src-node/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
+- 应用**不提供任何删除远程分支的能力**（2026-09 移除）。`shared/rpc.ts` 不再暴露 `beginDelete` / `deleteBranch` / `batchDelete`，`DeletionPolicyEngine` 与 `src-node/services/deletion.ts` 已删除，`git.ts` 不再有 `deleteRemoteBranch()` / `deleteLocalBranch()`，监控与巡检只做只读检查。不要重新引入删除按钮、删除策略、`autoDeleteEnabled`、`deletionDisabled` 或任何 `deleted` 运行计数，也不要按“清理候选”自动删分支；「清理候选」只是提示，处置动作由人工在 Git 平台完成。「删除全部定时任务」是调度页的合法功能，不受此约束。
 - 用户说"某个分支不该出现在某某列表"时，先查状态字段（`stale` / `state` / `cleanupCandidate`）的产生位置，再查消费位置。只改页面过滤会留下缓存、邮件和报告三条漏网路径。
 - 监控页不要单独出现“发送邮件通知”开关。是否通知由“通知自己”“通知分支创始人”等对象开关决定。立即检查必须使用当前表单配置，结束后不能用数据库旧配置回灌表单。
 - Git API Token、设置项和仓库配置必须持久化。重启、重进页面或连接成功后应回填已保存值；Token 默认掩码展示，可手动切换可见性。
@@ -32,6 +33,8 @@
 - 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。
 - 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
 - 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 BranchPulse 的统一文案。
+- 邮件统一通过设置页配置的发件邮箱（SMTP）直发：`src-node/services/email.ts` 的 `buildTransport()` 是唯一出口，`server`/`port`/`username`/`password`/`from`/`secure`/`tls` 全部来自 `email_config`，密码用 `encryptSecret()` 加密存储且不随配置导出。`secure` 表示连接即 TLS（465），`tls` 表示明文连接上协商 STARTTLS（587）。**不要**恢复本机 Outlook/COM 或任何依赖桌面邮件客户端的发送路径：Web 后端可能跑在没有邮件客户端的机器上，测试页与报告投递必须走同一条通道。
+- 设置页的「测试连接」「发送测试邮件」必须带当前表单草稿调用（`testEmailConnection(draft)` / `sendTestEmail(draft)`），否则用户改了服务器或密码却测到旧配置；`EmailConfigDraft`（`shared/types.ts`）就是为此存在的参数类型。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
 - 定时调度周期支持 `周`、`天`、`小时`、`分钟`；内部存储保持分钟字段兼容。
 - 界面语言必须全局一致：侧边栏分组标题、筛选按钮、设置卡片标题等所有用户可见文本都必须走 `tr()`，不允许硬编码英文。

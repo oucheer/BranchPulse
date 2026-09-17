@@ -9,7 +9,8 @@ import {
   Save,
   Settings as SettingsIcon,
   Trash2 as TrashIcon,
-  Upload
+  Upload,
+  Wrench
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Modal, Toggle } from '../components/ui'
@@ -53,6 +54,7 @@ export default function Settings(): JSX.Element {
   const [gitlabBusy, setGitlabBusy] = useState(false)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
+  const [showEmailPassword, setShowEmailPassword] = useState(false)
   const [groupDraft, setGroupDraft] = useState<{ id?: string; name: string; recipients: string }>({ name: '', recipients: '' })
   const [portPicker, setPortPicker] = useState<'export' | 'import' | null>(null)
   const [pendingImport, setPendingImport] = useState('')
@@ -87,7 +89,7 @@ export default function Settings(): JSX.Element {
     setSavingEmail(true)
     try {
       const saved = await window.branchpulse.saveEmailConfig(emailDraft)
-      setEmailDraft(saved)
+      setEmailDraft({ ...saved, password: '' })
       toast(tr('saveConfig') + ' OK', 'success')
       void refresh()
     } catch (err) {
@@ -136,11 +138,23 @@ export default function Settings(): JSX.Element {
     }
   }
 
+  const testConnection = async (): Promise<void> => {
+    setTesting(true)
+    try {
+      const result = await window.branchpulse.testEmailConnection(emailDraft)
+      toast(result.message, result.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const sendTest = async (): Promise<void> => {
 
     setTesting(true)
     try {
-      const result = await window.branchpulse.sendTestEmail()
+      const result = await window.branchpulse.sendTestEmail(emailDraft)
       toast(result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -292,6 +306,46 @@ export default function Settings(): JSX.Element {
             <Badge tone={emailDraft.enabled ? 'ok' : 'default'}>{emailDraft.enabled ? '已启用' : '未启用'}</Badge>
           </div>
           <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <div className="label mb-1.5">{tr('smtpServer')}</div>
+                <input className="input font-mono" value={emailDraft.server} onChange={(e) => setEmailDraft({ ...emailDraft, server: e.target.value })} placeholder="smtp.example.com" />
+              </div>
+              <div>
+                <div className="label mb-1.5">{tr('smtpPort')}</div>
+                <input type="number" className="input" value={emailDraft.port} onChange={(e) => setEmailDraft({ ...emailDraft, port: Number(e.target.value) || 0 })} />
+              </div>
+            </div>
+            <div>
+              <div className="label mb-1.5">{tr('username')}</div>
+              <input className="input" value={emailDraft.username} onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })} placeholder="notify@example.com" autoComplete="off" />
+            </div>
+            <div>
+              <div className="label mb-1.5">{tr('password')}</div>
+              <div className="flex items-center gap-2">
+                <input
+                  type={showEmailPassword ? 'text' : 'password'}
+                  className="input flex-1"
+                  placeholder={emailDraft.hasPassword ? '••••••••（已保存）' : ''}
+                  value={emailDraft.password ?? ''}
+                  onChange={(e) => setEmailDraft({ ...emailDraft, password: e.target.value })}
+                  autoComplete="new-password"
+                />
+                <button
+                  className="btn px-2"
+                  type="button"
+                  onClick={() => setShowEmailPassword(!showEmailPassword)}
+                  title={showEmailPassword ? '隐藏密码' : '显示密码'}
+                >
+                  {showEmailPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-muted">密码加密保存在本机，不会随配置导出。</p>
+            </div>
+            <div>
+              <div className="label mb-1.5">{tr('from')}</div>
+              <input className="input" value={emailDraft.from} onChange={(e) => setEmailDraft({ ...emailDraft, from: e.target.value })} placeholder="BranchPulse <notify@example.com>" />
+            </div>
             <div>
               <div className="label mb-1.5">我的个人邮箱</div>
               <input
@@ -301,7 +355,25 @@ export default function Settings(): JSX.Element {
                 onChange={(e) => setEmailDraft({ ...emailDraft, selfEmail: e.target.value })}
                 placeholder="your@email.com"
               />
-              <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱。邮件统一通过本机 Outlook 当前登录账户发送，无需在此配置发件账号或密码。</p>
+              <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱。所有邮件均由上方配置的发件邮箱账户发送。</p>
+            </div>
+            <div>
+              <div className="label mb-1.5">{tr('testRecipient')}</div>
+              <input className="input" value={emailDraft.testRecipient} onChange={(e) => setEmailDraft({ ...emailDraft, testRecipient: e.target.value })} placeholder="you@example.com" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-canvas-fg">Secure (SSL/TLS)</div>
+                <div className="text-xs text-muted">连接时直接使用加密通道（465 端口）</div>
+              </div>
+              <Toggle checked={emailDraft.secure} onChange={(v) => setEmailDraft({ ...emailDraft, secure: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-canvas-fg">{tr('tls')}</div>
+                <div className="text-xs text-muted">在明文连接上协商 STARTTLS（587 端口）</div>
+              </div>
+              <Toggle checked={emailDraft.tls} onChange={(v) => setEmailDraft({ ...emailDraft, tls: v })} />
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -314,7 +386,10 @@ export default function Settings(): JSX.Element {
               <button className="btn btn-primary" disabled={savingEmail} onClick={() => void saveEmail()}>
                 <Save size={14} /> {tr('saveConfig')}
               </button>
-              <button className="btn" disabled={testing || !emailDraft.enabled || !emailDraft.selfEmail} onClick={() => void sendTest()}>
+              <button className="btn" disabled={testing || !emailDraft.server} onClick={() => void testConnection()}>
+                <Wrench size={14} /> {tr('testConnection')}
+              </button>
+              <button className="btn" disabled={testing || !emailDraft.enabled || !emailDraft.server || !(emailDraft.testRecipient || emailDraft.selfEmail)} onClick={() => void sendTest()}>
                 <CheckCircle2 size={14} /> {tr('testEmail')}
               </button>
             </div>

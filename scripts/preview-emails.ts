@@ -195,9 +195,10 @@ function fakeStorage(lang: PreviewLang): any {
 async function creatorEmail(lang: PreviewLang): Promise<string> {
   const service = new EmailService(fakeStorage(lang), { record: () => {} } as any)
   const htmlBodies: string[] = []
-  ;(service as any).runOutlookScript = async (_script: string, payload?: { htmlBody?: string }) => {
-    htmlBodies.push(payload?.htmlBody ?? '')
-    return 'OK'
+  // Preview renders the real templates without touching the network.
+  ;(service as any).buildTransport = () => ({ close: () => undefined })
+  ;(service as any).deliverMail = async (_transport: unknown, _cfg: unknown, payload: { html?: string }) => {
+    htmlBodies.push(payload.html ?? '')
   }
   const issueRows = rows(lang).filter((row) => row.creatorEmail === 'wei.zhang@example.com' && row.state !== 'active')
   const result = await service.sendCreatorEmails(issueRows)

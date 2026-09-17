@@ -240,6 +240,9 @@ export interface EmailConfig {
   enabled: boolean
 }
 
+/** Saved email configuration plus a freshly typed password that never round-trips. */
+export type EmailConfigDraft = EmailConfig & { password?: string }
+
 export interface EmailSendResult {
   ok: boolean
   message: string
@@ -505,9 +508,9 @@ export interface BranchApi {
   clearNotifications(): Promise<void>
 
   getEmailConfig(): Promise<EmailConfig>
-  saveEmailConfig(config: EmailConfig & { password?: string }): Promise<EmailConfig>
-  testEmailConnection(): Promise<EmailSendResult>
-  sendTestEmail(): Promise<EmailSendResult>
+  saveEmailConfig(config: EmailConfigDraft): Promise<EmailConfig>
+  testEmailConnection(config?: EmailConfigDraft): Promise<EmailSendResult>
+  sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
   listReports(): Promise<ReportRecord[]>
   generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>

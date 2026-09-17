@@ -9,6 +9,7 @@ import type {
   BranchSummary,
   DashboardSnapshot,
   EmailConfig,
+  EmailConfigDraft,
   EmailGroup,
   EmailSendResult,
   ConfigExportResult,
@@ -134,9 +135,9 @@ export interface BranchPulseApi {
   clearNotifications(): Promise<void>
 
   getEmailConfig(): Promise<EmailConfig>
-  saveEmailConfig(config: EmailConfig & { password?: string }): Promise<EmailConfig>
-  testEmailConnection(config?: EmailConfig): Promise<EmailSendResult>
-  sendTestEmail(config?: EmailConfig): Promise<EmailSendResult>
+  saveEmailConfig(config: EmailConfigDraft): Promise<EmailConfig>
+  testEmailConnection(config?: EmailConfigDraft): Promise<EmailSendResult>
+  sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
   listReports(): Promise<ReportRecord[]>
   generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>

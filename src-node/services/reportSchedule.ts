@@ -146,7 +146,7 @@ export class ReportScheduleService {
             targetRecipients.push(...resolveRecipients(parsedNotify.recipients, this.emailService.listGroups()))
           }
           const resolvedRecipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
-          // 未选择收件人时，默认发送到本机 Outlook 当前登录账户可配置的通知邮箱。
+          // 未选择收件人时，默认发送到设置里配置的通知邮箱。
           const recipients = resolvedRecipients.length > 0
             ? resolvedRecipients
             : selfAddress ? [selfAddress] : []

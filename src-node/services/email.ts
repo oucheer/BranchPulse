@@ -1,7 +1,7 @@
 import fs from 'node:fs'
-import { spawn } from 'node:child_process'
-import os from 'node:os'
 import path from 'node:path'
+import nodemailer from 'nodemailer'
+import type { Transporter } from 'nodemailer'
 import type { BranchSummary, EmailConfig, EmailGroup, EmailSendResult } from '@shared/types'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
@@ -9,7 +9,9 @@ import { logger } from '../utils/logger'
 import { newId, nowIso } from '../utils/ids'
 import { decryptSecret, encryptSecret } from '../utils/secrets'
 
-const OUTLOOK_TIMEOUT_MS = 120_000
+/** SMTP timeouts: a dead host has to surface as an error, not as a hung page. */
+const SMTP_CONNECTION_TIMEOUT_MS = 20_000
+const SMTP_SOCKET_TIMEOUT_MS = 30_000
 
 export interface EmailIssueRow {
   repository: string
@@ -30,6 +32,9 @@ export interface EmailIssueRow {
   whitelisted?: boolean
   protectedBranch?: boolean
 }
+
+/** Saved config plus a freshly typed password, which never round-trips to the browser. */
+export type EmailConfigDraft = EmailConfig & { password?: string }
 
 export interface EmailSummaryData {
   total: number
@@ -687,115 +692,107 @@ export class EmailService {
     return { subject: render(template.subject), body: render(template.body) }
   }
 
-  private async runOutlookScript(script: string, payload?: Record<string, unknown>): Promise<string> {
-    if (process.platform !== 'win32') throw new Error('本机 Outlook 发送仅支持 Windows。')
-    const scriptPath = path.join(os.tmpdir(), `branchpulse-outlook-${newId()}.ps1`)
-    const payloadPath = payload ? path.join(os.tmpdir(), `branchpulse-outlook-${newId()}.json`) : ''
-    if (payload) fs.writeFileSync(payloadPath, Buffer.from(JSON.stringify(payload, null, 2), 'utf8'))
-    const args = payload ? [payloadPath] : []
-    // Windows PowerShell 5.1 requires UTF-8 BOM to parse non-ASCII content correctly.
-    fs.writeFileSync(scriptPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(script, 'utf8')]))
-    try {
-      return await new Promise<string>((resolve, reject) => {
-        const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...args], { windowsHide: true })
-        let stdout = ''
-        let stderr = ''
-        let settled = false
-        const timer = setTimeout(() => {
-          settled = true
-          child.kill()
-          reject(new Error('Outlook 发送超时。请确认 Outlook 已启动并允许程序发送邮件。'))
-        }, OUTLOOK_TIMEOUT_MS)
-        child.stdout.on('data', (chunk) => { stdout += String(chunk) })
-        child.stderr.on('data', (chunk) => { stderr += String(chunk) })
-        child.on('error', (err) => {
-          if (settled) return
-          clearTimeout(timer)
-          settled = true
-          reject(err instanceof Error ? err : new Error(String(err)))
-        })
-        child.on('close', (code) => {
-          if (settled) return
-          clearTimeout(timer)
-          settled = true
-          if (code === 0) resolve(stdout.trim())
-          else reject(new Error(stderr.trim() || `本机 Outlook 操作失败，退出码 ${code ?? 'unknown'}。`))
-        })
-      })
-    } finally {
-      fs.rmSync(scriptPath, { force: true })
-      if (payloadPath) fs.rmSync(payloadPath, { force: true })
+  /**
+   * Builds the SMTP transport from the saved (or supplied) email configuration.
+   *
+   * BranchPulse delivers mail through a configured mailbox instead of the mail
+   * client of the workstation, so the account stored in Settings is the one that
+   * sends notifications, reports and scheduled deliveries.
+   */
+  private buildTransport(config?: EmailConfigDraft): Transporter {
+    const cfg = config ?? this.getConfig()
+    const host = String(cfg.server ?? '').trim()
+    if (!host) {
+      throw new Error('未配置 SMTP 服务器，请先在设置中填写发件邮箱的服务器、用户名与密码。')
     }
-  }
-
-  private async verifyOutlook(): Promise<void> {
-    await this.runOutlookScript([
-      "$ErrorActionPreference = 'Stop'",
-      'try {',
-      '  $outlook = New-Object -ComObject Outlook.Application',
-      '  Write-Output OK',
-      '  exit 0',
-      '} catch {',
-      '  Write-Error $_',
-      '  exit 1',
-      '}'
-    ].join("\r\n"))
-  }
-
-  private async sendWithOutlook(input: { to: string[]; subject: string; body: string; html?: string; lang?: EmailLang; attachments?: string[] }): Promise<void> {
-    const recipients = validRecipients(input.to)
-    if (recipients.length === 0) throw new Error('收件人为空。')
-    const script = [
-      "$ErrorActionPreference = 'Stop'",
-      'try {',
-      '  $outlook = New-Object -ComObject Outlook.Application',
-      '  $mail = $outlook.CreateItem(0)',
-      '  $payload = Get-Content -LiteralPath $args[0] -Raw -Encoding UTF8 | ConvertFrom-Json',
-      '  $recipients = @($payload.recipients | Where-Object { $_ -and $_.Trim() })',
-      '  if ($recipients.Count -eq 0) { throw "收件人为空。" }',
-      '  $mail.To = (($recipients | ForEach-Object { [string]$_ }) -join "; ")',
-      '  $mail.Subject = [string]$payload.subject',
-      '  $mail.HTMLBody = [string]$payload.htmlBody',
-      '  if ($payload.attachments) {',
-      '    foreach ($path in @($payload.attachments)) {',
-      '      if ($path -and (Test-Path -LiteralPath $path)) {',
-      '        [void]$mail.Attachments.Add((Resolve-Path -LiteralPath $path).Path)',
-      '      }',
-      '    }',
-      '  }',
-      '  $mail.Send()',
-      '  exit 0',
-      '} catch {',
-      '  Write-Error $_',
-      '  exit 1',
-      '}'
-    ].join("\r\n")
-    await this.runOutlookScript(script, {
-      recipients,
-      subject: input.subject,
-      htmlBody: input.html ?? textToHtml(input.subject, input.body, input.lang),
-      attachments: input.attachments ?? []
+    const username = String(cfg.username ?? '').trim()
+    const password = config?.password ?? this.getPassword()
+    return nodemailer.createTransport({
+      host,
+      port: Math.max(1, Number(cfg.port) || 587),
+      // `secure` means implicit TLS on connect (port 465). When it is off, `tls`
+      // asks the server to upgrade a plain connection through STARTTLS.
+      secure: Boolean(cfg.secure),
+      requireTLS: !cfg.secure && Boolean(cfg.tls),
+      auth: username ? { user: username, pass: password } : undefined,
+      connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+      socketTimeout: SMTP_SOCKET_TIMEOUT_MS
     })
   }
 
-  async testConnection(config?: EmailConfig): Promise<EmailSendResult> {
-    void config
+  /** Sender header: the configured display address, else the SMTP account. */
+  private fromAddress(cfg: EmailConfig): string {
+    const from = String(cfg.from ?? '').trim()
+    if (from) return from
+    const username = String(cfg.username ?? '').trim()
+    if (username) return username
+    throw new Error('未配置发件人地址，请先在设置中填写发件人。')
+  }
+
+  /** Hands one message to an already-built transport. */
+  private async deliverMail(
+    transport: Transporter,
+    cfg: EmailConfig,
+    input: { to: string[]; subject: string; html?: string; attachments?: string[] }
+  ): Promise<void> {
+    const recipients = validRecipients(input.to)
+    if (recipients.length === 0) throw new Error('收件人为空。')
+    const attachments = (input.attachments ?? []).filter((file) => file && fs.existsSync(file))
+    await transport.sendMail({
+      from: this.fromAddress(cfg),
+      to: recipients,
+      subject: input.subject,
+      ...(input.html ? { html: input.html } : {}),
+      ...(attachments.length > 0 ? { attachments: attachments.map((file) => ({ path: file })) } : {})
+    })
+  }
+
+  private async sendWithSmtp(input: {
+    to: string[]
+    subject: string
+    body: string
+    html?: string
+    lang?: EmailLang
+    attachments?: string[]
+    config?: EmailConfigDraft
+  }): Promise<void> {
+    const cfg = input.config ?? this.getConfig()
+    const transport = this.buildTransport(input.config)
     try {
-      await this.verifyOutlook()
-      this.audit.record('email_connection_test', { transport: 'local-outlook' }, 'success')
-      return { ok: true, message: '本机 Outlook 可用。' }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.audit.record('email_connection_test', { transport: 'local-outlook', error: message }, 'failure')
-      return {
-        ok: false,
-        message: '无法访问本机 Outlook。请确认 Outlook 已安装并至少打开过一次。',
-        technical: message
-      }
+      await this.deliverMail(transport, cfg, {
+        to: input.to,
+        subject: input.subject,
+        html: input.html ?? textToHtml(input.subject, input.body, input.lang),
+        attachments: input.attachments
+      })
+    } finally {
+      transport.close()
     }
   }
 
-  async sendTestEmail(config?: EmailConfig): Promise<EmailSendResult> {
+  async testConnection(config?: EmailConfigDraft): Promise<EmailSendResult> {
+    const cfg = config ?? this.getConfig()
+    let transport: Transporter | undefined
+    try {
+      transport = this.buildTransport(config)
+      await transport.verify()
+      this.audit.record('email_connection_test', { transport: 'smtp', server: cfg.server }, 'success')
+      return { ok: true, message: `SMTP 连接与登录验证成功（${cfg.server}:${cfg.port}）。` }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.audit.record('email_connection_test', { transport: 'smtp', server: cfg.server, error: message }, 'failure')
+      return {
+        ok: false,
+        message: '无法连接 SMTP 服务器。请检查服务器地址、端口、用户名、密码与加密方式。',
+        technical: message
+      }
+    } finally {
+      transport?.close()
+    }
+  }
+
+  async sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
     const lang = readEmailLang(this.storage)
     const testRecipient = cfg.testRecipient || cfg.selfEmail
@@ -803,13 +800,14 @@ export class EmailService {
       return { ok: false, message: 'Set a test recipient before sending a test email.' }
     }
     try {
-      await this.sendWithOutlook({
+      await this.sendWithSmtp({
         to: [testRecipient],
         subject: lang === 'zh' ? 'BranchPulse 测试邮件' : 'BranchPulse Test Email',
         body: lang === 'zh'
-          ? '这是来自 BranchPulse 的测试邮件，本机 Outlook 发送正常。'
-          : 'This is a test email from BranchPulse. Local Outlook delivery is working.',
-        lang
+          ? '这是来自 BranchPulse 的测试邮件，配置的发件邮箱发送正常。'
+          : 'This is a test email from BranchPulse. The configured mailbox delivered it.',
+        lang,
+        config
       })
       this.audit.record('email_test_sent', { to: testRecipient }, 'success')
       return { ok: true, message: 'Test email sent successfully.', recipients: [testRecipient], emailsSent: 1 }
@@ -824,7 +822,8 @@ export class EmailService {
     }
   }
 
-  async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfig, recipients?: string[]): Promise<EmailSendResult> {
+
+  async sendSummaryEmail(data: EmailSummaryData, config?: EmailConfigDraft, recipients?: string[]): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
     const lang = readEmailLang(this.storage)
     const fallback = resolveRecipients(cfg.testRecipient || cfg.selfEmail || cfg.username)
@@ -838,11 +837,12 @@ export class EmailService {
       return { ok: false, message: 'Email is disabled or no recipient is configured.', emailsSent: 0 }
     }
     try {
-      await this.sendWithOutlook({
+      await this.sendWithSmtp({
         to: recipientList,
         subject: lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary',
         body: '',
-        html: buildBranchEmailHtml(data, lang, 'summary')
+        html: buildBranchEmailHtml(data, lang, 'summary'),
+        config
       })
       this.audit.record('email_summary_sent', { to: recipient }, 'success')
       return { ok: true, message: 'Summary email sent.', recipients: [recipient], emailsSent: 1 }
@@ -855,10 +855,11 @@ export class EmailService {
 
   async sendCreatorEmails(
     rows: EmailIssueRow[],
-    config?: EmailConfig,
+    config?: EmailConfigDraft,
     options?: { thresholdHint?: string }
   ): Promise<EmailSendResult> {
     const cfg = config ?? this.getConfig()
+    const transport = this.buildTransport(config)
     const lang = readEmailLang(this.storage)
     if (!cfg.enabled) return { ok: false, message: lang === 'zh' ? '邮件发送未启用。' : 'Email sending is disabled.', emailsSent: 0 }
     const groups = new Map<string, EmailIssueRow[]>()
@@ -873,39 +874,47 @@ export class EmailService {
     let sent = 0
     let failed = 0
     const failures: string[] = []
-    for (const [key, branchRows] of groups) {
-      const first = branchRows[0]
-      const to = String(first.creatorEmail || first.creator || '').trim()
-      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-        skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
-        continue
-      }
-      const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
-        ['stale', branchRows.filter((row) => row.state === 'grace_period')],
-        ['grace_expired', branchRows.filter((row) => row.state === 'grace_expired')],
-        ['idle', branchRows.filter((row) => row.state === 'stale')],
-        ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
-      ]
-      for (const [scenario, scenarioBranchRows] of scenarios) {
-        if (scenarioBranchRows.length === 0) continue
-        const sortedRows = [...scenarioBranchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
-        const email = creatorScenarioEmail(sortedRows, scenario, lang, options?.thresholdHint)
-        try {
-          await this.sendWithOutlook({ to: [to], subject: email.subject, body: '', html: email.html, lang })
-          recipients.push(to)
-          sent += 1
-        } catch (err) {
-          failed += 1
-          const message = err instanceof Error ? err.message : String(err)
-          failures.push(`${to}: ${message}`)
-          logger.warn(`creator email send failed: ${to} ${message}`)
+    try {
+      for (const [key, branchRows] of groups) {
+        const first = branchRows[0]
+        const to = String(first.creatorEmail || first.creator || '').trim()
+        if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+          skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
+          continue
+        }
+        const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
+          ['stale', branchRows.filter((row) => row.state === 'grace_period')],
+          ['grace_expired', branchRows.filter((row) => row.state === 'grace_expired')],
+          ['idle', branchRows.filter((row) => row.state === 'stale')],
+          ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
+        ]
+        for (const [scenario, scenarioBranchRows] of scenarios) {
+          if (scenarioBranchRows.length === 0) continue
+          const sortedRows = [...scenarioBranchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
+          const email = creatorScenarioEmail(sortedRows, scenario, lang, options?.thresholdHint)
+          try {
+            await this.deliverMail(transport, cfg, {
+              to: [to],
+              subject: email.subject,
+              html: email.html
+            })
+            recipients.push(to)
+            sent += 1
+          } catch (err) {
+            failed += 1
+            const message = err instanceof Error ? err.message : String(err)
+            failures.push(`${to}: ${message}`)
+            logger.warn(`creator email send failed: ${to} ${message}`)
+          }
         }
       }
+    } finally {
+      transport.close()
     }
     const details = failures.slice(0, 3).join('; ')
     if (failed > 0) {
       this.audit.record('email_creator_sent', { recipients, count: sent, failed, errors: failures }, sent > 0 ? 'success' : 'failure')
-      const configHint = '请确认本机 Outlook 已安装、已登录并保持可用。'
+      const configHint = '请确认设置中的发件邮箱服务器、用户名与密码正确，并检查网络与加密方式。'
       const suffix = details ? ` 失败原因：${details}` : configHint
       return {
         ok: sent > 0,
@@ -937,7 +946,7 @@ export class EmailService {
     if (!cfg.enabled) return { ok: false, message: '邮件发送未启用。', emailsSent: 0 }
     try {
       if (!fs.existsSync(input.attachmentPath)) throw new Error(`Report file not found: ${input.attachmentPath}`)
-      await this.sendWithOutlook({
+      await this.sendWithSmtp({
         to: input.to,
         subject: input.subject,
         body: input.body,
@@ -954,6 +963,3 @@ export class EmailService {
     }
   }
 }
-
-
-
