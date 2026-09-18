@@ -16,8 +16,15 @@ import type { StorageService } from './storage'
 
 const SENSITIVE_COLUMNS = new Set(['gitlab_api_key', 'remote_api_key', 'password_encrypted'])
 
-export const CONFIG_BUNDLE_KIND = 'branchpulse-config'
+export const CONFIG_BUNDLE_KIND = 'gitmanager-config'
 export const CONFIG_BUNDLE_VERSION = 1
+
+/**
+ * Brand and kind written by the pre-rename build. Accepting them keeps config
+ * files exported before the rename importable instead of failing a brand check.
+ */
+const LEGACY_BRANDS = new Set(['BranchPulse'])
+const LEGACY_KINDS = new Set(['branchpulse-config'])
 
 /** Single-row configuration tables (id = 1). */
 const SINGLETON_TABLES = ['app_settings', 'monitoring_rules', 'email_config'] as const
@@ -51,7 +58,7 @@ export interface ConfigImportSummary {
 }
 
 interface ConfigBundle {
-  app: 'BranchPulse'
+  app: 'GitManager'
   kind: typeof CONFIG_BUNDLE_KIND
   version: number
   exportedAt: string
@@ -77,7 +84,7 @@ export class ConfigPortService {
     const collections: Record<string, Array<Record<string, unknown>>> = {}
     for (const table of COLLECTION_TABLES) collections[table] = this.readCollection(table)
     const bundle: ConfigBundle = {
-      app: 'BranchPulse',
+      app: 'GitManager',
       kind: CONFIG_BUNDLE_KIND,
       version: CONFIG_BUNDLE_VERSION,
       exportedAt: new Date().toISOString(),
@@ -104,8 +111,12 @@ export class ConfigPortService {
       throw new Error('配置文件格式无效，无法解析 JSON。')
     }
     const bundle = parsed as Partial<ConfigBundle>
-    if (!bundle || bundle.app !== 'BranchPulse' || bundle.kind !== CONFIG_BUNDLE_KIND) {
-      throw new Error('这不是 BranchPulse 导出的配置文件。')
+    const brand = String(bundle?.app ?? '')
+    const kind = String(bundle?.kind ?? '')
+    const trustedBrand = brand === 'GitManager' || LEGACY_BRANDS.has(brand)
+    const trustedKind = kind === CONFIG_BUNDLE_KIND || LEGACY_KINDS.has(kind)
+    if (!bundle || !trustedBrand || !trustedKind) {
+      throw new Error('这不是 GitManager 导出的配置文件。')
     }
     if (typeof bundle.version !== 'number' || bundle.version > CONFIG_BUNDLE_VERSION) {
       throw new Error(`配置文件版本不受支持：${String(bundle.version)}`)

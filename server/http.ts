@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { URL } from 'node:url'
 import type { ScanProgress } from '@shared/types'
-import type { BranchPulseApi } from '../src-node/api'
+import type { GitManagerApi } from '../src-node/api'
 import { readReportFile, listFoldersForWeb } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { dataDir, reportsDir, userDataDir } from '../src-node/utils/paths'
@@ -34,14 +34,14 @@ const MIME: Record<string, string> = {
 }
 
 export interface ServerOptions {
-  api: BranchPulseApi
+  api: GitManagerApi
   /** Static asset directory. Omitted in dev, where Vite serves the renderer. */
   staticDir?: string
   /** Vite middleware used in dev so the renderer and API share one origin. */
   rendererMiddleware?: (req: http.IncomingMessage, res: http.ServerResponse, next: (err?: unknown) => void) => void
 }
 
-export interface BranchPulseServer {
+export interface GitManagerServer {
   listen(port: number, host: string): Promise<{ port: number; host: string }>
   close(): Promise<void>
   /** Broadcasts a scan progress event to every connected browser tab. */
@@ -97,7 +97,7 @@ function resolveStaticPath(root: string, pathname: string): string | null {
  * The renderer talks to `/api/rpc/<method>` with a positional argument array,
  * mirroring the old `ipcRenderer.invoke` calls one-to-one.
  */
-export function createServer(options: ServerOptions): BranchPulseServer {
+export function createServer(options: ServerOptions): GitManagerServer {
   const { api } = options
   const clients = new Set<http.ServerResponse>()
   let server: http.Server | null = null

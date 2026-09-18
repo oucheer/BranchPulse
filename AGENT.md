@@ -1,6 +1,6 @@
 # AGENT.md
 
-本文件记录 BranchPulse 多轮开发、修复与冒烟验证中沉淀的经验和固定规则。后续会话开始前应先阅读本文件；会话中出现新的通用经验、应用红线或常用验证方法时，应更新到这里。
+本文件记录 GitManager 多轮开发、修复与冒烟验证中沉淀的经验和固定规则。后续会话开始前应先阅读本文件；会话中出现新的通用经验、应用红线或常用验证方法时，应更新到这里。
 
 ## 工作流约定
 
@@ -14,7 +14,7 @@
 
 - 应用必须能从启动动效正常进入主界面，不允许空白屏。Web 版的启动动效在 `index.html` 的 `#startup-shell` 与渲染层动画组件里，后端启动/构建流程变化后必须实际启动验证。
 - 完整保留启动动效和页面交互动效：不降帧、不隐藏效果、不移动端/低端设备降级、不延迟挂载主背景。可读性问题只允许局部调整对比度、阴影或文字层，不能削弱整体动效。
-- 渲染层不得依赖 Electron 专属 API。历史上桌面版需要 `sandbox: false`，迁移到 Web 后这层约束已不存在：所有能力都必须经由 `window.branchpulse` 桥接（`src/lib/bridge.ts` 走 HTTP/SSE），页面里不允许直接 `import electron` 或读取 `process.*`。
+- 渲染层不得依赖 Electron 专属 API。历史上桌面版需要 `sandbox: false`，迁移到 Web 后这层约束已不存在：所有能力都必须经由 `window.gitmanager` 桥接（`src/lib/bridge.ts` 走 HTTP/SSE），页面里不允许直接 `import electron` 或读取 `process.*`。
 - 默认语言使用中文 `zh`，但用户已有显式语言设置不能被强制覆盖。
 - Dark 模式的次要文本必须保持可读；调整颜色时优先检查仪表盘、列表和详情页。
 - 全局中文生命周期术语只使用：`活跃`、`已停更`、`宽限期内`、`宽限期已过`、`未提交天数`、`命名不规范`、`清理候选`。
@@ -32,12 +32,12 @@
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
 - **分支组（组名 + 组员）**是全局配置，存在 `email_groups` 表（新增 `members_json` 列存 `{ name, email }[]`，见 `shared/types.ts` 的 `EmailGroupMember`）。归属规则只有一个口径：**分支的分支创始人（人名或邮箱）命中组员即为该组的分支**，实现集中在 `shared/groups.ts` 的 `branchBelongsToGroup()`，前后端必须共用这一份，不要在页面或服务里另写一套 filter。匹配是忽略大小写的精确匹配，**不做模糊匹配**（否则「张三」会命中「张三丰」）。
 - 组名作为收件人 token 时的语义是「**只把这个组自己的分支情况发给组员**」，**不是**「把整仓汇总也发给这些人」。`partitionRecipientTokens()`（`shared/groups.ts`）负责把收件人输入拆成「命中的组 + 其余普通收件人」，`MonitoringService.sendSummaryWithGroups()` 与 `ReportScheduleService.tick()` 都必须走它；若把组名直接丢给 `resolveRecipients()`，组员会同时收到整仓汇总和分组邮件两封。只有普通收件人（或 `self`）时才发整仓汇总。
-- 组的导出走 `GroupService.exportBranches()`（`src-node/services/groups.ts`），报告格式同样只用 `HTML` / `CSV`，CSV 额外带 `group` 与 `creator_email` 列，落盘到报告目录并写入 `reports` 表，因此在报告页可见可下载。组相关 RPC 是 `exportGroupBranches` / `emailGroupBranches`，新增或改名时两边都要改（`shared/rpc.ts` + `src-node/api.ts` 的 `BranchPulseApi`，`tests/rpcContract.test.ts` 会编译期校验）。
+- 组的导出走 `GroupService.exportBranches()`（`src-node/services/groups.ts`），报告格式同样只用 `HTML` / `CSV`，CSV 额外带 `group` 与 `creator_email` 列，落盘到报告目录并写入 `reports` 表，因此在报告页可见可下载。组相关 RPC 是 `exportGroupBranches` / `emailGroupBranches`，新增或改名时两边都要改（`shared/rpc.ts` + `src-node/api.ts` 的 `GitManagerApi`，`tests/rpcContract.test.ts` 会编译期校验）。
 - 设置页必须保留「配置导入 / 导出」（`src-node/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
 - 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。
 - 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
-- 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 BranchPulse 的统一文案。
+- 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 GitManager 的统一文案。
 - 邮件统一通过设置页配置的发件邮箱（SMTP）直发：`src-node/services/email.ts` 的 `buildTransport()` 是唯一出口，`server`/`port`/`username`/`password`/`from`/`secure`/`tls` 全部来自 `email_config`，密码用 `encryptSecret()` 加密存储且不随配置导出。`secure` 表示连接即 TLS（465），`tls` 表示明文连接上协商 STARTTLS（587）。**不要**恢复本机 Outlook/COM 或任何依赖桌面邮件客户端的发送路径：Web 后端可能跑在没有邮件客户端的机器上，测试页与报告投递必须走同一条通道。
 - 设置页的「测试连接」「发送测试邮件」必须带当前表单草稿调用（`testEmailConnection(draft)` / `sendTestEmail(draft)`），否则用户改了服务器或密码却测到旧配置；`EmailConfigDraft`（`shared/types.ts`）就是为此存在的参数类型。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
@@ -47,7 +47,7 @@
 
 ## 构建与运行
 
-- 对齐邮件正文和 HTML 报告结构时使用的参考项目克隆在 `.tmp-git-management-ref/`（`oucheer/git-management`，Python 版 BranchGuardian，约 0.8MB，已被 `.gitignore` 忽略）。不要提交它，也不要把它当成 BranchPulse 的源码。
+- 对齐邮件正文和 HTML 报告结构时使用的参考项目克隆在 `.tmp-git-management-ref/`（`oucheer/git-management`，Python 版 BranchGuardian，约 0.8MB，已被 `.gitignore` 忽略）。不要提交它，也不要把它当成 GitManager 的源码。
 - 应用已经是 Web 版：后端是 `server/` + `src-node/` 打包出的 Node 进程，界面在浏览器里。`electron/`、`electron-vite`、`electron-builder` 和 `release/` 打包流程都已删除，不要再按桌面版的方式构建或验证。
 - 常用命令：
   - 类型检查：`npm run typecheck`（`tsconfig.json` + `tsconfig.node.json`）
@@ -68,8 +68,8 @@
   2. 黑盒验证：按用户路径操作页面，不依赖实现细节。
   3. 冒烟验证：隔离用户数据目录启动构建产物，遍历主要路由，确认不空白、主内容渲染、术语正确。
   4. 回归验证：覆盖之前修复过的缺陷，尤其是动效、术语、筛选、监控配置、通知开关、报告文件和 Token 持久化。
-- Web 冒烟用 `npm run build && npm run smoke`（`scripts/smoke-web.mjs`）：它在临时目录里准备独立的 `BRANCHPULSE_USER_DATA_DIR` 与浏览器 profile，用 `BRANCHPULSE_PORT` 起构建产物，再无头 Chromium 走 CDP 遍历 13 条路由并校验术语。脚本自己负责收尾，不会碰用户的真实数据目录。
-- Web 版已无单实例锁，但 `BRANCHPULSE_USER_DATA_DIR` 隔离仍然必须保留，否则冒烟会写进用户真实配置。默认端口 `4319`、CDP 端口 `4320`，可用 `BRANCHPULSE_SMOKE_PORT` 覆盖；浏览器可用 `BRANCHPULSE_BROWSER` 指定。
+- Web 冒烟用 `npm run build && npm run smoke`（`scripts/smoke-web.mjs`）：它在临时目录里准备独立的 `GITMANAGER_USER_DATA_DIR` 与浏览器 profile，用 `GITMANAGER_PORT` 起构建产物，再无头 Chromium 走 CDP 遍历 13 条路由并校验术语。脚本自己负责收尾，不会碰用户的真实数据目录。
+- Web 版已无单实例锁，但 `GITMANAGER_USER_DATA_DIR` 隔离仍然必须保留，否则冒烟会写进用户真实配置。默认端口 `4319`、CDP 端口 `4320`，可用 `GITMANAGER_SMOKE_PORT` 覆盖；浏览器可用 `GITMANAGER_BROWSER` 指定。
 - Node 24 自带全局 `WebSocket`，可以直接连接 CDP，不需要为冒烟脚本额外安装依赖。
 - 这个应用的 `Page.captureScreenshot` 可能被 3D 场景阻塞或挂起。需要视觉确认时用系统级窗口截图（PowerShell `CopyFromScreen`），不要把 CDP 截图作为唯一手段；无头浏览器下更不能依赖它。
 - 冒烟脚本应抓取路由完整 `innerText`，扫描禁止术语和重复开关，并检查关键控件的选中值。截图只能确认视觉布局，不能替代文本检查。
@@ -127,9 +127,21 @@
 
 - **提交前先确认当前分支**：`git rev-parse --abbrev-ref HEAD`。本项目多次出现 HEAD 被切到 `pantum` 而非 `main`，导致 commit 落在错误分支上。发现错位后用 `git checkout main` + `git merge --ff-only <branch>` 归位（提交已在远程 `pantum` 上时也能快进），不要用 rebase 改写已推送历史。
 - 用户要求「推送到远程 + tag 最新 commit」时，先 `git log --oneline <tag>..HEAD` 确认 tag 是否落后，再 `git tag -f V0.1.x <sha>` 并 `git push origin main --follow-tags`（或 `git push -f origin V0.1.x`）。
-- **绝不要按进程名批量杀 `node.exe` / 浏览器进程**。用户可能同时开着真实的 BranchPulse 后端和浏览器，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里是否有 `dist\server\index.cjs` 且 `BRANCHPULSE_PORT` 指向自己用的端口，再用 `taskkill /PID <pid> /T`。
+- **绝不要按进程名批量杀 `node.exe` / 浏览器进程**。用户可能同时开着真实的 GitManager 后端和浏览器，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里是否有 `dist\server\index.cjs` 且 `GITMANAGER_PORT` 指向自己用的端口，再用 `taskkill /PID <pid> /T`。
 - 端口冲突是 Web 版最常见的“起不来”原因：`netstat -ano | Select-String ":4173"` 找到占用进程，先判断是不是自己上一轮没关干净，不要直接杀用户已开着的服务。
-- 工作区长期存在几个无关未跟踪文件（`BranchPulse-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
+- 工作区长期存在几个无关未跟踪文件（`BranchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。手册与截图是历史产物，不随品牌改名重做。
+
+## 品牌与改名兼容
+
+- 产品品牌全局统一为 **GitManager**：界面文案、`document.title`、`index.html` 的 `#startup-shell`、渲染层桥名 `window.gitmanager`、报告/邮件落款、`package.json` 的 `name`/`author`、构建产物名。出现旧名 `BranchPulse` / `branchpulse` 只允许存在于下面列出的兼容常量里，新增代码不得再引入。
+- 旧名以**兼容常量**保留，集中在这几个位置，改动时必须一起看：
+  - `src-node/utils/paths.ts`：`LEGACY_APP_FOLDER` / `LEGACY_DB_FILE` / `LEGACY_KEY_FILE`，以及 `env()` —— `GITMANAGER_*` 优先、回落 `BRANCHPULSE_*`。旧环境变量仍然有效，这样已有的启动脚本和服务定义不会因为改名而失效。
+  - `src-node/services/configPort.ts`：`LEGACY_BRANDS` / `LEGACY_KINDS`，让改名前导出的配置文件仍能导入。
+  - `src/lib/effects.ts`、`src/stores/appStore.ts`：`LEGACY_STORAGE_KEY` / `LEGACY_LANGUAGE_KEY`，经 `src/lib/legacyKeys.ts` 的 `readStorage()` 一次性拷到新 key。
+- **用户数据目录改名必须做一次性迁移**：`migrateUserData()`（`src-node/utils/paths.ts`）把旧 profile 里应用真正拥有的部分搬到新目录：数据库、`reports`/`backups`/`demo-repository`、`logs`，以及 **`Local State`/`SharedStorage`/`Preferences`/`Local Storage`/`Session Storage` 和密钥文件**。密钥文件只改名不改字节（DPAPI 包裹才有效），否则库里所有加密 Token 会解不开、静默变成空字符串。Chromium 缓存不搬。旧目录保留不动以便回滚。
+- 迁移的判据是标记文件 `.migrated-from-branchpulse`，**不是**「新数据库是否存在」：只被创建过 schema 的空库必须先挪成 `gitmanager.db.pre-rename` 再让真数据落位，否则用户会拿到一个空配置。
+- 只有**未显式设置** `GITMANAGER_USER_DATA_DIR` 时才迁移。测试与冒烟脚本用独立临时目录，绝不能把开发者真实数据拉进去。
+- `window.branchpulse` → `window.gitmanager` 不做别名：页面与桥在同一构建里发布，不存在版本错配，旧标签页连新后端会立刻报错并刷新自愈。
 
 ## 定时调度
 

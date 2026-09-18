@@ -10,7 +10,7 @@ class Logger {
   init(): void {
     try {
       const dir = logsDir()
-      const file = path.join(dir, `branchpulse-${new Date().toISOString().slice(0, 10)}.log`)
+      const file = path.join(dir, `gitmanager-${new Date().toISOString().slice(0, 10)}.log`)
       this.stream = fs.createWriteStream(file, { flags: 'a' })
     } catch {
       this.stream = null

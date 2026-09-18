@@ -108,7 +108,7 @@ export default function Settings(): JSX.Element {
   const saveApp = async (): Promise<void> => {
     setSavingApp(true)
     try {
-      const saved = await window.branchpulse.saveSettings(draft)
+      const saved = await window.gitmanager.saveSettings(draft)
       setDraft(saved)
       setLanguage(saved.language)
       toast(tr('saved'), 'success')
@@ -123,7 +123,7 @@ export default function Settings(): JSX.Element {
   const saveEmail = async (): Promise<void> => {
     setSavingEmail(true)
     try {
-      const saved = await window.branchpulse.saveEmailConfig(emailDraft)
+      const saved = await window.gitmanager.saveEmailConfig(emailDraft)
       setEmailDraft({ ...saved, password: '' })
       toast(tr('saveConfig') + ' OK', 'success')
       void refresh()
@@ -137,13 +137,13 @@ export default function Settings(): JSX.Element {
   const connectGitLab = async (): Promise<void> => {
     setGitlabBusy(true)
     try {
-      const saved = await window.branchpulse.saveSettings({
+      const saved = await window.gitmanager.saveSettings({
         ...draft,
         gitlabUrl: draft.gitlabUrl,
         ...(gitlabApiKey ? { gitlabApiKey } : {})
       })
       setDraft(saved)
-      await window.branchpulse.listGitLabProjects({ url: saved.gitlabUrl })
+      await window.gitmanager.listGitLabProjects({ url: saved.gitlabUrl })
       toast('远程仓库 API 已连接', 'success')
       void refresh()
     } catch (err) {
@@ -154,7 +154,7 @@ export default function Settings(): JSX.Element {
   }
   const saveGroup = async (): Promise<void> => {
     try {
-      await window.branchpulse.saveEmailGroup({
+      await window.gitmanager.saveEmailGroup({
         ...(groupDraft.id ? { id: groupDraft.id } : {}),
         name: groupDraft.name,
         recipients: groupDraft.recipients,
@@ -198,7 +198,7 @@ export default function Settings(): JSX.Element {
   const exportGroup = async (group: EmailGroup, format: 'html' | 'csv'): Promise<void> => {
     setGroupBusy(group.id + ':' + format)
     try {
-      const report = await window.branchpulse.exportGroupBranches(group.id, format, activeRepositoryId)
+      const report = await window.gitmanager.exportGroupBranches(group.id, format, activeRepositoryId)
       toast('已导出「' + group.name + '」分支数据（' + format.toUpperCase() + '）：' + report.summary.totalBranches + ' 个分支', 'success')
       void refresh()
     } catch (err) {
@@ -212,7 +212,7 @@ export default function Settings(): JSX.Element {
   const emailGroupMembers = async (group: EmailGroup): Promise<void> => {
     setGroupBusy(group.id + ':mail')
     try {
-      const result = await window.branchpulse.emailGroupBranches(group.id, activeRepositoryId)
+      const result = await window.gitmanager.emailGroupBranches(group.id, activeRepositoryId)
       toast(result.message, result.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) {
@@ -224,7 +224,7 @@ export default function Settings(): JSX.Element {
 
   const deleteGroup = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteEmailGroup(id)
+      await window.gitmanager.deleteEmailGroup(id)
       toast('分支组已删除', 'success')
       void refresh()
     } catch (err) {
@@ -235,7 +235,7 @@ export default function Settings(): JSX.Element {
   const testConnection = async (): Promise<void> => {
     setTesting(true)
     try {
-      const result = await window.branchpulse.testEmailConnection(emailDraft)
+      const result = await window.gitmanager.testEmailConnection(emailDraft)
       toast(result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -248,7 +248,7 @@ export default function Settings(): JSX.Element {
 
     setTesting(true)
     try {
-      const result = await window.branchpulse.sendTestEmail(emailDraft)
+      const result = await window.gitmanager.sendTestEmail(emailDraft)
       toast(result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -438,7 +438,7 @@ export default function Settings(): JSX.Element {
             </div>
             <div>
               <div className="label mb-1.5">{tr('from')}</div>
-              <input className="input" value={emailDraft.from} onChange={(e) => setEmailDraft({ ...emailDraft, from: e.target.value })} placeholder="BranchPulse <notify@example.com>" />
+              <input className="input" value={emailDraft.from} onChange={(e) => setEmailDraft({ ...emailDraft, from: e.target.value })} placeholder="GitManager <notify@example.com>" />
             </div>
             <div>
               <div className="label mb-1.5">我的个人邮箱</div>
@@ -654,7 +654,7 @@ export default function Settings(): JSX.Element {
         open={portPicker === 'export'}
         mode="save"
         initialPath=""
-        defaultFileName={`branchpulse-config-${configDateStamp()}.json`}
+        defaultFileName={`gitmanager-config-${configDateStamp()}.json`}
         confirmLabel="导出"
         onClose={() => setPortPicker(null)}
         onSelect={(filePath) => {

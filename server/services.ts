@@ -18,7 +18,7 @@ import { GitLabService } from '../src-node/services/gitlab'
 import { BackupService } from '../src-node/services/backup'
 import { ConfigPortService } from '../src-node/services/configPort'
 import { GroupService } from '../src-node/services/groups'
-import { createBranchPulseApi, type AppServices, type BranchPulseApi } from '../src-node/api'
+import { createGitManagerApi, type AppServices, type GitManagerApi } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { appRoot, dataDir, dbFile, ensureDir } from '../src-node/utils/paths'
 
@@ -30,7 +30,7 @@ export interface BootstrapOptions {
 
 export interface BootstrapResult {
   services: AppServices
-  api: BranchPulseApi
+  api: GitManagerApi
   appVersion: string
   /** Stops the scheduler and flushes pending writes. */
   shutdown: () => void
@@ -85,7 +85,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
     monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort
   }
 
-  const api = createBranchPulseApi(services, {
+  const api = createGitManagerApi(services, {
     appVersion: () => appVersion,
     onProgress: options.onProgress,
     onSettingsSaved: options.onSettingsSaved
@@ -93,7 +93,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
 
   scheduler.start()
   reportSchedules.start()
-  logger.info(`BranchPulse web backend started. Data: ${dataDir()}`)
+  logger.info(`GitManager web backend started. Data: ${dataDir()}`)
 
   return {
     services,

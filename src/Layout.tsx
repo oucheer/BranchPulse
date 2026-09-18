@@ -68,7 +68,7 @@ export default function Layout({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   useEffect(() => {
-    const unsub = window.branchpulse.onScanProgress((progress) => {
+    const unsub = window.gitmanager.onScanProgress((progress) => {
       setProgress(progress)
       if (progress.summary?.status === 'completed') {
         setScanning(false)

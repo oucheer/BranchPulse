@@ -50,7 +50,7 @@ export default function Reports(): JSX.Element {
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const report = await window.branchpulse.generateReport('manual', format, activeRepositoryId)
+      const report = await window.gitmanager.generateReport('manual', format, activeRepositoryId)
       toast(`报告已生成：${report.title} · ${report.path}`, 'success')
       void refresh()
     } catch (err) {
@@ -62,7 +62,7 @@ export default function Reports(): JSX.Element {
 
   const exportReport = async (id: string, fmt: string): Promise<void> => {
     try {
-      await window.branchpulse.exportReport(id, fmt)
+      await window.gitmanager.exportReport(id, fmt)
       toast(`已导出为 ${fmt.toUpperCase()}`, 'success')
       void refresh()
     } catch (err) {
@@ -72,7 +72,7 @@ export default function Reports(): JSX.Element {
 
   const deleteReport = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteReport(id)
+      await window.gitmanager.deleteReport(id)
       toast('报告已删除', 'success')
       void refresh()
     } catch (err) {
@@ -82,7 +82,7 @@ export default function Reports(): JSX.Element {
 
   const saveSchedule = async (): Promise<void> => {
     try {
-      await window.branchpulse.saveReportSchedule({
+      await window.gitmanager.saveReportSchedule({
         ...draft,
         repositoryId: activeRepositoryId,
         enabled: true,
@@ -98,7 +98,7 @@ export default function Reports(): JSX.Element {
 
   const deleteSchedule = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteReportSchedule(id)
+      await window.gitmanager.deleteReportSchedule(id)
       toast('定时任务已删除', 'success')
       void refresh()
     } catch (err) {
@@ -110,7 +110,7 @@ export default function Reports(): JSX.Element {
     const schedule = reportSchedules.find((s) => s.id === id)
     if (!schedule) return
     try {
-      await window.branchpulse.saveReportSchedule({ ...schedule, enabled })
+      await window.gitmanager.saveReportSchedule({ ...schedule, enabled })
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -119,7 +119,7 @@ export default function Reports(): JSX.Element {
 
   const openFolder = async (): Promise<void> => {
     try {
-      await window.branchpulse.openReportFolder()
+      await window.gitmanager.openReportFolder()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
@@ -127,7 +127,7 @@ export default function Reports(): JSX.Element {
 
   const openReportFile = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.openReportFile(id)
+      await window.gitmanager.openReportFile(id)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }

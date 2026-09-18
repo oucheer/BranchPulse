@@ -1,11 +1,11 @@
-# BranchPulse Web 迁移方案
+# GitManager Web 迁移方案
 
-本文记录把 BranchPulse 从 Electron 桌面应用迁移为 **Web 应用**（本机 Node 服务 + 浏览器）的设计约束与取舍。
+本文记录把 GitManager 从 Electron 桌面应用迁移为 **Web 应用**（本机 Node 服务 + 浏览器）的设计约束与取舍。
 
 ## 目标
 
 - 功能、操作、设置、UI 布局与桌面版保持一致。
-- 渲染层（`src/`）尽量不动：只把 `window.branchpulse` 这一层从 Electron IPC 换成 HTTP/SSE。
+- 渲染层（`src/`）尽量不动：只把 `window.gitmanager` 这一层从 Electron IPC 换成 HTTP/SSE。
 - 业务逻辑只存在一份：原 `electron/ipc.ts` 里的 handler 主体迁到传输无关的 `src-node/api.ts`，HTTP 路由只是它的一个适配器。
 - 迁移后移除 Electron：主进程、预加载、托盘、单实例锁、electron-builder 打包脚本全部删除。
 
@@ -21,7 +21,7 @@ server/          HTTP + SSE 服务入口（web 后端）
   http.ts        静态资源 / RPC / SSE / 下载路由
   rpc.ts         方法派发（EXPOSED_METHODS 白名单）
   services.ts    服务装配与生命周期
-shared/          前后端共享类型（BranchPulseApi 契约）与 RPC 契约
+shared/          前后端共享类型（GitManagerApi 契约）与 RPC 契约
 ```
 
 `src-node/` 与 `server/` 都由 `tsconfig.node.json` 检查，`src/` 由 `tsconfig.json` 检查。
@@ -33,7 +33,7 @@ shared/          前后端共享类型（BranchPulseApi 契约）与 RPC 契约
 | 开发 | `npm run dev` | esbuild 打包后端并启动；后端以 `--dev` 内嵌 Vite（middleware mode），渲染层 HMR 与 API/SSE 同源同端口 |
 | 生产 | `npm run build` + `npm start` | `dist/renderer` 由 `server/http.ts` 直接托管，`dist/server/index.cjs` 是后端 bundle |
 
-默认 `http://127.0.0.1:4173`，可用 `BRANCHPULSE_PORT` / `BRANCHPULSE_HOST` 覆盖。
+默认 `http://127.0.0.1:4173`，可用 `GITMANAGER_PORT` / `GITMANAGER_HOST` 覆盖。
 
 > dev 模式下 Vite 必须用 `appType: 'spa'`。`custom` 不会安装 HTML fallback 与 index-HTML 中间件，`GET /` 会 404。
 
@@ -57,13 +57,13 @@ shared/          前后端共享类型（BranchPulseApi 契约）与 RPC 契约
 
 | 平台 | 用户数据目录 |
 | --- | --- |
-| Windows | `%APPDATA%\branchpulse` |
-| macOS | `~/Library/Application Support/branchpulse` |
-| Linux | `$XDG_CONFIG_HOME/branchpulse`（缺省 `~/.config/branchpulse`） |
+| Windows | `%APPDATA%\gitmanager` |
+| macOS | `~/Library/Application Support/gitmanager` |
+| Linux | `$XDG_CONFIG_HOME/gitmanager`（缺省 `~/.config/gitmanager`） |
 
-覆盖方式与桌面版相同：`BRANCHPULSE_USER_DATA_DIR`（用户数据根目录）、`BRANCHPULSE_DATA_DIR`（数据目录）、`BRANCHPULSE_PORTABLE=1`（相对当前工作目录）。
+覆盖方式与桌面版相同：`GITMANAGER_USER_DATA_DIR`（用户数据根目录）、`GITMANAGER_DATA_DIR`（数据目录）、`GITMANAGER_PORTABLE=1`（相对当前工作目录）。
 
-- 数据库：`<userData>/data/branchpulse.db`
+- 数据库：`<userData>/data/gitmanager.db`
 - 报告：`<userData>/data/reports`
 - 备份：`<userData>/data/backups`
 - 日志：`<userData>/logs`

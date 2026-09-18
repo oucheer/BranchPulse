@@ -583,6 +583,6 @@ export interface BranchApi {
 
 declare global {
   interface Window {
-    branchpulse: BranchApi
+    gitmanager: BranchApi
   }
 }

@@ -434,7 +434,7 @@ export class StorageService {
       const templates = [
         {
           kind: 'summary',
-          subject: 'BranchPulse Monitoring Summary',
+          subject: 'GitManager Monitoring Summary',
           body: [
             '{{total}} branches checked',
             '{{stale}} stale',
@@ -447,7 +447,7 @@ export class StorageService {
         },
         {
           kind: 'stale',
-          subject: 'BranchPulse: stale branch needs attention',
+          subject: 'GitManager: stale branch needs attention',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',
@@ -463,7 +463,7 @@ export class StorageService {
         },
         {
           kind: 'grace_period',
-          subject: 'BranchPulse: branch entered grace period',
+          subject: 'GitManager: branch entered grace period',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',
@@ -475,7 +475,7 @@ export class StorageService {
         },
         {
           kind: 'grace_expired',
-          subject: 'BranchPulse: grace period expired',
+          subject: 'GitManager: grace period expired',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',
@@ -487,7 +487,7 @@ export class StorageService {
         },
         {
           kind: 'naming_violation',
-          subject: 'BranchPulse: naming violation detected',
+          subject: 'GitManager: naming violation detected',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',
@@ -498,7 +498,7 @@ export class StorageService {
         },
         {
           kind: 'merged',
-          subject: 'BranchPulse: merged branch found',
+          subject: 'GitManager: merged branch found',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',
@@ -509,7 +509,7 @@ export class StorageService {
         },
         {
           kind: 'cleanup_candidate',
-          subject: 'BranchPulse: cleanup candidate',
+          subject: 'GitManager: cleanup candidate',
           body: [
             'Repository: {{repository}}',
             'Branch: {{branch}}',

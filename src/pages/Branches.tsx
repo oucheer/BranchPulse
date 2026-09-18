@@ -141,7 +141,7 @@ function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
     setValidating(true)
     setValidation(null)
     try {
-      const result = await window.branchpulse.validateBranchName(b.name)
+      const result = await window.gitmanager.validateBranchName(b.name)
       setValidation({ ok: result.status === 'valid' || result.status === 'excluded', reason: result.reason })
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -390,7 +390,7 @@ export default function Branches(): JSX.Element {
     const targets = selectedBranches.filter(pred)
     if (targets.length === 0) { toast('没有符合条件的分支: ' + label, 'warn'); return }
     try {
-      const r = await window.branchpulse.notifyBranchesEmail(targets)
+      const r = await window.gitmanager.notifyBranchesEmail(targets)
       toast(r.message, r.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -400,7 +400,7 @@ export default function Branches(): JSX.Element {
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
     if (selectedBranches.length === 0) { toast('请先勾选分支', 'warn'); return }
     try {
-      const r = await window.branchpulse.notifySelfEmail(selectedBranches)
+      const r = await window.gitmanager.notifySelfEmail(selectedBranches)
       toast(r.message, r.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -412,7 +412,7 @@ export default function Branches(): JSX.Element {
     if (!activeGroup) return
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
     try {
-      const result = await window.branchpulse.emailGroupBranches(activeGroup.id, effectiveRepo || null)
+      const result = await window.gitmanager.emailGroupBranches(activeGroup.id, effectiveRepo || null)
       toast(result.message, result.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -421,7 +421,7 @@ export default function Branches(): JSX.Element {
   const exportActiveGroup = async (): Promise<void> => {
     if (!activeGroup) return
     try {
-      const report = await window.branchpulse.exportGroupBranches(activeGroup.id, 'csv', effectiveRepo || null)
+      const report = await window.gitmanager.exportGroupBranches(activeGroup.id, 'csv', effectiveRepo || null)
       toast('已导出「' + activeGroup.name + '」分支数据：' + report.summary.totalBranches + ' 个分支', 'success')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -434,7 +434,7 @@ export default function Branches(): JSX.Element {
     setSelectedBranch(branch)
     setLoadingDetails(true)
     try {
-      const detail = await window.branchpulse.getBranch({
+      const detail = await window.gitmanager.getBranch({
         repositoryId: branch.repositoryId,
         name: branch.name,
         type: branch.type,
@@ -454,7 +454,7 @@ export default function Branches(): JSX.Element {
     setRefreshingAll(true)
     try {
       for (const repo of repositories) {
-        await window.branchpulse.scanRepository(repo.id, true)
+        await window.gitmanager.scanRepository(repo.id, true)
       }
       toast(zh ? '已从远程仓库刷新所有分支' : 'All branches refreshed', 'success')
       await refresh()
@@ -467,7 +467,7 @@ export default function Branches(): JSX.Element {
 
   const handleNotify = async (branch: BranchSummary): Promise<void> => {
     try {
-      const results = await window.branchpulse.notifyBranch(branch)
+      const results = await window.gitmanager.notifyBranch(branch)
       toast(`${results.length} ${zh ? '条通知已生成' : 'notifications generated'}`, 'success')
       void refresh()
     } catch (err) {

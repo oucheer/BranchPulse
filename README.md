@@ -1,6 +1,6 @@
-# BranchPulse
+# GitManager
 
-BranchPulse 是一个 Git 分支生命周期监控与管理应用，用于帮助团队识别长期未提交分支、宽限期状态、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
+GitManager 是一个 Git 分支生命周期监控与管理应用，用于帮助团队识别长期未提交分支、宽限期状态、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
 
 当前版本是 **Web 版**：后端是本机 Node 服务，界面在浏览器中打开。功能、操作、设置与 UI 布局与桌面版保持一致，差异只出现在浏览器物理边界（原生目录对话框、托盘等），详见 `docs/web-port.md`。
 
@@ -47,7 +47,7 @@ npm start
 
 `npm run build` 产出 `dist/renderer`（前端资源）与 `dist/server/index.cjs`（后端 bundle），`npm start` 启动后端并在同一端口同时提供 API 与静态资源。
 
-端口与监听地址可用环境变量覆盖：`BRANCHPULSE_PORT`（默认 `4173`）、`BRANCHPULSE_HOST`（默认 `127.0.0.1`）。
+端口与监听地址可用环境变量覆盖：`GITMANAGER_PORT`（默认 `4173`）、`GITMANAGER_HOST`（默认 `127.0.0.1`）。
 
 ## 常用命令
 
@@ -61,7 +61,7 @@ npm run smoke      # Web 冒烟测试（需先 npm run build）
 npm run build:icon # 重新生成品牌图标
 ```
 
-`npm run smoke` 会用独立的临时数据目录启动构建产物，再用无头 Chromium 遍历所有路由，检查页面渲染、术语与关键开关。可用 `BRANCHPULSE_BROWSER` 指定浏览器可执行文件。
+`npm run smoke` 会用独立的临时数据目录启动构建产物，再用无头 Chromium 遍历所有路由，检查页面渲染、术语与关键开关。可用 `GITMANAGER_BROWSER` 指定浏览器可执行文件。
 
 ## 数据目录
 
@@ -69,16 +69,16 @@ npm run build:icon # 重新生成品牌图标
 
 | 平台 | 用户数据目录 |
 | --- | --- |
-| Windows | `%APPDATA%\branchpulse` |
-| macOS | `~/Library/Application Support/branchpulse` |
-| Linux | `$XDG_CONFIG_HOME/branchpulse` |
+| Windows | `%APPDATA%\gitmanager` |
+| macOS | `~/Library/Application Support/gitmanager` |
+| Linux | `$XDG_CONFIG_HOME/gitmanager` |
 
-- 数据库：`<userData>/data/branchpulse.db`
+- 数据库：`<userData>/data/gitmanager.db`
 - 报告：`<userData>/data/reports`
 - 备份：`<userData>/data/backups`
 - 日志：`<userData>/logs`
 
-可用 `BRANCHPULSE_USER_DATA_DIR`、`BRANCHPULSE_DATA_DIR`、`BRANCHPULSE_PORTABLE=1` 覆盖。
+可用 `GITMANAGER_USER_DATA_DIR`、`GITMANAGER_DATA_DIR`、`GITMANAGER_PORTABLE=1` 覆盖。
 
 ## 术语约定
 

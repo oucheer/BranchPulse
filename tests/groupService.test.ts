@@ -92,19 +92,19 @@ function group(overrides: Partial<EmailGroup> = {}): EmailGroup {
 }
 
 beforeEach(async () => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-group-'))
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-group-'))
   profileDir = path.join(workDir, 'profile')
   fs.mkdirSync(profileDir, { recursive: true })
-  previousUserData = process.env.BRANCHPULSE_USER_DATA_DIR
-  process.env.BRANCHPULSE_USER_DATA_DIR = profileDir
+  previousUserData = process.env.GITMANAGER_USER_DATA_DIR
+  process.env.GITMANAGER_USER_DATA_DIR = profileDir
   storage = new StorageService(path.join(workDir, 'groups.db'))
   await storage.init()
 })
 
 afterEach(() => {
   storage.close()
-  if (previousUserData === undefined) delete process.env.BRANCHPULSE_USER_DATA_DIR
-  else process.env.BRANCHPULSE_USER_DATA_DIR = previousUserData
+  if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
+  else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 

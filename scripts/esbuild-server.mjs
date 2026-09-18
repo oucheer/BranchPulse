@@ -50,7 +50,7 @@ export async function watchServer(outfile, onRebuild) {
     outfile,
     plugins: [
       {
-        name: 'branchpulse-restart',
+        name: 'gitmanager-restart',
         setup(buildApi) {
           buildApi.onEnd((result) => {
             if (result.errors.length === 0) onRebuild()

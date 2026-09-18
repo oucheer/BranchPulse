@@ -1,13 +1,13 @@
 import path from 'node:path'
 import type http from 'node:http'
 import { bootstrap } from './services'
-import { createServer, type BranchPulseServer } from './http'
+import { createServer, type GitManagerServer } from './http'
 import { logger } from '../src-node/utils/logger'
 import { appRoot, dataDir } from '../src-node/utils/paths'
 
-const DEV = process.argv.includes('--dev') || process.env.BRANCHPULSE_DEV === '1'
-const PORT = Number(process.env.BRANCHPULSE_PORT ?? 4173)
-const HOST = process.env.BRANCHPULSE_HOST ?? '127.0.0.1'
+const DEV = process.argv.includes('--dev') || process.env.GITMANAGER_DEV === '1'
+const PORT = Number(process.env.GITMANAGER_PORT ?? 4173)
+const HOST = process.env.GITMANAGER_HOST ?? '127.0.0.1'
 
 type Middleware = (req: http.IncomingMessage, res: http.ServerResponse, next: (err?: unknown) => void) => void
 
@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   let viteServer: { close: () => Promise<void> } | null = null
   // Assigned before `bootstrap` so the progress callback always has a target,
   // even for a scan triggered while the socket is still binding.
-  const serverRef: { current: BranchPulseServer | null } = { current: null }
+  const serverRef: { current: GitManagerServer | null } = { current: null }
 
   if (DEV) {
     // Dev keeps a single origin: Vite runs in middleware mode so HMR and the
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
 
   const address = await server.listen(PORT, HOST)
   const url = `http://${address.host === '0.0.0.0' ? 'localhost' : address.host}:${address.port}`
-  logger.info(`BranchPulse web UI available at ${url}`)
+  logger.info(`GitManager web UI available at ${url}`)
   logger.info(`Data directory: ${dataDir()}`)
   if (!DEV) logger.info(`Serving renderer assets from ${staticDir}`)
 
@@ -72,6 +72,6 @@ async function main(): Promise<void> {
 }
 
 void main().catch((err) => {
-  logger.error('BranchPulse web backend failed to start', err)
+  logger.error('GitManager web backend failed to start', err)
   process.exit(1)
 })

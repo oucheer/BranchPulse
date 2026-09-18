@@ -16,7 +16,7 @@ export default function Notifications(): JSX.Element {
 
   const markRead = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.markNotificationRead(id)
+      await window.gitmanager.markNotificationRead(id)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -25,7 +25,7 @@ export default function Notifications(): JSX.Element {
 
   const clearAll = async (): Promise<void> => {
     try {
-      await window.branchpulse.clearNotifications()
+      await window.gitmanager.clearNotifications()
       toast(tr('clearAll'), 'success')
       void refresh()
     } catch (err) {

@@ -19,18 +19,18 @@ async function freshSecretsModule(): Promise<typeof import('../src-node/utils/se
 }
 
 beforeEach(() => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-secrets-'))
-  previousUserData = process.env.BRANCHPULSE_USER_DATA_DIR
-  previousDataDir = process.env.BRANCHPULSE_DATA_DIR
-  process.env.BRANCHPULSE_USER_DATA_DIR = workDir
-  delete process.env.BRANCHPULSE_DATA_DIR
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-secrets-'))
+  previousUserData = process.env.GITMANAGER_USER_DATA_DIR
+  previousDataDir = process.env.GITMANAGER_DATA_DIR
+  process.env.GITMANAGER_USER_DATA_DIR = workDir
+  delete process.env.GITMANAGER_DATA_DIR
 })
 
 afterEach(() => {
-  if (previousUserData === undefined) delete process.env.BRANCHPULSE_USER_DATA_DIR
-  else process.env.BRANCHPULSE_USER_DATA_DIR = previousUserData
-  if (previousDataDir === undefined) delete process.env.BRANCHPULSE_DATA_DIR
-  else process.env.BRANCHPULSE_DATA_DIR = previousDataDir
+  if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
+  else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
+  if (previousDataDir === undefined) delete process.env.GITMANAGER_DATA_DIR
+  else process.env.GITMANAGER_DATA_DIR = previousDataDir
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -51,7 +51,7 @@ describe('secret round trip', () => {
     const { encryptSecret, decryptSecret, registerSecretBackend } = await freshSecretsModule()
     registerSecretBackend({ isAvailable: () => false, encrypt: () => 'unused', decrypt: () => '' })
     const stored = encryptSecret('hunter2')
-    // Readable by BranchPulse only, but explicitly not presented as encryption.
+    // Readable by GitManager only, but explicitly not presented as encryption.
     expect(stored.startsWith('plain:')).toBe(true)
     expect(stored).not.toContain('hunter2')
     expect(decryptSecret(stored)).toBe('hunter2')
@@ -126,7 +126,7 @@ describe.runIf(process.platform === 'win32')('windows key store compatibility', 
     expect(blob.subarray(0, 3).toString('latin1')).toBe('v10')
     expect(blob.length).toBe(3 + 12 + 'persisted-token'.length + 16)
     expect(backend.decrypt(stored)).toBe('persisted-token')
-    expect(path.join(workDir, 'branchpulse.key')).toSatisfy(fs.existsSync)
+    expect(path.join(workDir, 'gitmanager.key')).toSatisfy(fs.existsSync)
 
     // A random nonce means the same plaintext never yields the same blob.
     const again = backend.encrypt('persisted-token')

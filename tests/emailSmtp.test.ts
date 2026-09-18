@@ -44,7 +44,7 @@ function storage(config: Record<string, unknown> = {}): StorageService {
       port: 587,
       username: 'notify@example.com',
       password_encrypted: encode('smtp-secret'),
-      from_address: 'BranchPulse <notify@example.com>',
+      from_address: 'GitManager <notify@example.com>',
       secure: 0,
       tls: 1,
       test_recipient: 'owner@example.com',
@@ -128,7 +128,7 @@ describe('sending through the configured mailbox', () => {
     const result = await svc.sendTestEmail()
     expect(result).toMatchObject({ ok: true, emailsSent: 1, recipients: ['owner@example.com'] })
     expect(mailer.messages[0]).toMatchObject({
-      from: 'BranchPulse <notify@example.com>',
+      from: 'GitManager <notify@example.com>',
       to: ['owner@example.com']
     })
   })

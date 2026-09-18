@@ -11,20 +11,20 @@ let scanDir: string
 let previousUserData: string | undefined
 
 beforeEach(() => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-folders-'))
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-folders-'))
   scanDir = path.join(workDir, 'scan')
   fs.mkdirSync(scanDir, { recursive: true })
   // `userDataDir()` / `dataDir()` read the environment on every call, so the
   // listing roots stay inside the temp directory instead of the real profile.
   // It lives outside `scanDir` so the data directories it creates do not show
   // up as entries of the directory under test.
-  previousUserData = process.env.BRANCHPULSE_USER_DATA_DIR
-  process.env.BRANCHPULSE_USER_DATA_DIR = path.join(workDir, 'profile')
+  previousUserData = process.env.GITMANAGER_USER_DATA_DIR
+  process.env.GITMANAGER_USER_DATA_DIR = path.join(workDir, 'profile')
 })
 
 afterEach(() => {
-  if (previousUserData === undefined) delete process.env.BRANCHPULSE_USER_DATA_DIR
-  else process.env.BRANCHPULSE_USER_DATA_DIR = previousUserData
+  if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
+  else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 

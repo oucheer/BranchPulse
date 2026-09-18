@@ -24,7 +24,7 @@ export default function Backups(): JSX.Element {
   const startBackup = async (): Promise<void> => {
     setBusy(true)
     try {
-      const record = await window.branchpulse.startBackup({ repositoryId: activeRepositoryId, folderPath })
+      const record = await window.gitmanager.startBackup({ repositoryId: activeRepositoryId, folderPath })
       toast(record.status === 'success' ? '备份完成' : record.status === 'failed' ? record.error ?? '备份失败' : '备份进行中', record.status === 'failed' ? 'error' : 'success')
       void refresh()
     } catch (err) {
@@ -38,7 +38,7 @@ export default function Backups(): JSX.Element {
     try {
       // The desktop build opened a native dialog here. The web build asks the
       // backend for the default backup folder and opens the in-page picker.
-      const selected = await window.branchpulse.selectBackupFolder()
+      const selected = await window.gitmanager.selectBackupFolder()
       setPickerStart(folderPath || selected)
       setPickerOpen(true)
     } catch (err) {
@@ -48,7 +48,7 @@ export default function Backups(): JSX.Element {
 
   const deleteBackup = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteBackup(id)
+      await window.gitmanager.deleteBackup(id)
       toast('备份已删除', 'success')
       void refresh()
     } catch (err) {
@@ -58,7 +58,7 @@ export default function Backups(): JSX.Element {
 
   const openBackupFolder = async (backupPath: string): Promise<void> => {
     try {
-      await window.branchpulse.openBackupFolder(backupPath)
+      await window.gitmanager.openBackupFolder(backupPath)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }

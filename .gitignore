@@ -8,13 +8,13 @@ logs/
 dist/
 .DS_Store
 *.log
-.bp-*
+.gm-*
 .clean-*
 .dbg-*
 .tst-*
 .smoke-data-*
 .smoke-profile-*
-.branchpulse.pid
+.gitmanager.pid
 .electron_appinfo.cc
 .electron_appinfo.h
 .electron_browser_client.cc

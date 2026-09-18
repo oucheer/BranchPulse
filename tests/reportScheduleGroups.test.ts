@@ -115,14 +115,14 @@ function harness(recipients: string): Harness {
 }
 
 beforeEach(() => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-report-group-'))
-  previousUserData = process.env.BRANCHPULSE_USER_DATA_DIR
-  process.env.BRANCHPULSE_USER_DATA_DIR = path.join(workDir, 'profile')
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-report-group-'))
+  previousUserData = process.env.GITMANAGER_USER_DATA_DIR
+  process.env.GITMANAGER_USER_DATA_DIR = path.join(workDir, 'profile')
 })
 
 afterEach(() => {
-  if (previousUserData === undefined) delete process.env.BRANCHPULSE_USER_DATA_DIR
-  else process.env.BRANCHPULSE_USER_DATA_DIR = previousUserData
+  if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
+  else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 

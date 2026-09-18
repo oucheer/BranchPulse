@@ -51,9 +51,9 @@ export function quickLocations(): FolderEntry[] {
   add('桌面', path.join(os.homedir(), 'Desktop'))
   add('文档', path.join(os.homedir(), 'Documents'))
   add('下载', path.join(os.homedir(), 'Downloads'))
-  add('BranchPulse 数据目录', dataDir())
-  add('BranchPulse 报告目录', reportsDir())
-  add('BranchPulse 用户目录', userDataDir())
+  add('GitManager 数据目录', dataDir())
+  add('GitManager 报告目录', reportsDir())
+  add('GitManager 用户目录', userDataDir())
   return locations
 }
 

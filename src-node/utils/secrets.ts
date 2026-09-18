@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { userDataDir } from './paths'
+import { KEY_FILE, userDataDir } from './paths'
 import { logger } from './logger'
 
 const PLAIN_PREFIX = 'plain:'
@@ -88,11 +88,11 @@ function createDpapiKey(): Buffer | null {
   const protectedKey = runPowerShell(DPAPI_PROTECT_SCRIPT, key.toString('base64'))
   if (!protectedKey) return null
   try {
-    const stored = path.join(userDataDir(), 'branchpulse.key')
+    const stored = path.join(userDataDir(), KEY_FILE)
     fs.writeFileSync(stored, protectedKey, 'utf8')
     return key
   } catch (err) {
-    logger.warn(`Unable to persist the BranchPulse encryption key: ${String(err)}`)
+    logger.warn(`Unable to persist the GitManager encryption key: ${String(err)}`)
     return null
   }
 }
@@ -100,7 +100,7 @@ function createDpapiKey(): Buffer | null {
 function loadDpapiKey(): Buffer | null {
   if (process.platform !== 'win32') return null
   try {
-    const stored = path.join(userDataDir(), 'branchpulse.key')
+    const stored = path.join(userDataDir(), KEY_FILE)
     if (!fs.existsSync(stored)) return createDpapiKey()
     const protectedKey = fs.readFileSync(stored, 'utf8').trim()
     const plain = runPowerShell(DPAPI_UNPROTECT_SCRIPT, protectedKey)

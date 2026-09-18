@@ -2,48 +2,48 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { BranchPulseApi } from '../src-node/api'
-import { createServer, type BranchPulseServer } from '../server/http'
+import type { GitManagerApi } from '../src-node/api'
+import { createServer, type GitManagerServer } from '../server/http'
 import { reportsDir } from '../src-node/utils/paths'
 
 let workDir: string
 let staticDir: string
 let profileDir: string
 let previousUserData: string | undefined
-let server: BranchPulseServer | null = null
+let server: GitManagerServer | null = null
 let base = ''
 
 /** Minimal API stub: every member is replaced per test. */
-function api(overrides: Partial<BranchPulseApi> = {}): BranchPulseApi {
+function api(overrides: Partial<GitManagerApi> = {}): GitManagerApi {
   const fallback = async () => null
   return new Proxy(overrides as unknown as Record<string, unknown>, {
     get: (target, key) => (key in target ? target[key as string] : fallback)
-  }) as unknown as BranchPulseApi
+  }) as unknown as GitManagerApi
 }
 
-async function start(overrides: Partial<BranchPulseApi> = {}, withStatic = true): Promise<void> {
+async function start(overrides: Partial<GitManagerApi> = {}, withStatic = true): Promise<void> {
   server = createServer({ api: api(overrides), ...(withStatic ? { staticDir } : {}) })
   const address = await server.listen(0, '127.0.0.1')
   base = `http://127.0.0.1:${address.port}`
 }
 
 beforeEach(() => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-http-'))
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-http-'))
   staticDir = path.join(workDir, 'renderer')
   profileDir = path.join(workDir, 'profile')
   fs.mkdirSync(staticDir, { recursive: true })
   fs.mkdirSync(profileDir, { recursive: true })
   fs.writeFileSync(path.join(staticDir, 'index.html'), '<!doctype html><div id="root"></div>')
   fs.writeFileSync(path.join(staticDir, 'app.js'), 'console.log(1)')
-  previousUserData = process.env.BRANCHPULSE_USER_DATA_DIR
-  process.env.BRANCHPULSE_USER_DATA_DIR = profileDir
+  previousUserData = process.env.GITMANAGER_USER_DATA_DIR
+  process.env.GITMANAGER_USER_DATA_DIR = profileDir
 })
 
 afterEach(async () => {
   if (server) await server.close()
   server = null
-  if (previousUserData === undefined) delete process.env.BRANCHPULSE_USER_DATA_DIR
-  else process.env.BRANCHPULSE_USER_DATA_DIR = previousUserData
+  if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
+  else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -106,7 +106,7 @@ describe('GET /api/reports/:id/download', () => {
     await start({
       listReports: async () => [{ id: 'report-1', path: file }],
       exportReport: async () => null as never
-    } as unknown as Partial<BranchPulseApi>)
+    } as unknown as Partial<GitManagerApi>)
 
     const response = await fetch(`${base}/api/reports/report-1/download`)
     expect(response.status).toBe(200)
@@ -116,7 +116,7 @@ describe('GET /api/reports/:id/download', () => {
   })
 
   it('answers 404 for an unknown report id', async () => {
-    await start({ listReports: async () => [] } as unknown as Partial<BranchPulseApi>)
+    await start({ listReports: async () => [] } as unknown as Partial<GitManagerApi>)
     const response = await fetch(`${base}/api/reports/nope/download`)
     expect(response.status).toBe(404)
   })
@@ -126,7 +126,7 @@ describe('GET /api/reports/:id/download', () => {
     fs.writeFileSync(outside, 'top secret')
     await start({
       listReports: async () => [{ id: 'escape', path: outside }]
-    } as unknown as Partial<BranchPulseApi>)
+    } as unknown as Partial<GitManagerApi>)
 
     const response = await fetch(`${base}/api/reports/escape/download`)
     expect(response.status).toBe(404)

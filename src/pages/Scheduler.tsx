@@ -85,7 +85,7 @@ export default function Scheduler(): JSX.Element {
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {
-      await window.branchpulse.saveJob(job)
+      await window.gitmanager.saveJob(job)
       toast(tr('saved'), 'success')
       setEditJob(null)
       void refresh()
@@ -96,7 +96,7 @@ export default function Scheduler(): JSX.Element {
 
   const remove = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteJob(id)
+      await window.gitmanager.deleteJob(id)
       toast('已删除定时任务', 'success')
       void refresh()
     } catch (err) {
@@ -108,7 +108,7 @@ export default function Scheduler(): JSX.Element {
     if (!deleteAllConfirmed) return
     try {
       const removed = jobs.length
-      await window.branchpulse.deleteAllJobs()
+      await window.gitmanager.deleteAllJobs()
       setDeleteAllOpen(false)
       setDeleteAllConfirmed(false)
       toast(`已删除全部 ${removed} 个定时任务`, 'success')
@@ -120,7 +120,7 @@ export default function Scheduler(): JSX.Element {
 
   const run = async (id: string): Promise<void> => {
     try {
-      const runResult = await window.branchpulse.runSchedulerJob(id)
+      const runResult = await window.gitmanager.runSchedulerJob(id)
       toast(`检查完成：${runResult.branches} 个分支`, 'success')
       void refresh()
     } catch (err) {

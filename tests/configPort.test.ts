@@ -16,7 +16,7 @@ async function openStorage(name: string): Promise<StorageService> {
 }
 
 beforeEach(async () => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-config-'))
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-config-'))
   source = await openStorage('source.db')
   port = new ConfigPortService(source, () => '0.1.3')
 })
@@ -61,7 +61,7 @@ describe('config export', () => {
   it('captures rules, settings, mail groups, monitoring and repositories', () => {
     seedSource()
     const bundle = exportedBundle(['app_settings', 'monitoring_rules', 'branch_naming_rules', 'whitelist', 'email_groups', 'scheduler_jobs', 'repositories', 'monitoring_rules_repo'])
-    expect(bundle.app).toBe('BranchPulse')
+    expect(bundle.app).toBe('GitManager')
     expect(bundle.sections.extras).toEqual({ effects: { enabled: false, clickSpark: true }, language: 'zh' })
     expect(bundle.sections.singletons.app_settings.language).toBe('zh')
     expect(bundle.sections.singletons.email_config.self_email).toBe('me@example.com')
@@ -117,11 +117,26 @@ describe('config import', () => {
     local.close()
   })
 
-  it('rejects files that were not produced by BranchPulse', () => {
+  it('rejects files that were not produced by GitManager', () => {
     expect(() => port.importFromFile(path.join(workDir, 'missing.json'))).toThrow(/配置文件不存在/)
     const bogus = path.join(workDir, 'bogus.json')
     fs.writeFileSync(bogus, JSON.stringify({ app: 'Other' }))
-    expect(() => port.importFromFile(bogus)).toThrow(/不是 BranchPulse/)
+    expect(() => port.importFromFile(bogus)).toThrow(/不是 GitManager/)
+  })
+
+  it('still imports a bundle exported before the rename', () => {
+    seedSource()
+    const target = path.join(workDir, 'bundle.json')
+    port.exportToFile(target, {})
+    // A pre-rename bundle carries the old brand and kind; both must be trusted,
+    // otherwise every config file users already exported stops importing.
+    const bundle = JSON.parse(fs.readFileSync(target, 'utf8'))
+    bundle.app = 'BranchPulse'
+    bundle.kind = 'branchpulse-config'
+    fs.writeFileSync(target, JSON.stringify(bundle))
+
+    const summary = port.importFromFile(target)
+    expect(summary.applied).toContain('app_settings')
   })
 
   it('exports every repository, not only the active one', async () => {

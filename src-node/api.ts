@@ -74,7 +74,7 @@ export interface AppServices {
   configPort: ConfigPortService
 }
 
-export interface BranchPulseApiOptions {
+export interface GitManagerApiOptions {
   /** Version reported by `getAppVersion()`. */
   appVersion: () => string
   /** Pushed scan progress, wired to `webContents.send` or an SSE broadcast. */
@@ -89,7 +89,7 @@ export interface BranchPulseApiOptions {
  * The Electron IPC layer and the HTTP/SSE server both drive this object, so
  * behaviour cannot drift between the desktop and the web build.
  */
-export interface BranchPulseApi {
+export interface GitManagerApi {
   setProgressSink(sink: (progress: ScanProgress) => void): void
   init(): Promise<DashboardSnapshot>
   addGitLabRepository(projectId: number, config?: GitLabConnectionConfig): Promise<Repository>
@@ -211,7 +211,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
   }
 }
 
-export function createBranchPulseApi(services: AppServices, options: BranchPulseApiOptions): BranchPulseApi {
+export function createGitManagerApi(services: AppServices, options: GitManagerApiOptions): GitManagerApi {
   const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort } = services
 
   let progressSink = options.onProgress ?? ((): void => {})
@@ -306,7 +306,7 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
   }
 
 
-  const api: BranchPulseApi = {
+  const api: GitManagerApi = {
     setProgressSink(sink) {
       progressSink = sink
     },
@@ -538,7 +538,7 @@ export function createBranchPulseApi(services: AppServices, options: BranchPulse
 
     getSettings: async () => settings.get(),
     exportConfig: async (extras = {}, filePath) => {
-      const target = filePath?.trim() || path.join(dataDir(), `branchpulse-config-${dateStamp()}.json`)
+      const target = filePath?.trim() || path.join(dataDir(), `gitmanager-config-${dateStamp()}.json`)
       try {
         const result = configPort.exportToFile(target, extras)
         audit.record('config_exported', { path: result.path, sections: result.sections.length })

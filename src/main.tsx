@@ -6,7 +6,7 @@ import { installWebBridge } from './lib/bridge'
 import './styles/index.css'
 
 // Must run before the first render: the layout subscribes to scan progress
-// unconditionally, and every page calls `window.branchpulse.*`.
+// unconditionally, and every page calls `window.gitmanager.*`.
 installWebBridge()
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

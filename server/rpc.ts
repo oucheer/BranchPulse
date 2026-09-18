@@ -1,5 +1,5 @@
 import { EXPOSED_METHODS, type ExposedMethod } from '@shared/rpc'
-import type { BranchPulseApi } from '../src-node/api'
+import type { GitManagerApi } from '../src-node/api'
 
 export type { ExposedMethod }
 
@@ -28,7 +28,7 @@ export interface RpcResult {
  * array, exactly matching the previous `ipcRenderer.invoke(channel, ...args)`
  * call sites, so no renderer code had to change.
  */
-export async function invoke(api: BranchPulseApi, method: string, args: unknown[]): Promise<RpcResult> {
+export async function invoke(api: GitManagerApi, method: string, args: unknown[]): Promise<RpcResult> {
   if (!isExposedMethod(method)) {
     return { status: 404, body: { error: `Unknown method: ${method}` } }
   }

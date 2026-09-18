@@ -1,9 +1,9 @@
 {
-  "name": "branchpulse",
+  "name": "gitmanager",
   "version": "0.1.3",
   "description": "Git Branch Lifecycle Management & Monitoring Center",
   "main": "./dist/server/index.cjs",
-  "author": "BranchPulse",
+  "author": "GitManager",
   "license": "MIT",
   "private": true,
   "scripts": {

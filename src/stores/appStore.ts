@@ -23,6 +23,11 @@ import type {
 import { t, type Language } from '../lib/i18n'
 import { persistEffectSettings, readEffectSettings, type EffectSettings } from '../lib/effects'
 import { applyImportedEffectSettings, serializeEffectSettings } from '../lib/effects'
+import { readStorage } from '../lib/legacyKeys'
+
+const LANGUAGE_KEY = 'gitmanager:language'
+/** Language key used before the rename; read once and copied forward. */
+const LEGACY_LANGUAGE_KEY = 'branchpulse:language'
 
 interface Toast {
   id: number
@@ -82,7 +87,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   startupError: null,
   appVersion: '',
-  language: (localStorage.getItem('branchpulse:language') as Language) || 'zh',
+  language: (readStorage(LANGUAGE_KEY, LEGACY_LANGUAGE_KEY) as Language) || 'zh',
   effectSettings: readEffectSettings(),
   repositories: [],
   branches: [],
@@ -134,25 +139,25 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   refresh: async () => {
     try {
-      if (!window.branchpulse) {
-        set({ startupError: 'BranchPulse 后端不可用：请通过 npm run dev 或 npm start 启动服务后访问本页面。' })
+      if (!window.gitmanager) {
+        set({ startupError: 'GitManager 后端不可用：请通过 npm run dev 或 npm start 启动服务后访问本页面。' })
         return
       }
-      const snapshot = await window.branchpulse.init()
+      const snapshot = await window.gitmanager.init()
       const activeId = snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null
       const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups, appVersion] = await Promise.all([
-        window.branchpulse.listJobs(),
-        window.branchpulse.calendarRuns(),
-        window.branchpulse.listReports(),
-        window.branchpulse.listReportSchedules(),
-        window.branchpulse.listAudit(),
-        window.branchpulse.listNamingRules(activeId),
-        window.branchpulse.listWhitelist(activeId),
-        window.branchpulse.listProtected(activeId),
-        window.branchpulse.getEmailConfig(),
-        window.branchpulse.listEmailGroups(),
-        window.branchpulse.listBackups(),
-        window.branchpulse.getAppVersion()
+        window.gitmanager.listJobs(),
+        window.gitmanager.calendarRuns(),
+        window.gitmanager.listReports(),
+        window.gitmanager.listReportSchedules(),
+        window.gitmanager.listAudit(),
+        window.gitmanager.listNamingRules(activeId),
+        window.gitmanager.listWhitelist(activeId),
+        window.gitmanager.listProtected(activeId),
+        window.gitmanager.getEmailConfig(),
+        window.gitmanager.listEmailGroups(),
+        window.gitmanager.listBackups(),
+        window.gitmanager.getAppVersion()
       ])
       set({
         ready: true,
@@ -176,7 +181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         emailConfig,
         emailGroups
       })
-      localStorage.setItem('branchpulse:language', snapshot.settings.language)
+      localStorage.setItem(LANGUAGE_KEY, snapshot.settings.language)
       set({ language: snapshot.settings.language })
     } catch (err) {
       set({ startupError: err instanceof Error ? err.message : String(err) })
@@ -184,7 +189,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setLanguage: (language) => {
-    localStorage.setItem('branchpulse:language', language)
+    localStorage.setItem(LANGUAGE_KEY, language)
     set({ language })
   },
 
@@ -199,7 +204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextSettings = { ...settings, activeRepositoryId: repositoryId }
     set({ activeRepositoryId: repositoryId, settings: nextSettings })
     try {
-      await window.branchpulse.saveSettings(nextSettings)
+      await window.gitmanager.saveSettings(nextSettings)
       await get().refresh()
     } catch (err) {
       get().toast(err instanceof Error ? err.message : String(err), 'error')
@@ -211,7 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   /** `filePath` comes from the in-page picker (the desktop build used a save dialog). */
   exportConfig: async (filePath?: string) => {
-    const result = await window.branchpulse.exportConfig({
+    const result = await window.gitmanager.exportConfig({
       effects: { ...serializeEffectSettings() },
       language: get().language
     }, filePath)
@@ -224,10 +229,10 @@ export const useAppStore = create<AppState>((set, get) => ({
    * asks the page to confirm before calling this.
    */
   importConfig: async (filePath: string) => {
-    const result = await window.branchpulse.importConfig(filePath)
+    const result = await window.gitmanager.importConfig(filePath)
     if (!result.ok) return result
     if (typeof result.language === 'string') {
-      localStorage.setItem('branchpulse:language', result.language)
+      localStorage.setItem(LANGUAGE_KEY, result.language)
     }
     applyImportedEffectSettings(result.effects)
     await get().refresh()

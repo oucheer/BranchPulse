@@ -255,7 +255,7 @@ export class BranchService {
     if (repo.source === 'gitlab' || repo.source === 'github' || repo.source === 'gitee') {
       return this.scanGitLabRepository(repo, options)
     }
-    throw new Error('BranchPulse 现在只通过远程仓库 API 扫描，请添加远程仓库。')
+    throw new Error('GitManager 现在只通过远程仓库 API 扫描，请添加远程仓库。')
   }
 
   private async scanGitLabRepository(repo: Repository, options: RepositoryScanOptions = {}): Promise<BranchSummary[]> {

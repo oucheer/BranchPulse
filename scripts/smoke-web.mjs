@@ -10,14 +10,14 @@ import { fileURLToPath } from 'node:url'
  * Boots the built backend against an isolated data directory on its own port,
  * drives a headless Chromium over CDP and walks every route. This replaces the
  * old Electron smoke pair (`run-smoke.ps1` + `smoke-cdp.mjs`): there is no
- * single-instance lock any more, but the isolated `BRANCHPULSE_USER_DATA_DIR`
+ * single-instance lock any more, but the isolated `GITMANAGER_USER_DATA_DIR`
  * guarantee still matters so a smoke run never touches the real profile.
  *
  * Usage: npm run build && npm run smoke
  */
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PORT = Number(process.env.BRANCHPULSE_SMOKE_PORT ?? 4319)
+const PORT = Number(process.env.GITMANAGER_SMOKE_PORT ?? 4319)
 const CDP_PORT = PORT + 1
 const BASE = `http://127.0.0.1:${PORT}`
 const SERVER_ENTRY = path.join(root, 'dist', 'server', 'index.cjs')
@@ -51,7 +51,7 @@ const BANNED_TERMS = ['已合并', '过期', '到期', '陈旧']
 const MAX_FOLDER_REQUESTS_WHEN_IDLE = 5
 
 const browserCandidates = [
-  process.env.BRANCHPULSE_BROWSER,
+  process.env.GITMANAGER_BROWSER,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -65,7 +65,7 @@ function findBrowser() {
   for (const candidate of browserCandidates) {
     if (fs.existsSync(candidate)) return candidate
   }
-  throw new Error(`No Chromium browser found. Set BRANCHPULSE_BROWSER to one of: ${browserCandidates.join(', ')}`)
+  throw new Error(`No Chromium browser found. Set GITMANAGER_BROWSER to one of: ${browserCandidates.join(', ')}`)
 }
 
 async function waitFor(check, label, timeoutMs = 30_000) {
@@ -98,9 +98,9 @@ function launchServer(userDataDir) {
     windowsHide: true,
     env: {
       ...process.env,
-      BRANCHPULSE_PORT: String(PORT),
-      BRANCHPULSE_HOST: '127.0.0.1',
-      BRANCHPULSE_USER_DATA_DIR: userDataDir
+      GITMANAGER_PORT: String(PORT),
+      GITMANAGER_HOST: '127.0.0.1',
+      GITMANAGER_USER_DATA_DIR: userDataDir
     }
   })
   const log = []
@@ -224,7 +224,7 @@ async function main() {
     throw new Error('Build output missing. Run `npm run build` before the smoke test.')
   }
 
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-web-smoke-'))
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-web-smoke-'))
   const userDataDir = path.join(workDir, 'userdata')
   const profileDir = path.join(workDir, 'browser')
   fs.mkdirSync(userDataDir, { recursive: true })
@@ -303,7 +303,7 @@ async function main() {
       // Empty-state pages legitimately render very little text, so this only
       // guards against a blank screen.
       if ((state.text ?? '').length < 5) problems.push('empty main content')
-      if (/BranchPulse 后端不可用/.test(state.body)) problems.push('backend unavailable banner')
+      if (/GitManager 后端不可用/.test(state.body)) problems.push('backend unavailable banner')
       for (const term of BANNED_TERMS) {
         if (state.text.includes(term)) problems.push(`banned term ${term}`)
       }

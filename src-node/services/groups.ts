@@ -114,7 +114,7 @@ export class GroupService {
     const generatedAt = new Date().toISOString()
     const periodLabel = `组：${group.name}`
     const title = `分支组报告 · ${group.name}`
-    const filename = `branchpulse-group-${slug(group.name)}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${safeFormat}`
+    const filename = `gitmanager-group-${slug(group.name)}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${safeFormat}`
     const filePath = path.join(reportsDir(), filename)
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
 

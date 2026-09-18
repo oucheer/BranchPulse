@@ -37,8 +37,8 @@ export default function Repositories(): JSX.Element {
     setGitlabBusy(true)
     setGitlabMessage(null)
     try {
-      await window.branchpulse.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
-      const projects = await window.branchpulse.listGitLabProjects(gitlabConfig())
+      await window.gitmanager.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
+      const projects = await window.gitmanager.listGitLabProjects(gitlabConfig())
       setGitlabProjects(projects)
       setGitlabMessage(`已连接，发现 ${projects.length} 个仓库`)
       toast('已连接远程仓库', 'success')
@@ -55,8 +55,8 @@ export default function Repositories(): JSX.Element {
   const addGitlabProject = async (projectId: number): Promise<void> => {
     setGitlabBusy(true)
     try {
-      const repo = await window.branchpulse.addGitLabRepository(projectId, gitlabConfig())
-      const run = await window.branchpulse.scanRepository(repo.id, true)
+      const repo = await window.gitmanager.addGitLabRepository(projectId, gitlabConfig())
+      const run = await window.gitmanager.scanRepository(repo.id, true)
       toast(`${repo.name} 已添加，扫描到 ${run.branches} 个分支`, 'success')
       void refresh()
     } catch (err) {
@@ -69,7 +69,7 @@ export default function Repositories(): JSX.Element {
   const scan = async (id: string): Promise<void> => {
     setScanning(true)
     try {
-      const run = await window.branchpulse.scanRepository(id, true)
+      const run = await window.gitmanager.scanRepository(id, true)
       toast(`Scan complete: ${run.branches} branches`, 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -81,7 +81,7 @@ export default function Repositories(): JSX.Element {
 
   const remove = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.removeRepository(id)
+      await window.gitmanager.removeRepository(id)
       toast(tr('repository') + ' removed', 'success')
       setConfirmId(null)
       void refresh()
@@ -258,7 +258,7 @@ export default function Repositories(): JSX.Element {
           <div className="w-[420px] rounded-card border border-line bg-surface p-5 shadow-panel">
             <div className="mb-2 text-sm font-semibold text-canvas-fg">移除仓库？</div>
             <div className="mb-4 text-sm text-muted">
-              将移除该仓库在 BranchPulse 中的连接和分析数据，不会影响远程仓库本身。
+              将移除该仓库在 GitManager 中的连接和分析数据，不会影响远程仓库本身。
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn" onClick={() => setConfirmId(null)}>{tr('cancel')}</button>

@@ -192,7 +192,7 @@ export class MonitoringService {
     }
 
     // Checks are inspection-only: nothing in this app deletes a remote branch.
-    addActivity('This was an inspection-only check; BranchPulse never deletes branches.')
+    addActivity('This was an inspection-only check; GitManager never deletes branches.')
 
     let emailsSent = 0
     const delivery: Array<'summary' | 'creators'> = []

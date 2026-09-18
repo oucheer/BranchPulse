@@ -200,7 +200,7 @@ function textToHtml(subject: string, body: string, lang: EmailLang = 'zh'): stri
     <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
     ${content}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
   </div>
 </body></html>`
 }
@@ -259,7 +259,7 @@ function htmlEmailShell(subject: string, body: string, lang: EmailLang = 'zh'): 
     ${body}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
   </div>
 </body></html>`
 }
@@ -501,7 +501,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     ${sections.join('')}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
 }
@@ -548,8 +548,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
 
   if (scenario === 'naming') {
     const subject = zh
-      ? `【BranchPulse】${count} 个分支命名不符合规范，请修改`
-      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} need renaming`
+      ? `【GitManager】${count} 个分支命名不符合规范，请修改`
+      : `GitManager: ${count} branch${count === 1 ? '' : 'es'} need renaming`
     const body = zh
       ? `<p>以下 ${count} 个分支命名不符合规范${repoContext}，请按规范重命名后重新推送：</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
       : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} do not follow the naming rules:</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
@@ -558,8 +558,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
 
   if (scenario === 'grace_expired') {
     const subject = zh
-      ? `【BranchPulse】${count} 个分支宽限期已过，请尽快处理`
-      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} past the grace period`
+      ? `【GitManager】${count} 个分支宽限期已过，请尽快处理`
+      : `GitManager: ${count} branch${count === 1 ? '' : 'es'} past the grace period`
     const body = zh
       ? `<p>以下 ${count} 个分支宽限期已过${repoContext}。如需保留，请尽快 push 新提交或回复保留说明；如无需保留，请及时清理。</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
       : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} ${count === 1 ? 'has' : 'have'} passed the grace period. Push a new commit if it should be retained.</p>${scenarioRowsTable(rows, lang, scenario)}`
@@ -568,8 +568,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
 
   if (scenario === 'idle') {
     const subject = zh
-      ? `【BranchPulse】${count} 个分支长时间无提交，请确认去留`
-      : `BranchPulse: Confirm ${count} inactive branch${count === 1 ? '' : 'es'}`
+      ? `【GitManager】${count} 个分支长时间无提交，请确认去留`
+      : `GitManager: Confirm ${count} inactive branch${count === 1 ? '' : 'es'}`
     const body = zh
       ? `<p>以下 ${count} 个分支长时间没有 commit 记录${repoContext}：</p><ul><li>如还需要保留：请回复说明保留理由，并尽快 push 一次新提交或归档。</li><li>如无需保留：请删除该分支，避免被自动回收。</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
       : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} have been inactive for a long time:</p><ul><li>To retain: reply with the reason and push a new commit.</li><li>To retire: delete the branch.</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
@@ -577,8 +577,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
   }
 
   const subject = zh
-    ? `【BranchPulse】${count} 个分支已停更，请及时处理`
-    : `BranchPulse: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
+    ? `【GitManager】${count} 个分支已停更，请及时处理`
+    : `GitManager: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
   const body = zh
     ? `<p>以下 ${count} 个分支已进入已停更状态${repoContext}。为避免进入清理候选，请合并、归档或继续提交：</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
     : `<p>The following ${count} stale branch${count === 1 ? '' : 'es'}${repoContext} need attention. Merge, archive, or push a new commit:</p>${scenarioRowsTable(rows, lang, scenario)}`
@@ -690,7 +690,7 @@ export class EmailService {
   getTemplate(kind: string): { subject: string; body: string } {
     const row = this.storage.get<Record<string, unknown>>('SELECT subject, body FROM email_templates WHERE kind = ?', [kind])
     if (row) return { subject: String(row.subject), body: String(row.body) }
-    return { subject: 'BranchPulse Notification', body: '{{branch}} needs attention.' }
+    return { subject: 'GitManager Notification', body: '{{branch}} needs attention.' }
   }
 
   renderTemplate(kind: string, data: Record<string, unknown>): { subject: string; body: string } {
@@ -706,7 +706,7 @@ export class EmailService {
   /**
    * Builds the SMTP transport from the saved (or supplied) email configuration.
    *
-   * BranchPulse delivers mail through a configured mailbox instead of the mail
+   * GitManager delivers mail through a configured mailbox instead of the mail
    * client of the workstation, so the account stored in Settings is the one that
    * sends notifications, reports and scheduled deliveries.
    */
@@ -813,10 +813,10 @@ export class EmailService {
     try {
       await this.sendWithSmtp({
         to: [testRecipient],
-        subject: lang === 'zh' ? 'BranchPulse 测试邮件' : 'BranchPulse Test Email',
+        subject: lang === 'zh' ? 'GitManager 测试邮件' : 'GitManager Test Email',
         body: lang === 'zh'
-          ? '这是来自 BranchPulse 的测试邮件，配置的发件邮箱发送正常。'
-          : 'This is a test email from BranchPulse. The configured mailbox delivered it.',
+          ? '这是来自 GitManager 的测试邮件，配置的发件邮箱发送正常。'
+          : 'This is a test email from GitManager. The configured mailbox delivered it.',
         lang,
         config
       })
@@ -852,8 +852,8 @@ export class EmailService {
       await this.sendWithSmtp({
         to: recipientList,
         subject: scope
-          ? (lang === 'zh' ? `【BranchPulse】${scope} 分支情况` : `BranchPulse: branches of ${scope}`)
-          : (lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary'),
+          ? (lang === 'zh' ? `【GitManager】${scope} 分支情况` : `GitManager: branches of ${scope}`)
+          : (lang === 'zh' ? 'GitManager 分支治理汇总' : 'GitManager Branch Summary'),
         body: '',
         html: buildBranchEmailHtml(data, lang, 'summary'),
         config

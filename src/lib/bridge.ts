@@ -2,7 +2,7 @@ import type { BranchApi, ScanProgress } from '@shared/types'
 import { EVENTS_PATH, EXPOSED_METHODS, RPC_PREFIX } from '@shared/rpc'
 
 /**
- * Browser implementation of the `window.branchpulse` bridge.
+ * Browser implementation of the `window.gitmanager` bridge.
  *
  * The renderer keeps calling the exact same methods it called through
  * `ipcRenderer.invoke`; only the transport changes: every call becomes
@@ -21,7 +21,7 @@ async function callRpc(method: string, args: unknown[]): Promise<unknown> {
       body: JSON.stringify(args)
     })
   } catch (err) {
-    throw new Error(`无法连接 BranchPulse 后端：${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`无法连接 GitManager 后端：${err instanceof Error ? err.message : String(err)}`)
   }
   const text = await response.text()
   let payload: unknown = null
@@ -89,10 +89,10 @@ export function createWebBridge(): BranchApi {
 
 /**
  * Installs the bridge unless a desktop preload already provided one. Layout
- * calls `window.branchpulse.onScanProgress` unconditionally, so this has to run
+ * calls `window.gitmanager.onScanProgress` unconditionally, so this has to run
  * before the first render and must never throw.
  */
 export function installWebBridge(): void {
   if (typeof window === 'undefined') return
-  if (!window.branchpulse) window.branchpulse = createWebBridge()
+  if (!window.gitmanager) window.gitmanager = createWebBridge()
 }

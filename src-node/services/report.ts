@@ -54,7 +54,7 @@ export class ReportService {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM reports ORDER BY generated_at DESC LIMIT 200')
     return rows.map((r) => ({
       id: String(r.id),
-      title: String(r.title ?? 'BranchPulse Report'),
+      title: String(r.title ?? 'GitManager Report'),
       repositoryId: (r.repository_id as string | null) ?? null,
       generatedAt: String(r.generated_at),
       period: String(r.period ?? ''),
@@ -158,7 +158,7 @@ export class ReportService {
     const notifications = this.notifications(resolvedRepositoryId)
     const title = `Git Branch Health Report (${period})`
     const generatedAt = new Date().toISOString()
-    const filename = `branchpulse-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
+    const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
 
     const safeFormat = (['html', 'csv'].includes(format) ? format : 'html') as string
@@ -401,7 +401,7 @@ export class ReportService {
   <script>const slides=document.querySelectorAll('.slide');let active=0;setInterval(()=>{slides[active].classList.remove('active');active=(active+1)%slides.length;slides[active].classList.add('active')},3600)</script>
   </head><body>
   <section class="hero"><div class="hero-content">
-    <div class="eyebrow">BranchPulse Report</div>
+    <div class="eyebrow">GitManager Report</div>
     <h1>分支生命周期<br/>健康与巡检报告</h1>
     <div class="sub">报告基于远程仓库平台实时巡检数据生成，聚焦已停更分支趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
     <div class="meta"><span class="pill">${escapeHtml(title)}</span><span class="pill">生成时间：${escapeHtml(new Date(generatedAt).toLocaleString('zh-CN'))}</span><span class="pill">统计范围：${escapeHtml(period)}</span></div>

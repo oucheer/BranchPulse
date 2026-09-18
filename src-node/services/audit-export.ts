@@ -15,7 +15,7 @@ export async function exportAuditLogs(
   try {
     const entries = audit.listAll()
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const outputPath = path.join(directory, `branchpulse-audit-${stamp}.${format}`)
+    const outputPath = path.join(directory, `gitmanager-audit-${stamp}.${format}`)
     fs.mkdirSync(directory, { recursive: true })
 
     if (format === 'json') {
@@ -70,7 +70,7 @@ function formatTxt(entries: AuditEntry[]): string {
   const divider = '='.repeat(64)
   const separator = '-'.repeat(64)
   const lines: string[] = [
-    'BranchPulse 审计日志导出',
+    'GitManager 审计日志导出',
     `导出时间：${stamp}`,
     `总条数：${sorted.length}`,
     divider

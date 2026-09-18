@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EVENTS_PATH, EXPOSED_METHODS, FOLDERS_PATH, RPC_PREFIX, reportDownloadPath, type ExposedMethod } from '@shared/rpc'
-import { createBranchPulseApi, type AppServices, type BranchPulseApi } from '../src-node/api'
+import { createGitManagerApi, type AppServices, type GitManagerApi } from '../src-node/api'
 import { invoke, isExposedMethod } from '../server/rpc'
 
 /**
@@ -13,7 +13,7 @@ import { invoke, isExposedMethod } from '../server/rpc'
  */
 const LOCAL_ONLY = ['setProgressSink', 'onScanProgress', 'onNavigate'] as const
 
-type ApiMember = keyof BranchPulseApi
+type ApiMember = keyof GitManagerApi
 type MissingFromWhitelist = Exclude<ApiMember, ExposedMethod | (typeof LOCAL_ONLY)[number]>
 type MissingFromApi = Exclude<ExposedMethod, ApiMember>
 
@@ -34,8 +34,8 @@ function stubServices(): AppServices {
   }) as unknown as AppServices
 }
 
-function realApi(): BranchPulseApi {
-  return createBranchPulseApi(stubServices(), { appVersion: () => '0.0.0-test' })
+function realApi(): GitManagerApi {
+  return createGitManagerApi(stubServices(), { appVersion: () => '0.0.0-test' })
 }
 
 describe('RPC whitelist', () => {
@@ -70,7 +70,7 @@ describe('RPC whitelist', () => {
         }
         if (!/\.tsx?$/.test(entry.name)) continue
         const source = fs.readFileSync(full, 'utf8')
-        for (const match of source.matchAll(/window\.branchpulse\.([A-Za-z0-9_]+)/g)) called.add(match[1])
+        for (const match of source.matchAll(/window\.gitmanager\.([A-Za-z0-9_]+)/g)) called.add(match[1])
       }
     }
     walk(srcDir)
@@ -91,8 +91,8 @@ describe('RPC transport paths', () => {
 })
 
 describe('invoke', () => {
-  function api(overrides: Record<string, unknown>): BranchPulseApi {
-    return overrides as unknown as BranchPulseApi
+  function api(overrides: Record<string, unknown>): GitManagerApi {
+    return overrides as unknown as GitManagerApi
   }
 
   it('rejects unknown methods with 404', async () => {
