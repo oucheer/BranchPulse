@@ -18,7 +18,7 @@ async function openStorage(name: string): Promise<StorageService> {
 beforeEach(async () => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-config-'))
   source = await openStorage('source.db')
-  port = new ConfigPortService(source, () => '0.1.3')
+  port = new ConfigPortService(source, () => '0.3.0')
 })
 
 afterEach(() => {
@@ -78,7 +78,7 @@ describe('config import', () => {
     port.exportToFile(target, { effects: { enabled: false, clickAuto: true }, language: 'zh' })
 
     const fresh = await openStorage('target.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.3.0')
     const summary = freshPort.importFromFile(target)
     expect(summary.applied).toEqual(expect.arrayContaining(['app_settings', 'email_groups', 'branch_naming_rules', 'repositories']))
 
@@ -106,7 +106,7 @@ describe('config import', () => {
     const local = await openStorage('local.db')
     local.update('app_settings', { gitlab_api_key: 'LOCAL-TOKEN', gitlab_has_key: 1 }, 'id = 1')
     local.insert('repositories', { id: 'repo-1', name: 'demo', path: 'gitlab://1', source: 'gitlab', gitlab_project_id: 1, remote_project_path: 'group/demo', remote_api_key: 'LOCAL-REPO-KEY', created_at: '2026-01-01T00:00:00.000Z' })
-    const localPort = new ConfigPortService(local, () => '0.1.3')
+    const localPort = new ConfigPortService(local, () => '0.3.0')
     localPort.importFromFile(target)
 
     const settings = local.all<Record<string, unknown>>('SELECT * FROM app_settings WHERE id = 1')[0]
@@ -159,7 +159,7 @@ describe('config import', () => {
     expect(bundle.sections.collections.monitoring_rules_repo).toHaveLength(2)
 
     const fresh = await openStorage('multi-target.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.3.0')
     freshPort.importFromFile(target)
     expect(fresh.all('SELECT id FROM repositories')).toHaveLength(2)
     const freshRuleIds = fresh.all<Record<string, unknown>>('SELECT id FROM branch_naming_rules').map((r) => String(r.id))
@@ -176,7 +176,7 @@ describe('config import', () => {
     port.exportToFile(target, {})
 
     const fresh = await openStorage('fresh-credentials.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.3.0')
     const summary = freshPort.importFromFile(target)
     const text = summary.warnings.join(' ')
     expect(text).toContain('API Token')
@@ -192,7 +192,7 @@ describe('config import', () => {
 
     const local = await openStorage('orphan.db')
     local.insert('branches', { id: 'b1', key: 'old-repo|remote|feature/x', repository_id: 'old-repo', name: 'feature/x', type: 'remote', data_json: '{}' })
-    const localPort = new ConfigPortService(local, () => '0.1.3')
+    const localPort = new ConfigPortService(local, () => '0.3.0')
     const summary = localPort.importFromFile(target)
     expect(local.all('SELECT * FROM branches')).toHaveLength(0)
     expect(summary.warnings.join(' ')).toContain('branches')

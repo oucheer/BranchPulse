@@ -1,6 +1,6 @@
 {
   "name": "gitmanager",
-  "version": "0.1.3",
+  "version": "0.3.0",
   "description": "Git Branch Lifecycle Management & Monitoring Center",
   "main": "./dist/server/index.cjs",
   "author": "GitManager",
