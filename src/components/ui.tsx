@@ -81,17 +81,17 @@ export function Modal({ open, title, onClose, children, footer, width = 480 }: {
     open ? (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
         <div
-          className="rounded-card border border-line bg-surface shadow-panel"
-          style={{ width }}
+          className="flex max-h-full flex-col rounded-card border border-line bg-surface shadow-panel"
+          style={{ width, maxWidth: '100%' }}
         >
-          <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
             <div className="text-sm font-semibold text-canvas-fg">{title}</div>
             <button className="rounded-md p-1 text-muted hover:bg-line/40 hover:text-canvas-fg" onClick={onClose} aria-label="Close">
               <X size={16} />
             </button>
           </div>
-          <div className="px-5 py-4">{children}</div>
-          {footer ? <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div> : null}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+          {footer ? <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div> : null}
         </div>
       </div>
     ) : null
