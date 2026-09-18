@@ -15,7 +15,6 @@ import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
 import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
 import { partitionRecipientTokens, resolveGroupScope } from '@shared/groups'
-import { groupCoversCreator } from '@shared/groups'
 import type { EmailGroup } from '@shared/types'
 import type { GroupService } from './groups'
 import type { AuditService } from './audit'
@@ -65,16 +64,19 @@ export class MonitoringService {
   }
 
   /**
-   * 汇总邮件 + 命中的分组邮件。
+   * 汇总邮件 + 命中的分组收件人。
    *
-   * 只有存在普通收件人（或「通知自己」）时才发整仓汇总；只勾组名时，组员只收到
-   * 自己组的分支情况，不会被整仓汇总刷屏。
+   * 收件人里的组名是「通知范围」，不是「检查范围」：邮件内容仍是本次检查的全部分支，
+   * 只是把收件人换成该组的组员。要收窄检查范围请在「分组范围」里选组——那时数据
+   * 已先按组过滤，两者可以叠加：只查这个组、也只通知这个组。
+   *
+   * 每个组单独发一封（而不是把所有组员并到一个收件人列表），避免组与组之间互相
+   * 看到对方成员邮箱。
    */
   private async sendSummaryWithGroups(input: {
     groupTargets: EmailGroup[]
     data: EmailSummaryData
     recipients: string[]
-    branches: BranchSummary[]
     addActivity: (message: string, level?: ActivityItem['level']) => void
   }): Promise<{ ok: boolean; message: string; sent: number }> {
     let sent = 0
@@ -94,12 +96,11 @@ export class MonitoringService {
         message = '分组邮件不可用：分组服务未初始化。'
         continue
       }
-      const branches = input.branches.filter((branch) => groupCoversCreator(group, branch.creator))
-      const result = await this.groups.emailGroup(group, branches)
+      const result = await this.groups.emailSummaryToGroup(group, input.data)
       if (result.ok) {
         sent += result.sent
         ok = true
-        input.addActivity('分组「' + group.name + '」邮件已发送（' + branches.length + ' 个分支）。', 'success')
+        input.addActivity('分组「' + group.name + '」邮件已发送（' + input.data.total + ' 个分支）。', 'success')
       } else {
         message = result.message
         input.addActivity(result.message, 'error')
@@ -239,8 +240,8 @@ export class MonitoringService {
         const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
         const targetRecipients: string[] = []
         if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
-        // 组名 token 不能混进汇总收件人：它表示「把这个组自己的分支情况发给组员」，
-        // 混进来会让组员同时收到整仓汇总和分组邮件两封。
+        // 组名 token 不能混进普通收件人列表：它表示「把本次检查结果发给这个组的组员」，
+        // 由 sendSummaryWithGroups 单独按组发信（见该方法注释）。
         const { matched: groupTargets, plain } = partitionRecipientTokens(parsedNotify.recipients, groups)
         if (plain) targetRecipients.push(...resolveRecipients(plain, []))
         const uniqueRecipients = [...new Set(targetRecipients.filter(Boolean))]
@@ -248,7 +249,6 @@ export class MonitoringService {
           groupTargets,
           data,
           recipients: uniqueRecipients,
-          branches: scopedBranches,
           addActivity
         })
         if (result.ok) {

@@ -177,12 +177,16 @@ export class GroupService {
     return { sent: result.emailsSent ?? 1, message: `已把「${group.name}」的 ${branches.length} 个分支发给 ${recipients.length} 位组员。` }
   }
 
-  /** 监控 / 定时调度用：给一个组发它自己的分支情况（不经 RPC）。 */
-  async emailGroup(group: EmailGroup, branches: BranchSummary[]): Promise<{ ok: boolean; message: string; sent: number }> {
+  /**
+   * 监控 / 定时调度用：把**本次检查的完整结果**只发给这个组的组员。
+   *
+   * 这是「检查全部分支、只通知分组人员」那一半语义：数据由调用方传入且不按组收窄，
+   * 这里只替换收件人。组与组之间分开调用是为了不让各组看到彼此的成员邮箱。
+   */
+  async emailSummaryToGroup(group: EmailGroup, data: EmailSummaryData): Promise<{ ok: boolean; message: string; sent: number }> {
     const recipients = groupRecipients(group)
     if (recipients.length === 0) return { ok: false, message: `分支组「${group.name}」没有配置收件邮箱。`, sent: 0 }
-    const repositories = new Set(branches.map((branch) => branch.repositoryId)).size
-    const result = await this.email.sendSummaryEmail(this.summaryData(group, branches, repositories), undefined, recipients)
+    const result = await this.email.sendSummaryEmail(data, undefined, recipients)
     return { ok: result.ok, message: result.message, sent: result.emailsSent ?? 0 }
   }
 

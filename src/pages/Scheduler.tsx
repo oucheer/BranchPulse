@@ -379,7 +379,7 @@ export default function Scheduler(): JSX.Element {
               value={editJob?.groupIds ?? []}
               onChange={(ids) => setEditJob({ ...editJob, groupIds: ids })}
               groups={emailGroups}
-              emptyHint="不选则检查全部仓库范围内的分支。"
+              emptyHint="不选则检查全部仓库范围内的分支。选组只收窄检查范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
             />
         </div>
       </Modal>

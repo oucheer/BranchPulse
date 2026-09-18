@@ -69,7 +69,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   const monitoring = new MonitoringService(storage, branch, repository, email, audit, groups)
   const scheduler = new SchedulerService(storage, monitoring, audit)
   const report = new ReportService(storage, branch, repository, audit, groups)
-  const reportSchedules = new ReportScheduleService(storage, report, email, audit, groups)
+  const reportSchedules = new ReportScheduleService(storage, report, email, audit)
   const backup = new BackupService(
     storage,
     repository,

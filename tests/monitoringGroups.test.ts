@@ -9,10 +9,14 @@ import type { StorageService } from '../src-node/services/storage'
 import type { AuditService } from '../src-node/services/audit'
 
 /**
- * 监控检查里的组名收件人必须只发「这个组自己的分支」。
+ * 监控检查里的组名收件人是**通知范围**，不是检查范围。
  *
- * 这条规则容易在以后被顺手「统一」成 resolveRecipients，然后组员会同时收到
- * 整仓汇总和分组邮件两封，所以用测试锁住。
+ * 两种情况下用户希望选分组：
+ *   1. 只检查分组内成员的分支 —— 走 RunCheckOptions.groupIds（「分组范围」）；
+ *   2. 检查全部分支、只通知分组内成员 —— 走 notifyTarget 里的组名 token。
+ *
+ * 情况 2 里邮件内容必须是**本次检查的全部分支**。很容易在以后被顺手改回
+ * 「按组过滤再发」，把组员看到的范围悄悄缩小，所以用测试锁住。
  */
 
 function branch(name: string, creatorName: string, creatorEmail: string): BranchSummary {
@@ -63,12 +67,12 @@ const PAYMENT_GROUP: EmailGroup = {
 function setup(notifyTarget: NotifyTarget, emailPolicy: EmailPolicy = 'none'): {
   service: MonitoringService
   summaries: EmailSummaryData[]
-  groupCalls: BranchSummary[][]
+  groupCalls: EmailSummaryData[]
   activities: string[]
 } {
   const branches = [branch('feature/login', '张三', 'zhangsan@example.com'), branch('bugfix/crash', '李四', 'lisi@example.com')]
   const summaries: EmailSummaryData[] = []
-  const groupCalls: BranchSummary[][] = []
+  const groupCalls: EmailSummaryData[] = []
 
   const storage = {
     get: (query: string) =>
@@ -94,8 +98,8 @@ function setup(notifyTarget: NotifyTarget, emailPolicy: EmailPolicy = 'none'): {
     sendCreatorEmails: async (): Promise<unknown> => ({ ok: true, message: 'sent', emailsSent: 1 })
   } as unknown as EmailService
   const groups = {
-    emailGroup: async (group: EmailGroup, groupBranches: BranchSummary[]) => {
-      groupCalls.push(groupBranches)
+    emailSummaryToGroup: async (_group: EmailGroup, data: EmailSummaryData) => {
+      groupCalls.push(data)
       return { ok: true, message: 'sent', sent: 1 }
     }
   } as unknown as GroupService
@@ -108,22 +112,23 @@ function setup(notifyTarget: NotifyTarget, emailPolicy: EmailPolicy = 'none'): {
 }
 
 describe('monitoring check with a group recipient', () => {
-  it('sends only that group’s branches to its members', async () => {
+  it('sends the whole check result to the group members without narrowing the check', async () => {
     const { service, summaries, groupCalls } = setup('支付组')
     await service.runCheckNow({ bypassEnabledCheck: true })
-    // 只勾组名时不发整仓汇总，否则组员会收到两封邮件。
+    // 只勾组名时不发整仓汇总（收件人列表里没有普通邮箱），但组员要拿到全部 2 个分支。
     expect(summaries).toHaveLength(0)
     expect(groupCalls).toHaveLength(1)
-    expect(groupCalls[0].map((item) => item.name)).toEqual(['feature/login'])
+    expect(groupCalls[0].total).toBe(2)
+    expect(groupCalls[0].branches.map((item) => item.branch)).toEqual(['feature/login', 'bugfix/crash'])
   })
 
-  it('keeps the plain address in the whole-repository summary', async () => {
+  it('keeps the plain address in the whole-repository summary and still mails the group', async () => {
     const { service, summaries, groupCalls } = setup('支付组, boss@example.com')
     await service.runCheckNow({ bypassEnabledCheck: true })
     expect(summaries).toHaveLength(1)
     // 汇总里只包含真实邮箱，组名不参与汇总收件人。
     expect(summaries[0].thresholdHint).toBe('boss@example.com')
-    expect(groupCalls[0].map((item) => item.name)).toEqual(['feature/login'])
+    expect(groupCalls).toHaveLength(1)
   })
 
   it('still notifies self and expands the group when both are selected', async () => {
@@ -137,5 +142,15 @@ describe('monitoring check with a group recipient', () => {
     await service.runCheckNow({ bypassEnabledCheck: true })
     expect(summaries).toHaveLength(0)
     expect(groupCalls).toHaveLength(0)
+  })
+
+  it('narrows the checked branches when a group scope is passed', async () => {
+    const { service, summaries, groupCalls } = setup('支付组')
+    await service.runCheckNow({ bypassEnabledCheck: true, groupIds: ['group-1'] })
+    // 情况 1（分组范围）+ 情况 2（组名收件人）叠加：查这个组，也只发给这个组。
+    expect(summaries).toHaveLength(0)
+    expect(groupCalls).toHaveLength(1)
+    expect(groupCalls[0].total).toBe(1)
+    expect(groupCalls[0].branches.map((item) => item.branch)).toEqual(['feature/login'])
   })
 })

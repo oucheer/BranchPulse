@@ -211,8 +211,9 @@ export function groupBranchStats(branches: BranchSummary[]): GroupBranchStats {
  * 把收件人 token 拆成「命中的组」与「其余 token」。
  *
  * 监控页、定时调度、报告计划里的收件人输入框都允许直接写组名。组名必须被单独
- * 处理：组名 token 的语义是「把这个组自己的分支情况发给这个组的组员」，而不是
- * 「把整份汇总也发一遍给这些人」，否则组员会同时收到两封邮件。
+ * 处理：组名 token 的语义是「把本次检查 / 报告的完整结果只发给这个组的组员」，
+ * 它**不是普通收件人**——混进 plain 里会被当成邮箱 token 解析，语义丢失；
+ * 它也**不按组收窄数据**，要只查某个组请用「分组范围」（`resolveGroupScope()`）。
  */
 export function partitionRecipientTokens(
   value: string | null | undefined,

@@ -12,10 +12,13 @@ interface GroupScopePickerProps {
 }
 
 /**
- * 「只检查 / 只统计这些分组」的范围选择。
+ * 「只检查 / 只统计这些分组」的范围选择——管的是**范围**，不是收件人。
  *
  * 口径与分支列表的分组筛选一致：分支创始人命中组员即归属该组。空数组表示
  * 不限分组（即全仓库），这样调度任务的默认行为保持原样。
+ *
+ * 想「只查这个组、也只发给这个组」时，在收件人里再选同一个组；只选这里则
+ * 结果仍发给原有收件人，只是数据被收窄。
  */
 export default function GroupScopePicker({
   value,
@@ -66,7 +69,7 @@ export default function GroupScopePicker({
       )}
       <p className="text-xs text-muted">
         {value.length > 0
-          ? `只处理这些分组组员的分支：${groups.filter((group) => selected.has(group.id)).map((group) => group.name).join('、')}。`
+          ? `只处理这些分组组员的分支：${groups.filter((group) => selected.has(group.id)).map((group) => group.name).join('、')}。收件人不变；要让组员只收到本组数据，请在收件人里同时选择该组。`
           : emptyHint}
       </p>
     </div>

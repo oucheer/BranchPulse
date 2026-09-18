@@ -232,7 +232,7 @@ export default function Reports(): JSX.Element {
               value={draft.groupIds}
               onChange={(ids) => setDraft({ ...draft, groupIds: ids })}
               groups={emailGroups}
-              emptyHint="不选则统计当前仓库范围内的全部分支。"
+              emptyHint="不选则统计当前仓库范围内的全部分支。选组只收窄统计范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
             />
           </div>
         </div>

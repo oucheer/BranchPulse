@@ -5,8 +5,7 @@ import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
 import { parseNotifyTarget, resolveRecipients } from './email'
-import { parseGroupIds, partitionRecipientTokens } from '@shared/groups'
-import type { GroupService } from './groups'
+import { groupRecipients, parseGroupIds, partitionRecipientTokens } from '@shared/groups'
 import { newId } from '../utils/ids'
 
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
@@ -64,8 +63,7 @@ export class ReportScheduleService {
     private readonly storage: StorageService,
     private readonly reportService: ReportService,
     private readonly emailService: EmailService,
-    private readonly audit: AuditService,
-    private readonly groups?: GroupService
+    private readonly audit: AuditService
   ) {}
 
   list(): ReportSchedule[] {
@@ -148,8 +146,10 @@ export class ReportScheduleService {
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
           const targetRecipients: string[] = []
           if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
-          // 组名 token 单独处理：报告本体仍发给普通收件人，组名只决定「额外给这个组
-          // 发一封只含该组成员分支的报告」，避免组员重复收到整仓报告。
+          // 组名 token 表示「这份报告也发给这个组的组员」：内容与发给普通收件人的报告
+          // 完全一致（都受「分组范围」收窄）。要让组员只收到本组数据，请把该组填进
+          // 定时任务的「分组范围」，那时生成的报告本身就只含该组分支。
+          // 每个组单独发信，避免组与组之间互相看到对方的成员邮箱。
           const { matched: groupTargets, plain } = partitionRecipientTokens(
             parsedNotify.recipients,
             this.emailService.listGroups()
@@ -176,30 +176,39 @@ export class ReportScheduleService {
                 input: schedule.recipients
               }, 'failure')
             }
-            if (recipients.length > 0) {
+            if (recipients.length > 0 || groupTargets.length > 0) {
               const reportHtml = await fs.promises.readFile(report.path, 'utf8')
               const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
-              await this.emailService.sendReportEmail({
-                to: recipients,
-                subject: `【分支健康月报】${month}`,
-                body: '',
-                html: reportHtml,
-                attachmentPath: report.path
-              })
-            }
-            for (const group of groupTargets) {
-              if (!this.groups) {
-                this.audit.record('report_schedule_group_email_skipped', {
-                  id: schedule.id, group: group.name, reason: 'group_service_unavailable'
-                }, 'failure')
-                continue
+              const send = async (to: string[]): Promise<void> => {
+                await this.emailService.sendReportEmail({
+                  to,
+                  subject: `【分支健康月报】${month}`,
+                  body: '',
+                  html: reportHtml,
+                  attachmentPath: report.path
+                })
               }
-              const groupResult = await this.groups.emailBranches(group.id, schedule.repositoryId)
-              this.audit.record(
-                groupResult.sent > 0 ? 'report_schedule_group_email_sent' : 'report_schedule_group_email_skipped',
-                { id: schedule.id, group: group.name, sent: groupResult.sent, message: groupResult.message },
-                groupResult.sent > 0 ? 'success' : 'failure'
-              )
+              if (recipients.length > 0) await send(recipients)
+              for (const group of groupTargets) {
+                const members = groupRecipients(group)
+                if (members.length === 0) {
+                  this.audit.record('report_schedule_group_email_skipped', {
+                    id: schedule.id, group: group.name, reason: 'group_members_missing'
+                  }, 'failure')
+                  continue
+                }
+                try {
+                  await send(members)
+                  this.audit.record('report_schedule_group_email_sent', {
+                    id: schedule.id, group: group.name, sent: members.length
+                  }, 'success')
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err)
+                  this.audit.record('report_schedule_group_email_skipped', {
+                    id: schedule.id, group: group.name, reason: 'send_failed', message
+                  }, 'failure')
+                }
+              }
             }
           }
           const nextRunAt = schedule.frequency === 'once' ? null : computeNextReportRunAt(schedule, new Date())

@@ -276,7 +276,7 @@ export default function Monitoring(): JSX.Element {
               value={scopeGroupIds}
               onChange={setScopeGroupIds}
               groups={emailGroups}
-              emptyHint="不选则检查当前仓库范围内的全部分支。"
+              emptyHint="不选则检查当前仓库范围内的全部分支。选组只收窄检查范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
             />
             <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}

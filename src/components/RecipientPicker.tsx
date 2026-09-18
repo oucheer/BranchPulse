@@ -99,9 +99,12 @@ export default function RecipientPicker({
         ) : null}
       </div>
       {readOnly ? (
-        <p className="text-xs text-muted">已按分支组显示收件人：该组只会收到自己组员的分支情况，不会收到整仓汇总。</p>
+        <p className="text-xs text-muted">
+          邮件内容不变（仍是当前检查 / 报告范围的全部分支），只是把邮件发给该组组员。
+          若要让组员只收到本组数据，请在下方「分组范围」里同时选中该组。
+        </p>
       ) : (
-        <p className="text-xs text-muted">可填写邮箱或分支组名；填写组名时只把该组自己的分支情况发给组员。</p>
+        <p className="text-xs text-muted">可填写邮箱或分支组名；填写组名时把本次结果发给该组组员，检查 / 报告范围不受影响。</p>
       )}
 
       {allowSelf ? (
