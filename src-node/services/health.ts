@@ -3,8 +3,7 @@ import type { HealthFactor, HealthLevel, HealthResult } from '@shared/types'
 export interface HealthInput {
   inactiveDays: number
   staleThresholdDays: number
-  gracePeriodDays: number
-  state: 'active' | 'stale' | 'grace_period' | 'grace_expired'
+  state: 'active' | 'stale'
   namingStatus: 'valid' | 'invalid' | 'excluded'
   namingExempt?: boolean
   merged: boolean
@@ -43,19 +42,12 @@ export class HealthService {
       detail: `最后提交距今 ${input.inactiveDays} 天`
     })
 
-    const staleScore = input.state === 'active' ? 25 : input.state === 'stale' ? 8 : input.state === 'grace_period' ? 12 : 0
+    const staleScore = input.state === 'active' ? 25 : 8
     factors.push({
       label: '已停更风险',
       score: staleScore,
       weight: 25,
-      detail:
-        input.state === 'active'
-          ? '未超过未提交阈值'
-          : input.state === 'grace_period'
-            ? `已停更，进入宽限期内（未提交阈值后 ${input.gracePeriodDays} 天）`
-            : input.state === 'grace_expired'
-              ? '宽限期已过'
-              : '分支已停更'
+      detail: input.state === 'active' ? '未超过未提交阈值' : '分支已停更'
     })
 
     const namingScore = input.namingExempt || input.namingStatus === 'valid' ? 20 : input.namingStatus === 'excluded' ? 16 : 0

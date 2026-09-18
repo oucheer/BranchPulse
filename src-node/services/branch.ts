@@ -84,7 +84,6 @@ interface AnalysisFacts {
   merged: boolean
   mergedInto: string | null
   baseBranch: string
-  gracePeriodDays: number
   recentCommits: CommitInfo[]
 }
 
@@ -131,7 +130,7 @@ function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protec
   const wl = protection.listWhitelist(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
   const pr = protection.listProtected(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
   const thresholds = thresholdRuleFingerprint(monitoring)
-  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${thresholds}|${rules}|${wl}|${pr}`
+  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${thresholds}|${rules}|${wl}|${pr}`
 }
 
 /** 存储里的前缀规则是 JSON 文本；坏数据降级为空数组而不是抛错。 */
@@ -203,7 +202,7 @@ export function effectiveThreshold(
 
 /**
  * 基准分支（main / develop / 仓库默认分支）是所有分支的评分参照物，
- * 不参与生命周期评比：不计已停更、不计宽限期、不进清理候选、不进需要关注的列表。
+ * 不参与生命周期评比：不计已停更、不进清理候选、不进需要关注的列表。
  */
 export function isBaselineBranch(name: string, baseBranch?: string | null): boolean {
   if (/^(main|develop)$/i.test(name)) return true
@@ -237,9 +236,7 @@ export class BranchService {
     return {
       enabled: (row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
-      gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
-      gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
       thresholdRules: parseThresholdRules(row?.threshold_rules),
       fetchEnabled: (row?.fetch_enabled ?? 1) === 1,
       namingEnabled: (row?.naming_enabled ?? 1) === 1,
@@ -339,7 +336,7 @@ export class BranchService {
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
     // v5: the creator email is now looked up from the forge profile, so cached
     // v4 summaries have to be rebuilt to pick up the resolved address.
-    const cacheContentKey = `v5|${latestCommit?.id ?? ''}|${fp}`
+    const cacheContentKey = `v6|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -421,7 +418,6 @@ export class BranchService {
       merged: branch.merged === true || ownCommits.length === 0,
       mergedInto: branch.merged || ownCommits.length === 0 ? defaultBranch : null,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays,
       recentCommits: recentCommits.map((c) => this.gitLabCommitToInfo(c))
     }
     const result = this.buildFromFacts(facts, ref, repo.id, monitoring)
@@ -450,7 +446,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `v5|${ref.sha}|${fp}`
+    const cacheContentKey = `v6|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -530,7 +526,6 @@ export class BranchService {
       merged: aheadBehind.ahead === 0,
       mergedInto,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays,
       recentCommits
     }
   }
@@ -548,12 +543,10 @@ export class BranchService {
     // 避免新扫描与缓存刷新各算一套。
     const effective = effectiveThreshold(monitoring, facts.name)
     const thresholdHours = effective.hours
-    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(facts.lastCommitAt, now)
     const baseline = isBaselineBranch(facts.name, facts.baseBranch)
     const stale = !baseline && inactiveHours >= thresholdHours
-    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
-    const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
+    const state: BranchState = stale ? 'stale' : 'active'
     const naming: NamingResult = monitoring.namingEnabled
       ? this.naming.validate(facts.name, this.naming.listRules(repositoryId))
       : { status: 'excluded', reason: 'Naming validation disabled.' }
@@ -562,7 +555,6 @@ export class BranchService {
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
-      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       namingExempt: facts.name === 'main' || facts.name === 'develop',
@@ -605,11 +597,9 @@ export class BranchService {
       protection,
       state,
       stale,
-      gracePeriodDays: monitoring.gracePeriodDays,
       thresholdDays: Math.max(effective.hours / 24, 1 / 1440),
       thresholdUnit: effective.unit,
-      graceExpired,
-      cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
+      cleanupCandidate: stale && !protection.whitelisted && !protection.isDefault && !protection.protected,
       recentCommits: facts.recentCommits,
       lastScannedAt: new Date().toISOString()
     }
@@ -621,12 +611,10 @@ export class BranchService {
     const ageDays = elapsedDays(cached.createdAt, now)
     const effective = effectiveThreshold(monitoring, cached.name)
     const thresholdHours = effective.hours
-    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(cached.lastCommitAt, now)
     const baseline = isBaselineBranch(cached.name, cached.baseBranch)
     const stale = !baseline && inactiveHours >= thresholdHours
-    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
-    const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
+    const state: BranchState = stale ? 'stale' : 'active'
     const naming: NamingResult = monitoring.namingEnabled
       ? this.naming.validate(cached.name, this.naming.listRules(cached.repositoryId))
       : { status: 'excluded', reason: 'Naming validation disabled.' }
@@ -635,7 +623,6 @@ export class BranchService {
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
-      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       namingExempt: cached.name === 'main' || cached.name === 'develop',
@@ -658,8 +645,7 @@ export class BranchService {
       stale,
       thresholdDays: Math.max(effective.hours / 24, 1 / 1440),
       thresholdUnit: effective.unit,
-      graceExpired,
-      cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
+      cleanupCandidate: stale && !protection.whitelisted && !protection.isDefault && !protection.protected,
       naming,
       protection,
       health,

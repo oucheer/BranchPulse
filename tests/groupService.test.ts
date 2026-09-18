@@ -44,10 +44,8 @@ function branch(name: string, creatorName: string, creatorEmail: string, reposit
     protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
     state: 'active',
     stale: false,
-    gracePeriodDays: 60,
     thresholdDays: 180,
     thresholdUnit: 'days',
-    graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],
     lastScannedAt: '2026-01-01T00:00:00.000Z'

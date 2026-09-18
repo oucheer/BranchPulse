@@ -72,13 +72,14 @@ function harness(recipients: string): Harness {
         id: 'report-1',
         title: 'report',
         repositoryId: null,
+        groupIds: [],
         generatedAt: '2026-09-17T00:00:00.000Z',
         period: 'daily',
         format: 'html',
         path: file,
         summary: {
           totalBranches: 0, validBranches: 0, invalidBranches: 0, excludedBranches: 0,
-          compliancePercent: 0, active: 0, stale: 0, gracePeriod: 0, graceExpired: 0,
+          compliancePercent: 0, active: 0, stale: 0,
           merged: 0, namingViolations: 0, cleanupCandidates: 0, protectedBranches: 0,
           whitelistedBranches: 0, averageHealth: 0, repositories: 0
         }
@@ -164,10 +165,11 @@ describe('scheduled report with a group recipient', () => {
       {
         generateReport: async (): Promise<ReportRecord> => ({
           id: 'report-1', title: 'report', repositoryId: null, generatedAt: '2026-09-17T00:00:00.000Z',
+          groupIds: [],
           period: 'daily', format: 'html', path: file,
           summary: {
             totalBranches: 0, validBranches: 0, invalidBranches: 0, excludedBranches: 0,
-            compliancePercent: 0, active: 0, stale: 0, gracePeriod: 0, graceExpired: 0,
+            compliancePercent: 0, active: 0, stale: 0,
             merged: 0, namingViolations: 0, cleanupCandidates: 0, protectedBranches: 0,
             whitelistedBranches: 0, averageHealth: 0, repositories: 0
           }

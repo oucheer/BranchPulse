@@ -42,12 +42,10 @@ function branch(name: string, creatorName: string, creatorEmail: string): Branch
     naming: { status: 'valid' },
     health: { score: 70, level: 'good', factors: [] },
     protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
-    state: 'grace_period',
+    state: 'stale',
     stale: true,
-    gracePeriodDays: 60,
     thresholdDays: 180,
     thresholdUnit: 'days',
-    graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],
     lastScannedAt: '2026-01-01T00:00:00.000Z'

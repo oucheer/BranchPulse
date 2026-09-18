@@ -14,7 +14,7 @@ import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
 import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
-import { partitionRecipientTokens } from '@shared/groups'
+import { partitionRecipientTokens, resolveGroupScope } from '@shared/groups'
 import { groupCoversCreator } from '@shared/groups'
 import type { EmailGroup } from '@shared/types'
 import type { GroupService } from './groups'
@@ -47,8 +47,6 @@ export class MonitoringService {
       branches: summary.branches,
       active: summary.active,
       stale: summary.stale,
-      grace_period: summary.gracePeriod,
-      grace_expired: summary.graceExpired,
       merged: summary.merged,
       naming_invalid: summary.namingInvalid,
       cleanup_candidates: summary.cleanupCandidates,
@@ -174,15 +172,30 @@ export class MonitoringService {
       this.emitProgress(runId, activity)
     }
 
-    const summary = this.summarize(allBranches, targets.length)
+    // 「只检查分组」在汇总之前收窄分支集合：通知、汇总邮件、分组邮件、报告计数
+    // 都读 allBranches，所以过滤只做一次，避免各出口各算一套。
+    // 分组范围用同一个入口：选中的组全被删除时收窄成空集合并报警，不能退回整仓。
+    const scope = resolveGroupScope(this.email.listGroups(), options.groupIds, allBranches)
+    const scopeGroups = scope.groups
+    const scopedBranches = scope.branches
+    if (scope.missing) {
+      addActivity('Selected groups no longer exist; nothing was checked.', 'error')
+    } else if (scopeGroups.length) {
+      addActivity(`Scope limited to group${scopeGroups.length === 1 ? '' : 's'}: ${scopeGroups.map((group) => group.name).join(', ')} (${scopedBranches.length} branches).`)
+    }
+
+    const scopedRepositoryCount = scopeGroups.length
+      ? new Set(scopedBranches.map((branch) => branch.repositoryId)).size
+      : targets.length
+    const summary = this.summarize(scopedBranches, scopedRepositoryCount)
     addActivity(
-      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.graceExpired} grace expired, ${summary.namingInvalid} naming violations.`,
+      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.namingInvalid} naming violations.`,
       'success'
     )
 
     const notifications: NotificationRecord[] = []
     if (notificationsEnabled) {
-      const created = this.generateNotifications(allBranches)
+      const created = this.generateNotifications(scopedBranches)
       notifications.push(...created)
       if (created.length > 0) {
         addActivity(`${created.length} new notification${created.length === 1 ? '' : 's'} generated.`)
@@ -214,14 +227,12 @@ export class MonitoringService {
         const data: EmailSummaryData = {
           total: summary.branches,
           stale: summary.stale,
-          gracePeriod: summary.gracePeriod,
-          graceExpired: summary.graceExpired,
           namingInvalid: summary.namingInvalid,
           merged: summary.merged,
           cleanupCandidates: summary.cleanupCandidates,
-          repositories: targets.length,
+          repositories: scopedRepositoryCount,
           generatedAt: new Date().toISOString(),
-          branches: allBranches.map(toEmailIssueRow),
+          branches: scopedBranches.map(toEmailIssueRow),
           thresholdHint: this.thresholdHint(monitoringRow)
         }
         const cfg = this.email.getConfig()
@@ -237,7 +248,7 @@ export class MonitoringService {
           groupTargets,
           data,
           recipients: uniqueRecipients,
-          branches: allBranches,
+          branches: scopedBranches,
           addActivity
         })
         if (result.ok) {
@@ -247,7 +258,7 @@ export class MonitoringService {
           addActivity(result.message, 'error')
         }
       } else {
-        const rows: EmailIssueRow[] = allBranches
+        const rows: EmailIssueRow[] = scopedBranches
           .filter((b) => b.stale || b.naming.status === 'invalid' || b.cleanupCandidate)
           .map((b) => this.toIssueRow(b))
         const result = await this.email.sendCreatorEmails(rows, undefined, {
@@ -272,12 +283,10 @@ export class MonitoringService {
       healthAvg: summary.healthAvg,
       healthBest: summary.healthBest,
       healthWorst: summary.healthWorst,
-      repositories: targets.length,
+      repositories: scopedRepositoryCount,
       branches: summary.branches,
       active: summary.active,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       merged: summary.merged,
       namingInvalid: summary.namingInvalid,
       cleanupCandidates: summary.cleanupCandidates,
@@ -299,8 +308,6 @@ export class MonitoringService {
       branches: run.branches,
       active: run.active,
       stale: run.stale,
-      grace_period: run.gracePeriod,
-      grace_expired: run.graceExpired,
       merged: run.merged,
       naming_invalid: run.namingInvalid,
       cleanup_candidates: run.cleanupCandidates,
@@ -310,7 +317,7 @@ export class MonitoringService {
       activity_json: JSON.stringify(activity)
     })
     for (const repositoryId of scannedRepositoryIds) {
-      this.insertRepoScanSummary(runId, repositoryId, allBranches.filter((branch) => branch.repositoryId === repositoryId))
+      this.insertRepoScanSummary(runId, repositoryId, scopedBranches.filter((branch) => branch.repositoryId === repositoryId))
     }
     this.audit.record('monitoring_check', {
       trigger: run.trigger,
@@ -326,8 +333,6 @@ export class MonitoringService {
       status: 'completed',
       branches: run.branches,
       stale: run.stale,
-      gracePeriod: run.gracePeriod,
-      graceExpired: run.graceExpired,
       merged: run.merged,
       namingInvalid: run.namingInvalid,
       cleanupCandidates: run.cleanupCandidates
@@ -346,8 +351,6 @@ export class MonitoringService {
       branches: branches.length,
       active: count((b) => b.state === 'active'),
       stale: count((b) => b.stale),
-      gracePeriod: count((b) => b.state === 'grace_period'),
-      graceExpired: count((b) => b.state === 'grace_expired'),
       merged: count((b) => b.merged),
       namingInvalid: count((b) => b.naming.status === 'invalid'),
       cleanupCandidates: count((b) => b.cleanupCandidate),
@@ -362,13 +365,7 @@ export class MonitoringService {
     const created: NotificationRecord[] = []
     for (const branch of branches) {
       const candidates: Array<{ type: NotificationType; state: string; message: string }> = []
-      if (branch.state === 'grace_expired') {
-        candidates.push({
-          type: 'grace_expired',
-          state: branch.state,
-          message: `${branch.displayName} 宽限期已过，已连续 ${branch.inactiveDays} 天未提交。`
-        })
-      } else if (branch.stale) {
+      if (branch.stale) {
         candidates.push({
           type: 'stale',
           state: branch.state,
@@ -446,8 +443,6 @@ export class MonitoringService {
     const data: EmailSummaryData = {
       total: summary.branches,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       namingInvalid: summary.namingInvalid,
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,

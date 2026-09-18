@@ -5,7 +5,7 @@ import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
 import { parseNotifyTarget, resolveRecipients } from './email'
-import { partitionRecipientTokens } from '@shared/groups'
+import { parseGroupIds, partitionRecipientTokens } from '@shared/groups'
 import type { GroupService } from './groups'
 import { newId } from '../utils/ids'
 
@@ -20,6 +20,7 @@ function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
     dayOfMonth: Number(row.day_of_month ?? 1),
     runAt: (row.run_at as string | null) ?? null,
     recipients: String(row.recipients ?? ''),
+    groupIds: parseGroupIds(row.group_ids),
     enabled: Number(row.enabled ?? 1) === 1,
     lastRunAt: (row.last_run_at as string | null) ?? null,
     nextRunAt: (row.next_run_at as string | null) ?? null,
@@ -86,6 +87,7 @@ export class ReportScheduleService {
       dayOfMonth: input.dayOfMonth ?? existing?.dayOfMonth ?? 1,
       runAt: input.runAt !== undefined ? input.runAt : existing?.runAt ?? null,
       recipients: input.recipients?.trim() || existing?.recipients || '',
+      groupIds: input.groupIds ?? existing?.groupIds ?? [],
       enabled: input.enabled ?? existing?.enabled ?? true,
       lastRunAt: existing?.lastRunAt ?? null,
       nextRunAt: null,
@@ -103,6 +105,7 @@ export class ReportScheduleService {
       day_of_month: merged.dayOfMonth,
       run_at: merged.runAt,
       recipients: merged.recipients,
+      group_ids: JSON.stringify(merged.groupIds),
       enabled: merged.enabled ? 1 : 0,
       last_run_at: merged.lastRunAt,
       next_run_at: merged.nextRunAt,
@@ -139,7 +142,7 @@ export class ReportScheduleService {
       const due = this.list().filter((s) => s.enabled && s.nextRunAt && new Date(s.nextRunAt) <= now)
       for (const schedule of due) {
         try {
-          const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryId)
+          const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryId, schedule.groupIds)
           const emailConfig = this.emailService.getConfig()
           const parsedNotify = parseNotifyTarget(schedule.recipients)
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username

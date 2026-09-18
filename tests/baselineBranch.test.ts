@@ -13,7 +13,7 @@ function fakeStorage(rows: Array<Record<string, unknown>>): unknown {
   return {
     all: (query: string) => (query.includes('FROM branches') ? rows : []),
     get: (query: string) => {
-      if (query.includes('monitoring_rules')) return { stale_threshold_days: 180, grace_period_days: 60 }
+      if (query.includes('monitoring_rules')) return { stale_threshold_days: 180 }
       return undefined
     }
   }
@@ -49,10 +49,8 @@ function cachedBranch(overrides: Partial<BranchSummary>): BranchSummary {
     protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
     state: 'active',
     stale: false,
-    gracePeriodDays: 60,
     thresholdDays: 180,
     thresholdUnit: 'days',
-    graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],
     lastScannedAt: LONG_AGO,
@@ -84,7 +82,6 @@ describe('baseline branches stay out of lifecycle scoring', () => {
     const [main] = branchService([row(cachedBranch({ name: 'main', displayName: 'main', baseBranch: 'main' }))]).listBranches()
     expect(main.state).toBe('active')
     expect(main.stale).toBe(false)
-    expect(main.graceExpired).toBe(false)
     expect(main.cleanupCandidate).toBe(false)
   })
 
@@ -96,7 +93,7 @@ describe('baseline branches stay out of lifecycle scoring', () => {
 
   it('still marks an ordinary long-idle branch as stale so the fix does not mute real findings', () => {
     const [feature] = branchService([row(cachedBranch({}))]).listBranches()
-    expect(feature.state).toBe('grace_expired')
+    expect(feature.state).toBe('stale')
     expect(feature.stale).toBe(true)
     expect(feature.cleanupCandidate).toBe(true)
   })
@@ -177,7 +174,7 @@ describe('resolveRemoteCreator', () => {
 })
 
 describe('isBaselineBranch', () => {
-  it('treats main and develop as baseline branches so they never join stale or grace-period counting', () => {
+  it('treats main and develop as baseline branches so they never join stale counting', () => {
     expect(isBaselineBranch('main', 'main')).toBe(true)
     expect(isBaselineBranch('develop', 'main')).toBe(true)
     expect(isBaselineBranch('Main', 'main')).toBe(true)

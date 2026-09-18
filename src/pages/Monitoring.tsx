@@ -3,6 +3,7 @@ import { Activity, Bell, Mail, Play, Plus, Save, Scale, Timer, X } from 'lucide-
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
+import GroupScopePicker from '../components/GroupScopePicker'
 import type { MonitoringConfig, NotifyTarget, ThresholdRule } from '@shared/types'
 
 type ThresholdUnit = MonitoringConfig['staleThresholdUnit']
@@ -27,6 +28,7 @@ export default function Monitoring(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [ruleDraft, setRuleDraft] = useState<ThresholdRule>({ prefix: '', value: 90, unit: 'days' })
+  const [scopeGroupIds, setScopeGroupIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const suppressDraftSync = useRef(false)
 
@@ -94,7 +96,8 @@ export default function Monitoring(): JSX.Element {
         notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
         trigger: 'manual',
-        ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {})
+        ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {}),
+        ...(scopeGroupIds.length > 0 ? { groupIds: scopeGroupIds } : {})
       })
       toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
     } catch (err) {
@@ -136,7 +139,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创始人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交阈值的分支标记为已停更，符合清理条件时进入清理候选，并按下面的通知方式提醒你或分支创始人。
             </div>
             <div className="grid grid-cols-[1fr_5.5rem] gap-2">
               <div>
@@ -231,24 +234,6 @@ export default function Monitoring(): JSX.Element {
                 </button>
               </div>
             </div>
-            <div className="rounded-md border border-line bg-surface-elevated p-3 opacity-60">
-              <div className="grid grid-cols-[1fr_5.5rem] gap-2">
-                <div>
-                  <div className="label mb-1.5">提醒宽限期</div>
-                  <input type="number" className="input" value={draft.gracePeriodDays} disabled readOnly />
-                </div>
-                <div>
-                  <div className="label mb-1.5">单位</div>
-                  <select className="input" value={draft.gracePeriodUnit} disabled>
-                    <option value="weeks">周</option>
-                    <option value="days">天</option>
-                    <option value="hours">小时</option>
-                    <option value="minutes">分钟</option>
-                  </select>
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-muted">宽限期当前固定为上面显示的值，本页暂不提供调整入口。</p>
-            </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-sm text-canvas-fg"><Scale size={13} /> {tr('naming')}</div>
@@ -287,6 +272,12 @@ export default function Monitoring(): JSX.Element {
             <p className="text-xs text-muted">
               {emailDisabled || !draft.notificationEnabled ? tr('checkOnlyNoEmail') : tr('notifyTarget')}
             </p>
+            <GroupScopePicker
+              value={scopeGroupIds}
+              onChange={setScopeGroupIds}
+              groups={emailGroups}
+              emptyHint="不选则检查当前仓库范围内的全部分支。"
+            />
             <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>

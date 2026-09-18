@@ -119,6 +119,57 @@ export function branchesForGroup(group: Pick<EmailGroup, 'members' | 'recipients
   return branches.filter((branch) => branchBelongsToGroup(group, branch))
 }
 
+/**
+ * 多个组的并集分支，用于「只检查/只报告这些组」。
+ * 传入空组列表时返回原集合，调用方无需再判空。
+ */
+export function branchesForGroups(
+  groups: Array<Pick<EmailGroup, 'members' | 'recipients'>>,
+  branches: BranchSummary[]
+): BranchSummary[] {
+  if (groups.length === 0) return branches
+  return branches.filter((branch) => groups.some((group) => branchBelongsToGroup(group, branch)))
+}
+
+/** 按 id 从分组列表里解析出选中的组，未知 id 静默忽略（分组可能已被删除）。 */
+export function resolveGroupsById(groups: EmailGroup[], groupIds: string[] | null | undefined): EmailGroup[] {
+  if (!groupIds || groupIds.length === 0) return []
+  const wanted = new Set(groupIds.map((id) => String(id).trim()).filter(Boolean))
+  return groups.filter((group) => wanted.has(group.id))
+}
+
+/**
+ * 解析「分组范围」并收窄分支集合，供「只检查/只统计这些分组」的入口共用。
+ *
+ * - `groupIds` 为空：不限分组，返回原集合；
+ * - `groupIds` 里一个都解析不到（分组已被删除）：返回**空集合**并置 `missing`，
+ *   绝不能静默退回整仓范围，否则用户以为只查了某个组，结果整仓都被扫描和发信。
+ */
+export function resolveGroupScope(
+  groups: EmailGroup[],
+  groupIds: string[] | null | undefined,
+  branches: BranchSummary[]
+): { groups: EmailGroup[]; branches: BranchSummary[]; missing: boolean } {
+  const resolved = resolveGroupsById(groups, groupIds)
+  if (resolved.length > 0) {
+    return { groups: resolved, branches: branchesForGroups(resolved, branches), missing: false }
+  }
+  const missing = (groupIds?.length ?? 0) > 0
+  return { groups: [], branches: missing ? [] : branches, missing }
+}
+
+/** 存储里的 group_ids 是 JSON 数组文本，坏数据降级为空数组。 */
+export function parseGroupIds(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((id) => String(id)).filter(Boolean)
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.map((id) => String(id)).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
 /** 命中的组名列表，用于分支行/详情里标注「属于哪些组」。 */
 export function groupNamesForBranch(groups: EmailGroup[], branch: BranchSummary): string[] {
   return groups.filter((group) => branchBelongsToGroup(group, branch)).map((group) => group.name)
@@ -128,8 +179,6 @@ export interface GroupBranchStats {
   total: number
   active: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   namingInvalid: number
   cleanupCandidates: number
   /** 组内出现过的分支创始人，用于「这个组有哪些人」一目了然。 */
@@ -152,8 +201,6 @@ export function groupBranchStats(branches: BranchSummary[]): GroupBranchStats {
     total: branches.length,
     active: count((branch) => branch.state === 'active'),
     stale: count((branch) => branch.stale),
-    gracePeriod: count((branch) => branch.state === 'grace_period'),
-    graceExpired: count((branch) => branch.state === 'grace_expired'),
     namingInvalid: count((branch) => branch.naming.status === 'invalid'),
     cleanupCandidates: count((branch) => branch.cleanupCandidate),
     creators: creators.sort((a, b) => a.localeCompare(b))

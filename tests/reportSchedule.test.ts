@@ -13,6 +13,7 @@ function schedule(overrides: Partial<ReportSchedule> = {}): ReportSchedule {
     dayOfMonth: 1,
     runAt: null,
     recipients: '',
+    groupIds: [],
     enabled: true,
     lastRunAt: null,
     nextRunAt: null,

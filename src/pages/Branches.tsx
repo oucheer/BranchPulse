@@ -13,7 +13,7 @@ import { motion as motionToken, shadow } from '../design-system/tokens'
 import type { BranchSummary, EmailGroup } from '@shared/types'
 import { branchBelongsToGroup, branchMatchesCreatorOption, creatorOptionKey, creatorOptions } from '@shared/groups'
 
-type IssueFilter = '' | 'stale' | 'grace_period' | 'grace_expired' | 'invalid'
+type IssueFilter = '' | 'stale' | 'invalid'
 
 // The header row and every branch row share this exact column template, so the
 // values under 分支创始人 / 类别 / 未提交 / 健康分 line up instead of drifting with
@@ -24,8 +24,6 @@ const ROW_GRID =
 
 function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): boolean {
   if (issue === 'stale') return branch.stale
-  if (issue === 'grace_period') return branch.state === 'grace_period'
-  if (issue === 'grace_expired') return branch.state === 'grace_expired'
   return branch.naming.status === 'invalid'
 }
 
@@ -43,8 +41,6 @@ function branchCategory(name: string): { label: string; color: string } {
 
 function stateColor(state: string): string {
   if (state === 'active') return 'rgb(var(--ok))'
-  if (state === 'grace_period') return 'rgb(var(--warn))'
-  if (state === 'grace_expired') return 'rgb(var(--danger))'
   return 'rgb(var(--warn))'
 }
 
@@ -339,7 +335,7 @@ export default function Branches(): JSX.Element {
 
   const attention = useMemo(() =>
     filtered
-      .filter((b) => b.stale || b.naming.status === 'invalid' || b.state === 'grace_expired')
+      .filter((b) => b.stale || b.naming.status === 'invalid')
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 5),
     [filtered]
@@ -428,7 +424,7 @@ export default function Branches(): JSX.Element {
   }
 
   const notifyStaleDisabled = issueFilter === 'invalid'
-  const notifyInvalidDisabled = issueFilter === 'stale' || issueFilter === 'grace_period' || issueFilter === 'grace_expired'
+  const notifyInvalidDisabled = issueFilter === 'stale'
 
   const loadBranchDetails = async (branch: BranchSummary): Promise<void> => {
     setSelectedBranch(branch)
@@ -625,8 +621,6 @@ export default function Branches(): JSX.Element {
               >{zh ? '所有分支' : 'All branches'}</button>
               {([
                 { value: 'stale', label: zh ? '已停更' : 'Stale', tone: 'text-warn' },
-                { value: 'grace_period', label: zh ? '宽限期内' : 'In grace period', tone: 'text-warn' },
-                { value: 'grace_expired', label: zh ? '宽限期已过' : 'Grace expired', tone: 'text-danger' },
                 { value: 'invalid', label: zh ? '命名不规范' : 'Invalid name', tone: 'text-danger' }
               ] as const).map((item) => {
                 const active = issueFilter === item.value
@@ -714,7 +708,7 @@ export default function Branches(): JSX.Element {
                 onClick={() => setSelectedBranch(b)}
                 className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
               >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.stale ? 'bg-warn' : 'bg-danger'}`} />
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                 <span className="shrink-0 text-xs tabular-nums text-muted">{b.inactiveDays}d</span>
                 <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>

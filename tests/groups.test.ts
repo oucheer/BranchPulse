@@ -43,10 +43,8 @@ function branch(overrides: Partial<BranchSummary> & { name?: string } = {}): Bra
     protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
     state: 'active',
     stale: false,
-    gracePeriodDays: 60,
     thresholdDays: 180,
     thresholdUnit: 'days',
-    graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],
     lastScannedAt: '2026-01-01T00:00:00.000Z',
@@ -139,14 +137,12 @@ describe('group branch stats', () => {
   it('counts lifecycle buckets and lists the creators it saw', () => {
     const stats = groupBranchStats([
       branch({ name: 'feature/a' }),
-      branch({ name: 'feature/b', state: 'grace_period', stale: true, inactiveDays: 200 }),
-      branch({ name: 'feature/c', state: 'grace_expired', stale: true, naming: { status: 'invalid' }, cleanupCandidate: true, creator: { name: '李四', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } })
+      branch({ name: 'feature/b', state: 'stale', stale: true, inactiveDays: 200 }),
+      branch({ name: 'feature/c', state: 'stale', stale: true, naming: { status: 'invalid' }, cleanupCandidate: true, creator: { name: '李四', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } })
     ])
     expect(stats.total).toBe(3)
     expect(stats.active).toBe(1)
     expect(stats.stale).toBe(2)
-    expect(stats.gracePeriod).toBe(1)
-    expect(stats.graceExpired).toBe(1)
     expect(stats.namingInvalid).toBe(1)
     expect(stats.cleanupCandidates).toBe(1)
     // 按本地化排序（中文按拼音：李 < 张），不是插入顺序。

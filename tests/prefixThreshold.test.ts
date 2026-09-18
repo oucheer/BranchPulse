@@ -18,8 +18,6 @@ function monitoring(overrides: Partial<MonitoringConfig> = {}): MonitoringConfig
     enabled: true,
     staleThresholdDays: 180,
     staleThresholdUnit: 'days',
-    gracePeriodDays: 60,
-    gracePeriodUnit: 'days',
     thresholdRules: [],
     fetchEnabled: true,
     namingEnabled: true,
@@ -106,9 +104,7 @@ function fakeStorage(rules: string, rows: Array<Record<string, unknown>>): unkno
       query.includes('monitoring_rules')
         ? {
             stale_threshold_days: 180,
-            grace_period_days: 60,
             stale_threshold_unit: 'days',
-            grace_period_unit: 'days',
             threshold_rules: rules
           }
         : undefined
@@ -146,10 +142,8 @@ function cachedBranch(overrides: Partial<BranchSummary>): BranchSummary {
     protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
     state: 'active',
     stale: false,
-    gracePeriodDays: 60,
     thresholdDays: 180,
     thresholdUnit: 'days',
-    graceExpired: false,
     cleanupCandidate: false,
     recentCommits: [],
     lastScannedAt: daysAgo(0),
@@ -202,7 +196,7 @@ describe('prefix thresholds drive the lifecycle state', () => {
     const rules = serializeThresholdRules([{ prefix: 'bugfix/', value: 30, unit: 'days' }])
     const branch = listWith(rules, idle('bugfix/crash', 45))
     expect(branch.stale).toBe(true)
-    expect(branch.state).toBe('grace_period')
+    expect(branch.state).toBe('stale')
     expect(branch.thresholdDays).toBe(30)
   })
 

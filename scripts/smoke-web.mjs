@@ -40,7 +40,7 @@ const ROUTES = [
 ]
 
 /** Terms that must never reach user-visible copy. */
-const BANNED_TERMS = ['已合并', '过期', '到期', '陈旧']
+const BANNED_TERMS = ['已合并', '过期', '到期', '陈旧', '宽限期']
 
 /**
  * The in-page folder picker must list its directory exactly once when it opens.

@@ -43,8 +43,6 @@ function groupSummary(group: EmailGroup, members: BranchSummary[]): string {
     '分支 ' + stats.total + ' 个',
     '活跃 ' + stats.active,
     '已停更 ' + stats.stale,
-    '宽限期内 ' + stats.gracePeriod,
-    '宽限期已过 ' + stats.graceExpired,
     '命名不规范 ' + stats.namingInvalid
   ].join(' · ')
 }

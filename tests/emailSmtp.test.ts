@@ -152,7 +152,7 @@ describe('sending through the configured mailbox', () => {
   it('refuses to send a summary while email is disabled', async () => {
     const { service: svc } = service({ enabled: 0 })
     const result = await svc.sendSummaryEmail({
-      total: 0, stale: 0, gracePeriod: 0, graceExpired: 0, namingInvalid: 0, merged: 0,
+      total: 0, stale: 0, namingInvalid: 0, merged: 0,
       cleanupCandidates: 0, repositories: 0, generatedAt: new Date().toISOString(), branches: []
     })
     expect(result.ok).toBe(false)
@@ -162,8 +162,8 @@ describe('sending through the configured mailbox', () => {
   it('reuses one transport for a whole creator batch and skips invalid addresses', async () => {
     const { service: svc } = service()
     const rows = [
-      { repository: 'demo', branch: 'feature/a', creator: '张三', creatorEmail: 'zhang@example.com', lastCommitDate: '-', inactiveDays: 90, gracePeriod: 60, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' },
-      { repository: 'demo', branch: 'feature/b', creator: '李四', creatorEmail: '', lastCommitDate: '-', inactiveDays: 90, gracePeriod: 60, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' }
+      { repository: 'demo', branch: 'feature/a', creator: '张三', creatorEmail: 'zhang@example.com', lastCommitDate: '-', inactiveDays: 90, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' },
+      { repository: 'demo', branch: 'feature/b', creator: '李四', creatorEmail: '', lastCommitDate: '-', inactiveDays: 90, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' }
     ]
     const result = await svc.sendCreatorEmails(rows)
     expect(result.ok).toBe(true)

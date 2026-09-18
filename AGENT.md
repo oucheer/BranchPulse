@@ -17,14 +17,14 @@
 - 渲染层不得依赖 Electron 专属 API。历史上桌面版需要 `sandbox: false`，迁移到 Web 后这层约束已不存在：所有能力都必须经由 `window.gitmanager` 桥接（`src/lib/bridge.ts` 走 HTTP/SSE），页面里不允许直接 `import electron` 或读取 `process.*`。
 - 默认语言使用中文 `zh`，但用户已有显式语言设置不能被强制覆盖。
 - Dark 模式的次要文本必须保持可读；调整颜色时优先检查仪表盘、列表和详情页。
-- 全局中文生命周期术语只使用：`活跃`、`已停更`、`宽限期内`、`宽限期已过`、`未提交天数`、`命名不规范`、`清理候选`。
+- 全局中文生命周期术语只使用：`活跃`、`已停更`、`未提交天数`、`命名不规范`、`清理候选`。
 - 用户可见文案中禁止混用 `过期`、`到期`、`陈旧`、`宽限期` 作为状态名，以及 `已合并`、`合并`。底层 `merged` 字段可以保留用于数据兼容，但不能作为用户筛选或状态展示。
-- 分支筛选统一为问题维度：`所有分支`、`已停更`、`宽限期内`、`宽限期已过`、`命名不规范`。不要恢复独立的“所有状态/所有问题”双下拉，不要显示 `已合并`。
-- 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选停更或宽限期状态时禁用命名不规范创始人通知。
-- 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天，宽限期为 60 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
+- 分支筛选统一为问题维度：`所有分支`、`已停更`、`命名不规范`。不要恢复独立的“所有状态/所有问题”双下拉，不要显示 `已合并`。
+- 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选已停更时禁用命名不规范创始人通知。
+- 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
 - 未提交阈值支持**按分支前缀覆盖**：`MonitoringConfig.thresholdRules`（`{ prefix, value, unit }[]`，存在 `monitoring_rules.threshold_rules` / `monitoring_rules_repo.threshold_rules` 的 JSON 文本里）。解析与序列化只有 `src-node/services/branch.ts` 的 `parseThresholdRules()` / `serializeThresholdRules()` 两个出口，匹配规则只有 `effectiveThreshold()` 一个实现，**必须**同时被 `buildFromFacts()` 与 `refreshComputed()` 调用；前缀最长（最具体）者优先，未命中任何规则时回落到全局阈值。新增/修改阈值语义时必须同步改 `fingerprint()`（已含 `thresholdRuleFingerprint()`），否则旧缓存会继续用旧阈值判定。分支实际生效的阈值写进 `BranchSummary.thresholdDays` / `thresholdUnit`，邮件阈值提示由 `MonitoringService.thresholdHint()` 输出。
-- 监控页的「提醒宽限期」已按用户要求灰掉：数值与单位输入框 `disabled`，并标注“本页暂不提供调整入口”。底层 `gracePeriodDays` / `gracePeriodUnit` 字段与生命周期判定（`grace_period` / `grace_expired`）**保留不动**，不要顺手删除，也不要恢复可编辑入口，除非用户明确要求。
-- 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不计宽限期、不进清理候选、不进"需要关注"列表。豁免必须落在 `src-node/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
+- **宽限期功能已整体移除（2026-09），不要重新引入。** `BranchState` 只有 `active` / `stale`；`storage.migrate()` 负责把旧库里的 `gracePeriodDays` / `gracePeriodUnit` / `grace_period` / `grace_expired` 清干净：`monitoring_rules*`、`scan_runs*` 的遗留列走 `dropColumn()`，`email_templates` 里 `kind IN ('grace_period','grace_expired')` 的种子模板行走 DELETE（`seed()` 只在表为空时插入，不清就永远留着）。`notification_history` 的历史 type 不迁移，展示时由 `Notifications.tsx` 统一折算成「已停更」。
+- 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不进清理候选、不进"需要关注"列表。豁免必须落在 `src-node/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
 - 应用**不提供任何删除远程分支的能力**（2026-09 移除）。`shared/rpc.ts` 不再暴露 `beginDelete` / `deleteBranch` / `batchDelete`，`DeletionPolicyEngine` 与 `src-node/services/deletion.ts` 已删除，`git.ts` 不再有 `deleteRemoteBranch()` / `deleteLocalBranch()`，监控与巡检只做只读检查。不要重新引入删除按钮、删除策略、`autoDeleteEnabled`、`deletionDisabled` 或任何 `deleted` 运行计数，也不要按“清理候选”自动删分支；「清理候选」只是提示，处置动作由人工在 Git 平台完成。「删除全部定时任务」是调度页的合法功能，不受此约束。
 - 用户说"某个分支不该出现在某某列表"时，先查状态字段（`stale` / `state` / `cleanupCandidate`）的产生位置，再查消费位置。只改页面过滤会留下缓存、邮件和报告三条漏网路径。
 - 监控页不要单独出现“发送邮件通知”开关。是否通知由“通知自己”“通知分支创始人”等对象开关决定。立即检查必须使用当前表单配置，结束后不能用数据库旧配置回灌表单。
@@ -32,6 +32,7 @@
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
 - **分支组（组名 + 组员）**是全局配置，存在 `email_groups` 表（新增 `members_json` 列存 `{ name, email }[]`，见 `shared/types.ts` 的 `EmailGroupMember`）。归属规则只有一个口径：**分支的分支创始人（人名或邮箱）命中组员即为该组的分支**，实现集中在 `shared/groups.ts` 的 `branchBelongsToGroup()`，前后端必须共用这一份，不要在页面或服务里另写一套 filter。匹配是忽略大小写的精确匹配，**不做模糊匹配**（否则「张三」会命中「张三丰」）。
 - 组名作为收件人 token 时的语义是「**只把这个组自己的分支情况发给组员**」，**不是**「把整仓汇总也发给这些人」。`partitionRecipientTokens()`（`shared/groups.ts`）负责把收件人输入拆成「命中的组 + 其余普通收件人」，`MonitoringService.sendSummaryWithGroups()` 与 `ReportScheduleService.tick()` 都必须走它；若把组名直接丢给 `resolveRecipients()`，组员会同时收到整仓汇总和分组邮件两封。只有普通收件人（或 `self`）时才发整仓汇总。
+- 「**分组范围**」是另一个独立概念：监控立即检查（`RunCheckOptions.groupIds`）、定时任务（`scheduler_jobs.group_ids`）、报告（`reports.group_ids`）与定时报告（`report_schedules.group_ids`）都可以只针对某些组做检查或统计，**空数组表示不限分组**。收窄逻辑只有 `shared/groups.ts` 的 `resolveGroupScope()` 一个出口，前端选择器是 `src/components/GroupScopePicker.tsx`。选中的组**全部**已被删除时必须收窄成空集合合并记录失败（`report_group_scope_missing`），绝不能静默退回整仓——否则用户以为只查了某个组，实际整仓都被扫描并发信。
 - 组的导出走 `GroupService.exportBranches()`（`src-node/services/groups.ts`），报告格式同样只用 `HTML` / `CSV`，CSV 额外带 `group` 与 `creator_email` 列，落盘到报告目录并写入 `reports` 表，因此在报告页可见可下载。组相关 RPC 是 `exportGroupBranches` / `emailGroupBranches`，新增或改名时两边都要改（`shared/rpc.ts` + `src-node/api.ts` 的 `GitManagerApi`，`tests/rpcContract.test.ts` 会编译期校验）。
 - 设置页必须保留「配置导入 / 导出」（`src-node/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
@@ -103,7 +104,7 @@
 - UI 截图中看不出交互逻辑，分支筛选、批量通知、立即检查和报告导出必须实际触发到状态变化或文件落盘才算通过。
 - 无头浏览器（`--headless=new`）下 `Page.captureScreenshot` 可能永远不返回（没有合成帧），表现为脚本挂起而不是报错。无头冒烟一律改用 `Runtime.evaluate` 抓 DOM 文案；需要看图时另开可见窗口 + 系统级截图。
 - 全局文字颜色集中在 `src/styles/index.css` 的 `--fg` 与 `--muted` 两个 token，页面文本几乎都经由 `text-muted`、`text-canvas-fg`、`.btn`、`.input` 派生。调暗色模式亮度只改这两个变量，并确认 `html.light` 有对应覆盖，避免连带改坏亮色主题。
-- 报告 HTML 属于用户可见产物，不能直接输出底层英文枚举（`active` / `grace_period` / `valid`）。`src-node/services/report.ts` 用 `reportStateLabel` / `reportNamingLabel` 做映射，新增状态枚举时同步补齐。
+- 报告 HTML 属于用户可见产物，不能直接输出底层英文枚举（`active` / `stale` / `valid`）。`src-node/services/report.ts` 用 `reportStateLabel` / `reportNamingLabel` 做映射，新增状态枚举时同步补齐。
 - 创始人邮件的表格必须带仓库列，且正文要点明仓库名：同一创始人可能横跨多个远程仓库，只给分支名等于没告诉对方是哪个仓。期限提示统一由 `processingDeadlineNotice()` 输出，改文案只需改这一处。
 - 附件 HTML 报告（`buildBranchEmailHtml`）的三个明细列表按仓库分组渲染：组标题条（`仓库：xxx`）在最前面，表内不再保留「仓库」列。分组逻辑集中在 `groupedTables()`，新增列表复用它，不要退回逐行仓库列。创始人邮件正文表格（`scenarioRowsTable`）仍保留仓库列，两者是不同载体，不要互相「统一」掉。
 - 附件 HTML 里的分支名可能很长（`feature/...`），必须用 `table-layout:fixed` + `<colgroup>` 固定列宽 + `word-break:break-all`，否则表格会横向撑出外层白色卡片。渲染分支名的单元格统一走 `branchCell()`。

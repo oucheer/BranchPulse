@@ -53,6 +53,7 @@ describe('report schedule timing', () => {
     dayOfMonth: 1,
     runAt: null,
     recipients: '',
+    groupIds: [],
     enabled: true,
     lastRunAt: null,
     nextRunAt: null,

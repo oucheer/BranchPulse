@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BranchSummary, ReportRecord, ReportSummary, ScanRun } from '@shared/types'
+import { parseGroupIds, resolveGroupScope } from '@shared/groups'
 import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
+import type { GroupService } from './groups'
 import type { EmailSummaryData } from './email'
 import { buildBranchEmailHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
@@ -23,9 +25,7 @@ function safeJson<T>(value: unknown, fallback: T): T {
 /** 报告是用户可见产物，状态与命名结果必须使用全局统一的中文术语，不能输出底层英文枚举。 */
 const REPORT_STATE_LABELS: Record<string, string> = {
   active: '活跃',
-  stale: '已停更',
-  grace_period: '宽限期内',
-  grace_expired: '宽限期已过'
+  stale: '已停更'
 }
 
 const REPORT_NAMING_LABELS: Record<string, string> = {
@@ -47,7 +47,8 @@ export class ReportService {
     private readonly storage: StorageService,
     private readonly branchService: BranchService,
     private readonly repositoryService: RepositoryService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly groups?: GroupService
   ) {}
 
   listReports(): ReportRecord[] {
@@ -56,6 +57,7 @@ export class ReportService {
       id: String(r.id),
       title: String(r.title ?? 'GitManager Report'),
       repositoryId: (r.repository_id as string | null) ?? null,
+      groupIds: parseGroupIds(r.group_ids),
       generatedAt: String(r.generated_at),
       period: String(r.period ?? ''),
       format: String(r.format ?? 'html'),
@@ -82,8 +84,6 @@ export class ReportService {
       compliancePercent: Math.round(((valid + excluded) / total) * 100),
       active: count((b) => b.state === 'active'),
       stale: count((b) => b.stale),
-      gracePeriod: count((b) => b.state === 'grace_period'),
-      graceExpired: count((b) => b.state === 'grace_expired'),
       merged: count((b) => b.merged),
       namingViolations: invalid,
       cleanupCandidates: count((b) => b.cleanupCandidate),
@@ -96,13 +96,11 @@ export class ReportService {
 
   getSummaryEmailData(repositoryId?: string | null): EmailSummaryData {
     const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
-    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
+    const branches = this.scopeBranches(resolvedRepositoryId).branches
     const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
     return {
       total: branches.length,
       stale: count((branch) => branch.stale),
-      gracePeriod: count((branch) => branch.state === 'grace_period'),
-      graceExpired: count((branch) => branch.state === 'grace_expired'),
       namingInvalid: count((branch) => branch.naming.status === 'invalid'),
       merged: count((branch) => branch.merged),
       cleanupCandidates: count((branch) => branch.cleanupCandidate),
@@ -125,8 +123,6 @@ export class ReportService {
       branches: Number(r.branches ?? 0),
       active: Number(r.active ?? 0),
       stale: Number(r.stale ?? 0),
-      gracePeriod: Number(r.grace_period ?? 0),
-      graceExpired: Number(r.grace_expired ?? 0),
       merged: Number(r.merged ?? 0),
       namingInvalid: Number(r.naming_invalid ?? 0),
       cleanupCandidates: Number(r.cleanup_candidates ?? 0),
@@ -149,14 +145,26 @@ export class ReportService {
     }))
   }
 
-  async generateReport(period: string, format = 'html', repositoryId?: string | null): Promise<ReportRecord> {
+  /**
+   * 生成报告。`groupIds` 非空时只统计这些分组（按分支创始人命中组员）覆盖的分支，
+   * 这样定时报告可以只覆盖某个组，而不是把整仓数据发给它。
+   */
+  async generateReport(period: string, format = 'html', repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord> {
     const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
     const repos = this.repositoryService.list().filter((repo) => !resolvedRepositoryId || repo.id === resolvedRepositoryId)
-    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
-    const summary = this.buildSummary(branches, repos.length)
+    const scope = this.scopeBranches(resolvedRepositoryId, groupIds)
+    const { groups: scopeGroups, branches } = scope
+    if (scope.missing) {
+      this.audit.record('report_group_scope_missing', { groups: groupIds }, 'failure')
+    }
+    const repositoryCount = scopeGroups.length
+      ? repos.filter((repo) => branches.some((branch) => branch.repositoryId === repo.id)).length
+      : repos.length
+    const summary = this.buildSummary(branches, repositoryCount)
     const runs = this.recentRuns(resolvedRepositoryId)
     const notifications = this.notifications(resolvedRepositoryId)
-    const title = `Git Branch Health Report (${period})`
+    const scopeLabel = scopeGroups.length ? ` · 分组：${scopeGroups.map((group) => group.name).join('、')}` : ''
+    const title = `Git Branch Health Report (${period}${scopeLabel})`
     const generatedAt = new Date().toISOString()
     const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
@@ -168,6 +176,7 @@ export class ReportService {
       id: newId(),
       title,
       repositoryId: resolvedRepositoryId,
+      groupIds: scopeGroups.map((group) => group.id),
       generatedAt,
       period,
       format: safeFormat,
@@ -178,20 +187,32 @@ export class ReportService {
       id: record.id,
       title,
       repository_id: resolvedRepositoryId,
+      group_ids: JSON.stringify(record.groupIds),
       generated_at: generatedAt,
       period,
       format: safeFormat,
       path: filePath,
       summary_json: JSON.stringify(summary)
     })
-    this.audit.record('report_generated', { period, format: safeFormat, branches: summary.totalBranches })
+    this.audit.record('report_generated', {
+      period,
+      format: safeFormat,
+      branches: summary.totalBranches,
+      ...(record.groupIds.length ? { groups: record.groupIds } : {})
+    })
     return record
   }
 
   async exportReport(id: string, format: string): Promise<ReportRecord> {
     const report = this.listReports().find((r) => r.id === id)
     if (!report) throw new Error('Report not found.')
-    return this.generateReport(report.period, format, report.repositoryId)
+    return this.generateReport(report.period, format, report.repositoryId, report.groupIds)
+  }
+
+  /** 按仓库 + 分组收窄分支集合；`groupIds` 为空表示不按分组限制。 */
+  private scopeBranches(repositoryId: string | null, groupIds?: string[]): ReturnType<typeof resolveGroupScope> {
+    const branches = this.branchService.listBranches().filter((branch) => !repositoryId || branch.repositoryId === repositoryId)
+    return resolveGroupScope(this.groups?.list() ?? [], groupIds, branches)
   }
 
   deleteReport(id: string): ReportRecord[] {
@@ -258,8 +279,6 @@ export class ReportService {
     const data: EmailSummaryData = {
       total: summary.totalBranches,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       namingInvalid: summary.namingViolations,
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,
@@ -284,8 +303,6 @@ export class ReportService {
       ['分支总数', summary.totalBranches],
       ['活跃分支', summary.active],
       ['已停更分支', summary.stale],
-      ['宽限期内', summary.gracePeriod],
-      ['宽限期已过', summary.graceExpired],
       ['命名不规范', summary.namingViolations],
       ['清理候选', summary.cleanupCandidates]
     ]
@@ -309,8 +326,6 @@ export class ReportService {
     const chartItems = [
       { label: '活跃', value: summary.active, color: '#16a34a' },
       { label: '已停更', value: summary.stale, color: '#f59e0b' },
-      { label: '宽限期内', value: summary.gracePeriod, color: '#f97316' },
-      { label: '宽限期已过', value: summary.graceExpired, color: '#dc2626' },
       { label: '命名不规范', value: summary.namingViolations, color: '#7c5cfc' },
       { label: '清理候选', value: summary.cleanupCandidates, color: '#e11d48' }
     ]
@@ -347,7 +362,7 @@ export class ReportService {
       .map((run, index) => `${24 + index * Math.max(1, 512 / Math.max(1, trendData.length - 1))},${164 - (run.branches / trendMax) * 136}`)
       .join(' ')
     const riskBranches = branches
-      .filter((b) => b.stale || b.graceExpired || b.cleanupCandidate)
+      .filter((b) => b.stale || b.cleanupCandidate)
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 120)
     const riskRows = riskBranches.length ? riskBranches.map((b) => `
@@ -439,8 +454,6 @@ function emptySummary(): ReportSummary {
     compliancePercent: 0,
     active: 0,
     stale: 0,
-    gracePeriod: 0,
-    graceExpired: 0,
     merged: 0,
     namingViolations: 0,
     cleanupCandidates: 0,

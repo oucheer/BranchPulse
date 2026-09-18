@@ -4,6 +4,7 @@ import type { MonitoringService } from './monitoring'
 import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 import { logger } from '../utils/logger'
+import { parseGroupIds } from '@shared/groups'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -29,6 +30,7 @@ function rowToJob(row: Record<string, unknown>): SchedulerJob {
     emailPolicy: ((row.email_policy as SchedulerJob['emailPolicy']) ?? 'none'),
     fetchEnabled: Number(row.fetch_enabled ?? 1) === 1,
     notifyTarget: ((row.notify_target as SchedulerJob['notifyTarget']) ?? 'self'),
+    groupIds: parseGroupIds(row.group_ids),
     lastRunAt: (row.last_run_at as string | null) ?? null,
     nextRunAt: (row.next_run_at as string | null) ?? null,
     createdAt: String(row.created_at)
@@ -91,6 +93,7 @@ export class SchedulerService {
       emailPolicy: job.emailPolicy ?? existing?.emailPolicy ?? 'none',
       fetchEnabled: job.fetchEnabled ?? existing?.fetchEnabled ?? true,
       notifyTarget: job.notifyTarget ?? existing?.notifyTarget ?? 'self',
+      groupIds: job.groupIds ?? existing?.groupIds ?? [],
       lastRunAt: existing?.lastRunAt ?? null,
       nextRunAt: existing?.nextRunAt ?? null,
       createdAt: existing?.createdAt ?? new Date().toISOString()
@@ -115,6 +118,7 @@ export class SchedulerService {
           fetch_enabled: merged.fetchEnabled ? 1 : 0,
           repository_id: merged.repositoryId ?? null,
           notify_target: merged.notifyTarget,
+          group_ids: JSON.stringify(merged.groupIds),
           last_run_at: merged.lastRunAt,
           next_run_at: merged.nextRunAt
         },
@@ -137,6 +141,7 @@ export class SchedulerService {
         email_policy: merged.emailPolicy,
         fetch_enabled: merged.fetchEnabled ? 1 : 0,
         notify_target: merged.notifyTarget,
+        group_ids: JSON.stringify(merged.groupIds),
         last_run_at: merged.lastRunAt,
         next_run_at: merged.nextRunAt,
         created_at: merged.createdAt
@@ -192,7 +197,8 @@ export class SchedulerService {
       fetch: job.fetchEnabled,
       emailPolicy: job.emailPolicy,
       notifyTarget: job.notifyTarget,
-      ...(job.repositoryId ? { repositoryIds: [job.repositoryId] } : {})
+      ...(job.repositoryId ? { repositoryIds: [job.repositoryId] } : {}),
+      ...(job.groupIds.length > 0 ? { groupIds: job.groupIds } : {})
     })
     this.storage.update(
       'scheduler_jobs',
@@ -203,7 +209,12 @@ export class SchedulerService {
       'id = ?',
       [id]
     )
-    this.audit.record('scheduler_job_ran', { id: job.id, name: job.name, run: run.id })
+    this.audit.record('scheduler_job_ran', {
+      id: job.id,
+      name: job.name,
+      run: run.id,
+      ...(job.groupIds.length > 0 ? { groups: job.groupIds } : {})
+    })
     return run
   }
 

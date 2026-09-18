@@ -19,6 +19,7 @@ function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
     emailPolicy: 'none',
     fetchEnabled: true,
     notifyTarget: 'self',
+    groupIds: [],
     lastRunAt: null,
     nextRunAt: null,
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -41,6 +42,7 @@ function jobRow(job: SchedulerJob): Record<string, unknown> {
     email_policy: job.emailPolicy,
     fetch_enabled: job.fetchEnabled ? 1 : 0,
     notify_target: job.notifyTarget,
+    group_ids: JSON.stringify(job.groupIds),
     last_run_at: job.lastRunAt,
     next_run_at: job.nextRunAt,
     created_at: job.createdAt
@@ -58,8 +60,6 @@ function sampleRun(): ScanRun {
     branches: 4,
     active: 2,
     stale: 1,
-    gracePeriod: 0,
-    graceExpired: 1,
     merged: 1,
     namingInvalid: 1,
     cleanupCandidates: 1,
@@ -99,6 +99,27 @@ describe('SchedulerService never deletes branches', () => {
     expect(storage.delete).not.toHaveBeenCalled()
     expect(storage.update).toHaveBeenCalledTimes(1)
     expect(audit.record).toHaveBeenCalledWith('scheduler_job_ran', expect.objectContaining({ id: 'job-1' }))
+  })
+
+  it('passes the job group scope to the check so other groups are not scanned', async () => {
+    const job = sampleJob({ groupIds: ['group-2', 'group-3'] })
+    const storage = {
+      all: vi.fn().mockReturnValue([jobRow(job)]),
+      get: vi.fn().mockReturnValue(undefined),
+      update: vi.fn(),
+      insert: vi.fn(),
+      delete: vi.fn()
+    } as unknown as StorageService
+    const monitoring = {
+      runCheckNow: vi.fn().mockResolvedValue(sampleRun())
+    } as unknown as MonitoringService
+    const audit = { record: vi.fn() } as unknown as AuditService
+
+    await new SchedulerService(storage, monitoring, audit).runSchedulerJob('job-1')
+
+    expect(monitoring.runCheckNow).toHaveBeenCalledWith(expect.objectContaining({
+      groupIds: ['group-2', 'group-3']
+    }))
   })
 
   it('exposes no branch deletion path on scheduler or monitoring contracts', () => {

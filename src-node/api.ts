@@ -145,7 +145,7 @@ export interface GitManagerApi {
   sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
   listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
+  generateReport(period: string, format?: string, repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord>
   exportReport(id: string, format: string): Promise<ReportRecord>
   deleteReport(id: string): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
@@ -198,8 +198,6 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
     branches: Number(row.branches ?? 0),
     active: Number(row.active ?? 0),
     stale: Number(row.stale ?? 0),
-    gracePeriod: Number(row.grace_period ?? 0),
-    graceExpired: Number(row.grace_expired ?? 0),
     merged: Number(row.merged ?? 0),
     namingInvalid: Number(row.naming_invalid ?? 0),
     cleanupCandidates: Number(row.cleanup_candidates ?? 0),
@@ -257,9 +255,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     return {
       enabled: Number(row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
-      gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
-      gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
       thresholdRules: parseThresholdRules(row?.threshold_rules),
       fetchEnabled: Number(row?.fetch_enabled ?? 1) === 1,
       namingEnabled: Number(row?.naming_enabled ?? 1) === 1,
@@ -273,9 +269,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     const values = {
       enabled: config.enabled ? 1 : 0,
       stale_threshold_days: config.staleThresholdDays,
-      grace_period_days: config.gracePeriodDays,
       stale_threshold_unit: config.staleThresholdUnit,
-      grace_period_unit: config.gracePeriodUnit,
       threshold_rules: serializeThresholdRules(config.thresholdRules),
       fetch_enabled: config.fetchEnabled ? 1 : 0,
       naming_enabled: config.namingEnabled ? 1 : 0,
@@ -297,9 +291,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       repositoryId: repositoryId ?? null,
       enabled: config.enabled,
       staleThresholdDays: config.staleThresholdDays,
-      gracePeriodDays: config.gracePeriodDays,
       staleThresholdUnit: config.staleThresholdUnit,
-      gracePeriodUnit: config.gracePeriodUnit,
       thresholdRules: config.thresholdRules ?? []
     })
     return getMonitoring(repositoryId)
@@ -500,7 +492,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     sendTestEmail: (config) => email.sendTestEmail(config),
 
     listReports: async () => report.listReports(),
-    generateReport: (period, format, repositoryId) => report.generateReport(period, format, repositoryId),
+    generateReport: (period, format, repositoryId, groupIds) => report.generateReport(period, format, repositoryId, groupIds),
     exportReport: (id, format) => report.exportReport(id, format),
     deleteReport: async (id) => report.deleteReport(id),
     openReportFolder: () => report.openReportFolder(),

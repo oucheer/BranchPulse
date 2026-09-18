@@ -20,7 +20,6 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-09-08 16:24',
       lastCommitAt: '2026-09-08T16:24:00Z',
       inactiveDays: 1,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 92,
@@ -35,7 +34,6 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-08-06 10:38',
       lastCommitAt: '2026-08-06T10:38:00Z',
       inactiveDays: 34,
-      gracePeriod: 7,
       namingStatus: 'invalid',
       namingRuleName: 'feature/*',
       namingReason: reason,
@@ -52,7 +50,6 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-08-12 18:05',
       lastCommitAt: '2026-08-12T18:05:00Z',
       inactiveDays: 28,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 58,
@@ -67,11 +64,10 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-08-26 09:12',
       lastCommitAt: '2026-08-26T09:12:00Z',
       inactiveDays: 14,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 75,
-      state: 'grace_period',
+      state: 'stale',
       cleanupCandidate: false
     },
     {
@@ -82,11 +78,10 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-07-18 20:47',
       lastCommitAt: '2026-07-18T20:47:00Z',
       inactiveDays: 53,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 42,
-      state: 'grace_expired',
+      state: 'stale',
       cleanupCandidate: true
     },
     {
@@ -97,7 +92,6 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-09-01 11:30',
       lastCommitAt: '2026-09-01T11:30:00Z',
       inactiveDays: 8,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: merged,
       healthScore: 88,
@@ -112,7 +106,6 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-09-07 14:10',
       lastCommitAt: '2026-09-07T14:10:00Z',
       inactiveDays: 2,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 95,
@@ -127,11 +120,10 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-08-29 17:55',
       lastCommitAt: '2026-08-29T17:55:00Z',
       inactiveDays: 11,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 80,
-      state: 'grace_period',
+      state: 'stale',
       cleanupCandidate: false
     },
     {
@@ -143,11 +135,10 @@ function rows(lang: PreviewLang): EmailIssueRow[] {
       lastCommitDate: '2026-07-02 08:20',
       lastCommitAt: '2026-07-02T08:20:00Z',
       inactiveDays: 74,
-      gracePeriod: 7,
       namingStatus: 'valid',
       mergeStatus: notMerged,
       healthScore: 38,
-      state: 'grace_expired',
+      state: 'stale',
       cleanupCandidate: true
     }
   ]
@@ -158,8 +149,6 @@ function summaryData(lang: PreviewLang): EmailSummaryData {
   return {
     total: branchRows.length,
     stale: branchRows.filter((row) => row.state === 'stale').length,
-    gracePeriod: branchRows.filter((row) => row.state === 'grace_period').length,
-    graceExpired: branchRows.filter((row) => row.state === 'grace_expired').length,
     namingInvalid: branchRows.filter((row) => row.namingStatus === 'invalid').length,
     merged: 1,
     cleanupCandidates: branchRows.filter((row) => row.cleanupCandidate).length,

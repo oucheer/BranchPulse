@@ -272,7 +272,6 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
     worst: branches.length ? Math.min(...branches.map((b) => b.health.score)) : 0,
     active: branches.filter((b) => b.state === 'active').length,
     stale: branches.filter((b) => b.stale).length,
-    expired: branches.filter((b) => b.state === 'grace_expired').length,
     invalid: branches.filter((b) => b.naming.status === 'invalid').length,
     total: branches.length
   }), [branches, current])
@@ -281,9 +280,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
       const risk = clampScore(100 - branch.health.score)
       const categories = [
         branch.state === 'active' ? 'active' : null,
-        // 已停更是大类，包含已进入宽限期的分支。
         branch.stale ? 'stale' : null,
-        branch.state === 'grace_expired' ? 'expired' : null,
         branch.naming.status === 'invalid' ? 'naming' : null
       ].filter(Boolean) as string[]
       return {
@@ -330,7 +327,6 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
     { label: zh ? '分支总数' : 'Branches', value: snapshot.total, tone: 'rgb(var(--info))', key: 'total' },
     { label: zh ? '活跃' : 'Active', value: snapshot.active, tone: 'rgb(var(--ok))', key: 'active' },
     { label: zh ? '已停更' : 'Stale', value: snapshot.stale, tone: 'rgb(var(--warn))', key: 'stale' },
-    { label: zh ? '宽限期已过' : 'Expired', value: snapshot.expired, tone: 'rgb(var(--danger))', key: 'expired' },
     { label: zh ? '命名不规范' : 'Naming', value: snapshot.invalid, tone: 'rgb(var(--danger))', key: 'naming' }
   ]
   return (
@@ -343,7 +339,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
       </div>
       <div className="grid grid-cols-4 gap-1.5">
         {metrics.map((metric) => {
-          const selectable = ['all', 'active', 'stale', 'expired', 'naming'].includes(metric.key)
+          const selectable = ['all', 'active', 'stale', 'naming'].includes(metric.key)
           const selected = riskFilter === (metric.key === 'all' ? null : metric.key)
           return (
             <button
@@ -459,30 +455,26 @@ export default function Dashboard(): JSX.Element {
   const staleCount = count((b) => b.stale)
   const activeCount = count((b) => b.state === 'active')
   const protectedCount = count((b) => b.protection.protected)
-  const expiredCount = count((b) => b.state === 'grace_expired')
-  const graceCount = count((b) => b.state === 'grace_period')
   const hasBranches = visibleBranches.length > 0
   const healthDisplayColor = hasBranches ? healthColor(avgHealth) : 'rgb(var(--muted))'
   const healthDisplayLabel = hasBranches ? healthLabel(avgHealth, language) : (zh ? '暂无分支' : 'No branches')
 
   const statusDistribution = [
     { label: zh ? '活跃' : 'Active', value: activeCount, color: 'rgb(var(--ok))' },
-    { label: zh ? '宽限期内' : 'In grace period', value: graceCount, color: 'rgb(var(--warn))' },
-    { label: zh ? '宽限期已过' : 'Expired', value: expiredCount, color: 'rgb(var(--danger))' },
+    { label: zh ? '已停更' : 'Stale', value: staleCount, color: 'rgb(var(--warn))' },
   ].filter((x) => x.value > 0)
 
   const alerts = useMemo(() => {
     const list: { severity: 'warn' | 'danger' | 'info'; title: string; desc: string; to: string }[] = []
     if (violations > 0) list.push({ severity: 'danger', title: `${violations} ${zh ? '命名不规范' : 'Naming Violations'}`, desc: zh ? '分支命名不符合规则' : 'Branches fail naming rules', to: '/naming-rules' })
     if (staleCount > 0) list.push({ severity: 'warn', title: `${staleCount} ${zh ? '已停更分支' : 'Stale Branches'}`, desc: zh ? '超过阈值未更新' : 'Beyond stale threshold', to: '/branches' })
-    if (expiredCount > 0) list.push({ severity: 'danger', title: `${expiredCount} ${zh ? '宽限期已过' : 'Grace Expired'}`, desc: zh ? '需要处理' : 'Requires action', to: '/branches' })
     if (!lastRun) list.push({ severity: 'info', title: zh ? '仓库未巡检' : 'Repository Not Scanned', desc: zh ? '运行第一次巡检' : 'Run first inspection', to: '/monitoring' })
     return list
-  }, [violations, staleCount, expiredCount, lastRun, zh])
+  }, [violations, staleCount, lastRun, zh])
 
   const attention = useMemo(() =>
     visibleBranches
-      .filter((b) => b.stale || b.naming.status === 'invalid' || b.state === 'grace_expired')
+      .filter((b) => b.stale || b.naming.status === 'invalid')
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 5),
     [visibleBranches]
@@ -602,8 +594,7 @@ export default function Dashboard(): JSX.Element {
       <div className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface px-4 py-2.5" style={{ boxShadow: shadow.sm }}>
         {[
           { label: tr('active'), value: activeCount, color: 'rgb(var(--ok))' },
-          { label: tr('gracePeriod'), value: graceCount, color: 'rgb(var(--warn))' },
-          { label: tr('graceExpired'), value: expiredCount, color: 'rgb(var(--danger))' },
+          { label: tr('stale'), value: staleCount, color: 'rgb(var(--warn))' },
           { label: tr('namingViolations'), value: violations, color: 'rgb(var(--danger))' },
           { label: tr('protectedBranches'), value: protectedCount, color: 'rgb(var(--info))' }
         ].map((s) => (
@@ -735,10 +726,10 @@ export default function Dashboard(): JSX.Element {
                   onClick={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                   className="flex w-full items-center gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-warn/40"
                 >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.state === 'grace_expired' ? 'bg-danger' : b.stale ? 'bg-warn' : 'bg-danger'}`} />
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${b.stale ? 'bg-warn' : 'bg-danger'}`} />
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-canvas-fg">{b.displayName}</span>
                   <span className="shrink-0 text-xs text-muted">{b.inactiveDays}d</span>
-                  <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : b.state === 'grace_expired' ? 'text-danger' : 'text-warn'}`}>
+                  <span className={`shrink-0 text-xs font-medium ${b.naming.status === 'invalid' ? 'text-danger' : 'text-warn'}`}>
                     {b.naming.status === 'invalid' ? (zh ? '命名不规范' : 'Violation') : stateLabel(b.state, language)}
                   </span>
                 </button>

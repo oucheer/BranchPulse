@@ -3,6 +3,7 @@ import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Trash2 } from 
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
+import GroupScopePicker from '../components/GroupScopePicker'
 import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import { downloadReportFile } from '../lib/download'
@@ -27,7 +28,8 @@ const emptySchedule = () => ({
   weekday: 1,
   dayOfMonth: 1,
   runAt: '',
-  recipients: ''
+  recipients: '',
+  groupIds: [] as string[]
 })
 
 export default function Reports(): JSX.Element {
@@ -40,6 +42,7 @@ export default function Reports(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
+  const [generateGroupIds, setGenerateGroupIds] = useState<string[]>([])
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
 
@@ -50,7 +53,7 @@ export default function Reports(): JSX.Element {
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const report = await window.gitmanager.generateReport('manual', format, activeRepositoryId)
+      const report = await window.gitmanager.generateReport('manual', format, activeRepositoryId, generateGroupIds)
       toast(`报告已生成：${report.title} · ${report.path}`, 'success')
       void refresh()
     } catch (err) {
@@ -144,6 +147,13 @@ export default function Reports(): JSX.Element {
   const frequencyLabel = (frequency: ReportScheduleFrequency): string =>
     frequency === 'daily' ? '每日' : frequency === 'weekly' ? '每周' : frequency === 'monthly' ? '每月' : '指定时间'
 
+  const groupScopeLabel = (groupIds: string[]): string => {
+    const names = groupIds
+      .map((id) => emailGroups.find((group) => group.id === id)?.name)
+      .filter((name): name is string => Boolean(name))
+    return names.length > 0 ? names.join('、') : '分组已删除'
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -169,6 +179,15 @@ export default function Reports(): JSX.Element {
             <Plus size={14} /> {tr('generate')}
           </button>
           <div className="text-xs text-muted">立即生成的报告使用当前选中的仓库范围。</div>
+        </div>
+        <div className="mt-3 max-w-xl">
+          <GroupScopePicker
+            value={generateGroupIds}
+            onChange={setGenerateGroupIds}
+            groups={emailGroups}
+            label="分组范围"
+            emptyHint="不选则统计当前仓库范围内的全部分支。"
+          />
         </div>
       </Card>
 
@@ -208,6 +227,14 @@ export default function Reports(): JSX.Element {
               rows={5}
             />
           </div>
+          <div className="lg:col-span-4">
+            <GroupScopePicker
+              value={draft.groupIds}
+              onChange={(ids) => setDraft({ ...draft, groupIds: ids })}
+              groups={emailGroups}
+              emptyHint="不选则统计当前仓库范围内的全部分支。"
+            />
+          </div>
         </div>
         {draft.frequency === 'weekly' ? (
           <div className="mt-3 max-w-xs">
@@ -241,6 +268,7 @@ export default function Reports(): JSX.Element {
                   </div>
                   <div className="text-xs text-muted">
                     {schedule.nextRunAt ? `下次：${new Date(schedule.nextRunAt).toLocaleString('zh-CN')}` : '已完成或未启用'}
+                    {schedule.groupIds.length > 0 ? ` · 分组范围：${groupScopeLabel(schedule.groupIds)}` : ''}
                     {schedule.recipients
                       ? ` · 发送到 ${resolveRecipientDisplay(schedule.recipients, emailGroups, emailConfig?.selfEmail).join(', ') || schedule.recipients}`
                       : ' · 不发送邮件'}

@@ -1,5 +1,5 @@
 export type BranchType = 'local' | 'remote'
-export type BranchState = 'active' | 'stale' | 'grace_period' | 'grace_expired'
+export type BranchState = 'active' | 'stale'
 export type NamingStatus = 'valid' | 'invalid' | 'excluded'
 export type HealthLevel = 'healthy' | 'good' | 'warning' | 'critical'
 export type ScanStatus = 'idle' | 'running' | 'completed' | 'failed'
@@ -80,11 +80,9 @@ export interface BranchSummary {
   protection: ProtectionInfo
   state: BranchState
   stale: boolean
-  gracePeriodDays: number
   /** 该分支实际生效的未提交阈值（命中前缀规则时是规则值）。 */
   thresholdDays: number
   thresholdUnit: ThresholdUnit
-  graceExpired: boolean
   cleanupCandidate: boolean
   recentCommits: CommitInfo[]
   lastScannedAt: string
@@ -152,9 +150,7 @@ export interface ThresholdRule {
 export interface MonitoringConfig {
   enabled: boolean
   staleThresholdDays: number
-  gracePeriodDays: number
   staleThresholdUnit: 'minutes' | 'hours' | 'days' | 'weeks'
-  gracePeriodUnit: 'minutes' | 'hours' | 'days' | 'weeks'
   /** 按前缀覆盖的未提交阈值，按前缀长度从长到短匹配。 */
   thresholdRules: ThresholdRule[]
   fetchEnabled: boolean
@@ -178,6 +174,8 @@ export interface SchedulerJob {
   emailPolicy: EmailPolicy
   fetchEnabled: boolean
   notifyTarget: NotifyTarget
+  /** 只检查这些分组（按分支创始人命中组员）覆盖的分支；空数组表示不限分组。 */
+  groupIds: string[]
   lastRunAt: string | null
   nextRunAt: string | null
   createdAt: string
@@ -202,8 +200,6 @@ export interface ScanRun {
   branches: number
   active: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   merged: number
   namingInvalid: number
   cleanupCandidates: number
@@ -216,8 +212,6 @@ export interface ScanRun {
 
 export type NotificationType =
   | 'stale'
-  | 'grace_period'
-  | 'grace_expired'
   | 'naming_violation'
   | 'merged'
   | 'cleanup_candidate'
@@ -285,8 +279,6 @@ export interface ReportSummary {
   compliancePercent: number
   active: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   merged: number
   namingViolations: number
   cleanupCandidates: number
@@ -300,6 +292,8 @@ export interface ReportRecord {
   id: string
   title: string
   repositoryId: string | null
+  /** 生成时限制的分组（按分支创始人命中组员）；空数组表示全仓库报告。 */
+  groupIds: string[]
   generatedAt: string
   period: string
   format: string
@@ -319,6 +313,8 @@ export interface ReportSchedule {
   dayOfMonth: number
   runAt: string | null
   recipients: string
+  /** 只统计这些分组（按分支创始人命中组员）覆盖的分支；空数组表示全仓库。 */
+  groupIds: string[]
   enabled: boolean
   lastRunAt: string | null
   nextRunAt: string | null
@@ -435,6 +431,8 @@ export interface RunCheckOptions {
   notifyTarget?: NotifyTarget
   fetch?: boolean
   repositoryIds?: string[]
+  /** 只保留这些分组（按分支创始人命中组员）覆盖的分支，用于「只检查某个组」。 */
+  groupIds?: string[]
   trigger?: ScanRun['trigger']
 }
 
@@ -480,8 +478,6 @@ export interface ScanProgress {
     | 'status'
     | 'branches'
     | 'stale'
-    | 'gracePeriod'
-    | 'graceExpired'
     | 'merged'
     | 'namingInvalid'
     | 'cleanupCandidates'
@@ -537,7 +533,7 @@ export interface BranchApi {
   sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
   listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
+  generateReport(period: string, format?: string, repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord>
   exportReport(id: string, format: string): Promise<ReportRecord>
   deleteReport(id: string): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
