@@ -54,8 +54,17 @@ async function main(): Promise<void> {
   serverRef.current = server
 
   const address = await server.listen(PORT, HOST)
-  const url = `http://${address.host === '0.0.0.0' ? 'localhost' : address.host}:${address.port}`
-  logger.info(`GitManager web UI available at ${url}`)
+  logger.info(`GitManager web UI listening on http://${address.host}:${address.port}`)
+  if (address.host === '0.0.0.0' || address.host === '::') {
+    // Logging `0.0.0.0` alone reads like a placeholder; say what it means and
+    // what to open locally, otherwise a correct bind looks like a broken URL.
+    logger.info(`Reachable from other machines at http://<this-host>:${address.port} (open http://localhost:${address.port} locally)`)
+  } else {
+    // The default is loopback-only, which is the usual reason a browser on
+    // another machine cannot connect: name the fix instead of leaving the user
+    // to guess.
+    logger.info('Listening on loopback only; set GITMANAGER_HOST=0.0.0.0 to serve other machines.')
+  }
   logger.info(`Data directory: ${dataDir()}`)
   if (!DEV) logger.info(`Serving renderer assets from ${staticDir}`)
 

@@ -94,17 +94,114 @@ export function detectRemoteProvider(url: string, provider?: string): 'gitlab' |
   return 'gitlab'
 }
 
-export function apiBaseUrl(url: string, provider: 'gitlab' | 'github' | 'gitee' = 'gitlab'): string {
+/** Path segments of a URL, with a trailing `.git` removed from the last one. */
+export function urlPathSegments(url: string): string[] {
+  const segments = new URL(normalizeUrl(url)).pathname.split('/').filter(Boolean)
+  if (segments.length > 0 && segments[segments.length - 1].endsWith('.git')) {
+    segments[segments.length - 1] = segments[segments.length - 1].slice(0, -4)
+  }
+  return segments
+}
+
+/**
+ * True when the URL already names a GitLab API base (`.../api/v4`).
+ *
+ * Entering the API base explicitly is the escape hatch for an instance whose
+ * URL layout cannot be derived from the service root, so such a URL must not be
+ * mistaken for a project path. A prefix of at most one segment is allowed,
+ * matching GitLab's relative URL root, which is a single level: the API is then
+ * served from `<relative-root>/api/v4`. A longer prefix is a project namespace
+ * that happens to end in `api`.
+ *
+ * A bare `.../api` (no version) is deliberately *not* accepted: it is
+ * indistinguishable from the project `<namespace>/api`, and the derived
+ * `<relative-root>/api/v4` form is what the UI asks users to enter.
+ */
+export function isApiBaseUrl(url: string): boolean {
+  const segments = urlPathSegments(url).map((segment) => segment.toLowerCase())
+  const last = segments.length - 1
+  if (segments[last] !== 'v4' || segments[last - 1] !== 'api') return false
+  return last - 1 <= 1
+}
+
+/** GitLab.com always serves its API from the root; only self-hosted can nest. */
+const CLOUD_ROOTS = new Set(['gitlab.com', 'www.gitlab.com'])
+
+/** Segments of a namespace path (`group/sub/app`), independent of any origin. */
+function projectSegments(projectPath: string): string[] {
+  return projectPath.split('/').filter(Boolean)
+}
+
+/**
+ * Relative URL root of a self-hosted GitLab: the one path segment an instance
+ * mounted at `http://host/gitlab` prefixes to every route, including the API.
+ *
+ * A project URL (`http://host/gitlab/group/app`) only reveals the root once the
+ * project path is known, so `projectPath` is subtracted first. Without it a
+ * single segment is taken as the root and anything longer is treated as a
+ * namespace, where the API is assumed to live at the origin.
+ */
+export function apiBaseUrl(
+  url: string,
+  provider: 'gitlab' | 'github' | 'gitee' = 'gitlab',
+  projectPath?: string
+): string {
   const clean = normalizeUrl(url)
   if (provider === 'github') return 'https://api.github.com'
   if (provider === 'gitee') return 'https://gitee.com/api/v5'
-  if (clean.endsWith('/api/v4')) return clean
-  if (clean.endsWith('/api')) return `${clean}/v4`
-  return `${new URL(clean).origin}/api/v4`
+  const parsed = new URL(clean)
+  let segments = urlPathSegments(clean)
+  const project = projectPath ? projectSegments(projectPath) : []
+  // A caller that knows the project path decides how the URL is read. When the
+  // URL ends with exactly that path it is a project URL even if its last segment
+  // is `api`, because a project may genuinely be named that.
+  const isNamedProjectUrl = project.length > 0
+    && project.length <= segments.length
+    && segments.slice(segments.length - project.length).join('/') === project.join('/')
+  if (isNamedProjectUrl) {
+    segments = segments.slice(0, segments.length - project.length)
+  } else {
+    // The suffix shortcuts below are for a URL that was entered by hand, where
+    // no project path is available to disambiguate.
+    if (clean.endsWith('/api/v4')) return clean
+    if (clean.endsWith('/api')) return `${clean}/v4`
+  }
+  const prefix = segments.length === 1 && !CLOUD_ROOTS.has(parsed.hostname.toLowerCase())
+    ? `/${segments[0]}`
+    : ''
+  return `${parsed.origin}${prefix}/api/v4`
 }
 
 export function projectIdOrPath(input: number | string): string {
-  return encodeURIComponent(String(input).replaceAll('/', '%2F'))
+  return encodeURIComponent(String(input))
+}
+
+/**
+ * GitLab and its proxies often return a useful JSON `message` even when the
+ * status text is only "Internal Server Error". Keep the response body in the
+ * thrown error so the scan result and server log point at the real cause
+ * instead of hiding it behind a generic 500.
+ */
+function apiErrorDetail(body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) return ''
+  let detail = trimmed
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed === 'string') {
+      detail = parsed
+    } else if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>
+      const candidate = record.message ?? record.error_description ?? record.error
+      if (typeof candidate === 'string') detail = candidate
+      else if (Array.isArray(candidate)) detail = candidate.map(String).join('; ')
+      else if (candidate && typeof candidate === 'object') detail = JSON.stringify(candidate)
+    }
+  } catch {
+    // A reverse proxy may return HTML or plain text; normalize that too.
+  }
+  const collapsed = detail.replace(/\s+/g, ' ').trim()
+  return collapsed.length > 240 ? `${collapsed.slice(0, 237)}...` : collapsed
 }
 
 /** Upper bound on profile lookups per scan, so a huge repository stays responsive. */
@@ -132,20 +229,23 @@ export class GitLabService {
   }
 
   private pathSegments(url: string): string[] {
-    const segments = new URL(normalizeUrl(url)).pathname.split('/').filter(Boolean)
-    if (segments.length > 0 && segments[segments.length - 1].endsWith('.git')) {
-      segments[segments.length - 1] = segments[segments.length - 1].slice(0, -4)
-    }
-    return segments
+    return urlPathSegments(url)
   }
 
   private isProjectUrl(url: string): boolean {
-    return this.pathSegments(url).length >= 2
+    // An explicit API base also has a path, but it is a service root with a
+    // relative URL root, not a project: `http://host/gitlab/api/v4` must list
+    // projects instead of being resolved as the project `gitlab/api/v4`.
+    return !isApiBaseUrl(url) && this.pathSegments(url).length >= 2
   }
 
   private async request<T>(path: string, config?: GitLabConnectionConfig, init: RequestInit = {}): Promise<T> {
     const { url, token, provider } = this.resolve(config)
-    const requestUrl = new URL(`${apiBaseUrl(url, provider)}${path.startsWith('/') ? path : `/${path}`}`)
+    // `projectPath` lets a project URL (`http://host/gitlab/group/app`) reveal the
+    // instance's relative URL root, so the API call keeps its `/gitlab` prefix.
+    const requestUrl = new URL(
+      `${apiBaseUrl(url, provider, config?.projectPath)}${path.startsWith('/') ? path : `/${path}`}`
+    )
     if (provider === 'gitee') requestUrl.searchParams.set('access_token', token)
     const response = await fetch(requestUrl, {
       ...init,
@@ -164,8 +264,13 @@ export class GitLabService {
     })
     if (!response.ok) {
       const body = await response.text().catch(() => '')
+      const detail = apiErrorDetail(body)
+      const statusLabel = response.statusText ? ` ${response.statusText}` : ''
+      const message = `Remote repository API ${response.status}${statusLabel}${detail ? `: ${detail}` : ''}`
+      // Keep query strings out of the log: Gitee carries its token there.
+      logger.error(`Remote repository API request failed: ${init.method ?? 'GET'} ${requestUrl.origin}${requestUrl.pathname} -> ${response.status}${statusLabel}${detail ? ` | ${detail}` : ''}`)
       throw new GitLabApiErrorImpl(
-        `Remote repository API ${response.status} ${response.statusText}`,
+        message,
         response.status,
         body.slice(0, 500)
       )
@@ -215,6 +320,20 @@ export class GitLabService {
     return project.pathWithNamespace
   }
 
+  /**
+   * Project reference used in forge API paths.
+   *
+   * GitLab accepts a numeric project id and that avoids putting an encoded
+   * slash (`group%2Fapp`) in the URL. Some internal reverse proxies reject or
+   * mishandle `%2F` with a 500, even though GitLab itself accepts it. GitHub
+   * and Gitee still address repositories by `owner/name`.
+   */
+  private async projectRef(projectId: number, config?: GitLabConnectionConfig): Promise<string> {
+    const { provider } = this.resolve(config)
+    if (provider === 'gitlab') return String(projectId)
+    return this.projectPath(projectId, config)
+  }
+
   private normalizeProject(input: Record<string, unknown>, provider: 'gitlab' | 'github' | 'gitee'): GitLabProject {
     if (provider === 'github') {
       return {
@@ -253,7 +372,26 @@ export class GitLabService {
     const { provider } = this.resolve(config)
     if (this.isProjectUrl(config?.url?.trim() || this.settings.get().gitlabUrl)) {
       const { url } = this.resolve(config)
-      return [await this.getProjectByUrl(this.pathSegments(url).join('/'), config)]
+      const segments = this.pathSegments(url)
+      try {
+        return [await this.getProjectByUrl(segments.join('/'), config)]
+      } catch (err) {
+        // The first attempt treated every segment as the project path, which is
+        // only right when the instance is served from the origin. A 404 means it
+        // may instead be mounted behind a relative URL root, so retry with the
+        // first segment read as that root — `apiBaseUrl` needs it to reach
+        // `<relative-root>/api/v4`.
+        const projectPath = this.relativeRootProjectPath(url)
+        if (!projectPath) throw err
+        try {
+          const project = await this.getProjectByUrl(projectPath, { ...config, url, projectPath })
+          return [project]
+        } catch {
+          // Both readings failed, so the URL layout was not the problem. Report
+          // the first attempt's error: it matches the address the user typed.
+          throw err
+        }
+      }
     }
     if (provider === 'github') {
       const projects = await this.paginate('/user/repos?per_page=100&sort=pushed', config)
@@ -297,12 +435,30 @@ export class GitLabService {
     return this.cacheProject(row, provider, config)
   }
 
+  /**
+   * The project path to retry with when a project URL may carry a relative root.
+   *
+   * `http://host/group/app` and a project on an instance mounted at
+   * `http://host/gitlab` have the same shape, so the only way to tell them apart
+   * is to ask the API. Returns what the project path would be if the first
+   * segment were the instance's relative URL root, or `undefined` when the URL
+   * cannot have that shape.
+   *
+   * At least three segments are required: a GitLab project path always contains
+   * a namespace (`group/app`), so a two-segment URL is either a plain project
+   * URL or a service root, never `<root>/<project>`.
+   */
+  private relativeRootProjectPath(url: string): string | undefined {
+    const segments = this.pathSegments(url)
+    if (segments.length < 3) return undefined
+    return segments.slice(1).join('/')
+  }
+
   async listBranches(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabBranchDto[]> {
     const { provider } = this.resolve(config)
-    const path = await this.projectPath(projectId, config)
-    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
+    const projectRef = await this.projectRef(projectId, config)
     if (provider === 'github') {
-      const rows = await this.paginate(`/repos/${encodedPath}/branches?per_page=100`, config)
+      const rows = await this.paginate(`/repos/${projectRef}/branches?per_page=100`, config)
       return rows.map((row) => {
         const sourceCommit = ((row.commit ?? {}) as {
           sha?: string
@@ -345,7 +501,7 @@ export class GitLabService {
       })
     }
     if (provider === 'gitee') {
-      const rows = await this.paginate(`/repos/${encodedPath}/branches?per_page=100`, config)
+      const rows = await this.paginate(`/repos/${projectRef}/branches?per_page=100`, config)
       return rows.map((row) => {
         const sourceCommit = ((row.commit ?? {}) as {
           sha?: string
@@ -386,7 +542,7 @@ export class GitLabService {
         }
       })
     }
-    const rows = await this.paginate(`/projects/${encodedPath}/repository/branches?per_page=100`, config)
+    const rows = await this.paginate(`/projects/${projectRef}/repository/branches?per_page=100`, config)
     return rows.map((row) => ({
       name: String(row.name ?? ''),
       protected: row.protected === true,
@@ -423,14 +579,13 @@ export class GitLabService {
 
   async listCommits(projectId: number, refName: string, page = 1, perPage = 100, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
-    const path = await this.projectPath(projectId, config)
-    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
+    const projectRef = await this.projectRef(projectId, config)
     if (provider === 'github' || provider === 'gitee') {
-      const rows = await this.request<Array<Record<string, unknown>>>(`/repos/${encodedPath}/commits?sha=${encodeURIComponent(refName)}&per_page=${perPage}&page=${page}`, config)
+      const rows = await this.request<Array<Record<string, unknown>>>(`/repos/${projectRef}/commits?sha=${encodeURIComponent(refName)}&per_page=${perPage}&page=${page}`, config)
       return rows.map((row) => this.mapGitHubCommit(row))
     }
     const qs = new URLSearchParams({ ref_name: refName, per_page: String(perPage), page: String(page) })
-    return this.request<GitLabCommitDto[]>(`/projects/${encodedPath}/repository/commits?${qs.toString()}`, config)
+    return this.request<GitLabCommitDto[]>(`/projects/${projectRef}/repository/commits?${qs.toString()}`, config)
   }
 
   /**
@@ -444,11 +599,10 @@ export class GitLabService {
     config?: GitLabConnectionConfig
   ): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
-    const path = await this.projectPath(projectId, config)
-    const encodedPath = provider === 'gitlab' ? encodeURIComponent(path) : path
+    const projectRef = await this.projectRef(projectId, config)
     if (provider === 'github' || provider === 'gitee') {
       const row = await this.request<Record<string, unknown>>(
-        `/repos/${encodedPath}/compare/${encodeURIComponent(baseRef)}...${encodeURIComponent(refName)}`,
+        `/repos/${projectRef}/compare/${encodeURIComponent(baseRef)}...${encodeURIComponent(refName)}`,
         config
       )
       const commits = Array.isArray(row.commits) ? (row.commits as Array<Record<string, unknown>>) : []
@@ -457,7 +611,7 @@ export class GitLabService {
     }
     const qs = new URLSearchParams({ from: baseRef, to: refName })
     const row = await this.request<Record<string, unknown>>(
-      `/projects/${encodedPath}/repository/compare?${qs.toString()}`,
+      `/projects/${projectRef}/repository/compare?${qs.toString()}`,
       config
     )
     const commits = Array.isArray(row.commits) ? (row.commits as GitLabCommitDto[]) : []
@@ -489,15 +643,14 @@ export class GitLabService {
     const creators = new Map<string, BranchCreatorDto>()
     const { provider } = this.resolve(config)
     if (provider !== 'gitlab') return creators
-    const path = await this.projectPath(projectId, config)
-    const encodedPath = encodeURIComponent(path)
+    const projectRef = await this.projectRef(projectId, config)
     // Newest first. Events only cover a bounded window, so older branches may
     // simply not appear; stop early once a page comes back short.
     for (let page = 1; page <= 5; page += 1) {
       const qs = new URLSearchParams({ action: 'pushed', per_page: '100', page: String(page) })
       let rows: Array<Record<string, unknown>>
       try {
-        rows = await this.request<Array<Record<string, unknown>>>(`/projects/${encodedPath}/events?${qs.toString()}`, config)
+        rows = await this.request<Array<Record<string, unknown>>>(`/projects/${projectRef}/events?${qs.toString()}`, config)
       } catch {
         return creators
       }
@@ -579,12 +732,34 @@ export class GitLabService {
   }
 
   async getProject(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabProject> {
-    const { provider } = this.resolve(config)
-    const cachedPath = this.projectPathCache.get(`${provider}:${this.resolve(config).url}:${projectId}`)
-    if (cachedPath) return this.getProjectByUrl(cachedPath, config)
+    const { url, provider } = this.resolve(config)
+    const cachedPath = this.projectPathCache.get(`${provider}:${url}:${projectId}`)
+    // The cached path names the project, so it also tells `apiBaseUrl` how to
+    // read the URL: for `http://host/gitlab/group/app` the project URL form only
+    // resolves once `group/app` is subtracted and `/gitlab` stays as the root.
+    if (cachedPath) return this.getProjectByUrl(cachedPath, { ...config, projectPath: cachedPath })
     if (provider === 'github') return this.normalizeProject(await this.request<Record<string, unknown>>(`/repositories/${projectId}`, config), provider)
     if (provider === 'gitee') return this.normalizeProject(await this.request<Record<string, unknown>>(`/repos/${projectId}`, config), provider)
-    return this.normalizeProject(await this.request<Record<string, unknown>>(`/projects/${projectIdOrPath(projectId)}`, config), provider)
+    const path = `/projects/${projectIdOrPath(projectId)}`
+    try {
+      return this.normalizeProject(await this.request<Record<string, unknown>>(path, config), provider)
+    } catch (err) {
+      // Adding a project happens right after `listProjects`, but not necessarily
+      // in the same session, and the cache above is in-memory. Repeat the
+      // relative-root retry so an instance behind a URL root can be added even
+      // when the list was never fetched.
+      const projectPath = config?.projectPath ? undefined : this.relativeRootProjectPath(url)
+      if (!projectPath) throw err
+      const retry = { ...config, url, projectPath }
+      try {
+        const row = await this.request<Record<string, unknown>>(path, retry)
+        return this.cacheProject(row, provider, retry)
+      } catch {
+        // The retry is a guess about the URL layout; when it fails too, the
+        // original error is the one that matches what the user typed.
+        throw err
+      }
+    }
   }
 }
 

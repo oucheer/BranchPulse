@@ -70,7 +70,9 @@ export default function Layout({
   useEffect(() => {
     const unsub = window.gitmanager.onScanProgress((progress) => {
       setProgress(progress)
-      if (progress.summary?.status === 'completed') {
+      // `failed` ends a run too. Without it a scan that failed everywhere left
+      // the page spinning until the next successful run.
+      if (progress.summary?.status === 'completed' || progress.summary?.status === 'failed') {
         setScanning(false)
         void refresh()
         setTimeout(() => setProgress(null), 2500)

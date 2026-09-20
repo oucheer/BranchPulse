@@ -152,6 +152,11 @@ export class MonitoringService {
 
     const allBranches: BranchSummary[] = []
     const scannedRepositoryIds: string[] = []
+    // Per-repository scan failures. They are collected rather than thrown so one
+    // unreachable repository cannot abort the checks of the others, but they must
+    // still surface: a scan that fetched nothing used to be reported as a clean
+    // run with "0 branches", which hid an unreachable or misconfigured forge.
+    const failures: string[] = []
     for (const repo of targets) {
       scannedRepositoryIds.push(repo.id)
       addActivity(`Scanning ${repo.name}...`)
@@ -168,9 +173,20 @@ export class MonitoringService {
         addActivity(`${repo.name}: ${branches.length} branches analyzed.`, 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        addActivity(`${repo.name}: ${message}`, 'error')
+        const failure = `${repo.name}: ${message}`
+        failures.push(failure)
+        addActivity(failure, 'error')
       }
       this.emitProgress(runId, activity)
+    }
+    // A run is only `failed` when it produced nothing at all; a partial failure
+    // keeps the successful results and reports the rest through `error`.
+    const status: ScanRun['status'] = failures.length > 0 && failures.length === targets.length ? 'failed' : 'completed'
+    if (failures.length > 0) {
+      addActivity(
+        `${failures.length} of ${targets.length} repositories could not be scanned.`,
+        status === 'failed' ? 'error' : 'warn'
+      )
     }
 
     // 「只检查分组」在汇总之前收窄分支集合：通知、汇总邮件、分组邮件、报告计数
@@ -278,7 +294,7 @@ export class MonitoringService {
       id: runId,
       startedAt,
       finishedAt,
-      status: 'completed',
+      status,
       trigger: options.trigger ?? 'manual',
       healthAvg: summary.healthAvg,
       healthBest: summary.healthBest,
@@ -292,7 +308,7 @@ export class MonitoringService {
       cleanupCandidates: summary.cleanupCandidates,
       notifications: notifications.length,
       emailsSent,
-      error: null,
+      error: failures.length > 0 ? failures.join(' | ') : null,
       activity
     }
     this.storage.insert('scan_runs', {
@@ -313,7 +329,7 @@ export class MonitoringService {
       cleanup_candidates: run.cleanupCandidates,
       notifications: run.notifications,
       emails_sent: run.emailsSent,
-      error: null,
+      error: run.error,
       activity_json: JSON.stringify(activity)
     })
     for (const repositoryId of scannedRepositoryIds) {
@@ -330,7 +346,7 @@ export class MonitoringService {
       emailsSent: run.emailsSent
     })
     this.emitProgress(runId, activity, {
-      status: 'completed',
+      status: run.status,
       branches: run.branches,
       stale: run.stale,
       merged: run.merged,

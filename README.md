@@ -49,6 +49,16 @@ npm start
 
 端口与监听地址可用环境变量覆盖：`GITMANAGER_PORT`（默认 `4173`）、`GITMANAGER_HOST`（默认 `127.0.0.1`）。
 
+> **默认只监听 `127.0.0.1`**，即只有本机能访问。部署到服务器供他人访问时必须显式指定：
+>
+> ```bash
+> GITMANAGER_HOST=0.0.0.0 npm start
+> ```
+>
+> 否则浏览器访问 `http://<服务器IP>:4173` 会连接被拒绝（服务本身运行正常，只是没有对外监听）。
+
+内网/离线环境部署的完整步骤见 [docs/internal-deployment.md](docs/internal-deployment.md)。
+
 ## 常用命令
 
 ```bash

@@ -35,6 +35,8 @@ shared/          前后端共享类型（GitManagerApi 契约）与 RPC 契约
 
 默认 `http://127.0.0.1:4173`，可用 `GITMANAGER_PORT` / `GITMANAGER_HOST` 覆盖。
 
+`GITMANAGER_HOST` 默认 `127.0.0.1`，只绑定回环地址。跨机访问（部署到服务器、虚拟机或容器里由其他机器打开页面）必须改成 `0.0.0.0`，并按需放行防火墙端口。启动日志会打印实际监听地址；只在回环上监听时会额外提示需要设置 `GITMANAGER_HOST=0.0.0.0`。内网部署的完整清单见 [internal-deployment.md](internal-deployment.md)。
+
 > dev 模式下 Vite 必须用 `appType: 'spa'`。`custom` 不会安装 HTML fallback 与 index-HTML 中间件，`GET /` 会 404。
 
 ## 传输层对比
