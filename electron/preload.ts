@@ -18,95 +18,95 @@ import type {
 } from '@shared/types'
 
 const api: BranchApi = {
-  init: () => ipcRenderer.invoke('branchpulse:init'),
+  init: () => ipcRenderer.invoke('gitmanager:init'),
   addGitLabRepository: (projectId: number, config?: GitLabConnectionConfig) =>
-    ipcRenderer.invoke('branchpulse:addGitLabRepository', projectId, config),
-  listGitLabProjects: (config?: GitLabConnectionConfig) => ipcRenderer.invoke('branchpulse:listGitLabProjects', config),
-  testGitLabConnection: (config?: GitLabConnectionConfig) => ipcRenderer.invoke('branchpulse:testGitLabConnection', config),
-  removeRepository: (id: string) => ipcRenderer.invoke('branchpulse:removeRepository', id),
-  listRepositories: () => ipcRenderer.invoke('branchpulse:listRepositories'),
-  scanRepository: (id: string, fetch?: boolean) => ipcRenderer.invoke('branchpulse:scanRepository', id, fetch),
-  runCheckNow: (options: RunCheckOptions = {}) => ipcRenderer.invoke('branchpulse:runCheckNow', options),
-  listBranches: () => ipcRenderer.invoke('branchpulse:listBranches'),
-  getBranch: (criteria: BranchCriteria) => ipcRenderer.invoke('branchpulse:getBranch', criteria),
-  notifyBranch: (branch: BranchSummary) => ipcRenderer.invoke('branchpulse:notifyBranch', branch),
-  notifyBranchesEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('branchpulse:notifyBranchesEmail', branches),
-  notifySelfEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('branchpulse:notifySelfEmail', branches),
+    ipcRenderer.invoke('gitmanager:addGitLabRepository', projectId, config),
+  listGitLabProjects: (config?: GitLabConnectionConfig) => ipcRenderer.invoke('gitmanager:listGitLabProjects', config),
+  testGitLabConnection: (config?: GitLabConnectionConfig) => ipcRenderer.invoke('gitmanager:testGitLabConnection', config),
+  removeRepository: (id: string) => ipcRenderer.invoke('gitmanager:removeRepository', id),
+  listRepositories: () => ipcRenderer.invoke('gitmanager:listRepositories'),
+  scanRepository: (id: string, fetch?: boolean) => ipcRenderer.invoke('gitmanager:scanRepository', id, fetch),
+  runCheckNow: (options: RunCheckOptions = {}) => ipcRenderer.invoke('gitmanager:runCheckNow', options),
+  listBranches: () => ipcRenderer.invoke('gitmanager:listBranches'),
+  getBranch: (criteria: BranchCriteria) => ipcRenderer.invoke('gitmanager:getBranch', criteria),
+  notifyBranch: (branch: BranchSummary) => ipcRenderer.invoke('gitmanager:notifyBranch', branch),
+  notifyBranchesEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('gitmanager:notifyBranchesEmail', branches),
+  notifySelfEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('gitmanager:notifySelfEmail', branches),
 
-  listNamingRules: (repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:listNamingRules', repositoryId),
-  saveNamingRule: (rule: Partial<NamingRule> & { id?: string }) => ipcRenderer.invoke('branchpulse:saveNamingRule', rule),
-  deleteNamingRule: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:deleteNamingRule', id, repositoryId),
-  reorderNamingRule: (id: string, direction: -1 | 1, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:reorderNamingRule', id, direction, repositoryId),
-  validateBranchName: (name: string, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:validateBranchName', name, repositoryId),
+  listNamingRules: (repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:listNamingRules', repositoryId),
+  saveNamingRule: (rule: Partial<NamingRule> & { id?: string }) => ipcRenderer.invoke('gitmanager:saveNamingRule', rule),
+  deleteNamingRule: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:deleteNamingRule', id, repositoryId),
+  reorderNamingRule: (id: string, direction: -1 | 1, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:reorderNamingRule', id, direction, repositoryId),
+  validateBranchName: (name: string, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:validateBranchName', name, repositoryId),
 
-  listWhitelist: (repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:listWhitelist', repositoryId),
-  addWhitelist: (entry: Omit<ProtectionEntry, 'id' | 'createdAt'>) => ipcRenderer.invoke('branchpulse:addWhitelist', entry),
-  removeWhitelist: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:removeWhitelist', id, repositoryId),
-  listProtected: (repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:listProtected', repositoryId),
-  addProtected: (entry: Omit<ProtectionEntry, 'id' | 'createdAt'>) => ipcRenderer.invoke('branchpulse:addProtected', entry),
-  removeProtected: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:removeProtected', id, repositoryId),
+  listWhitelist: (repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:listWhitelist', repositoryId),
+  addWhitelist: (entry: Omit<ProtectionEntry, 'id' | 'createdAt'>) => ipcRenderer.invoke('gitmanager:addWhitelist', entry),
+  removeWhitelist: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:removeWhitelist', id, repositoryId),
+  listProtected: (repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:listProtected', repositoryId),
+  addProtected: (entry: Omit<ProtectionEntry, 'id' | 'createdAt'>) => ipcRenderer.invoke('gitmanager:addProtected', entry),
+  removeProtected: (id: string, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:removeProtected', id, repositoryId),
 
-  getMonitoring: (repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:getMonitoring', repositoryId),
-  saveMonitoring: (config: MonitoringConfig, repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:saveMonitoring', config, repositoryId),
+  getMonitoring: (repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:getMonitoring', repositoryId),
+  saveMonitoring: (config: MonitoringConfig, repositoryId?: string | null) => ipcRenderer.invoke('gitmanager:saveMonitoring', config, repositoryId),
 
-  listEmailGroups: () => ipcRenderer.invoke('branchpulse:listEmailGroups'),
-  saveEmailGroup: (group: Partial<EmailGroup> & { id?: string }) => ipcRenderer.invoke('branchpulse:saveEmailGroup', group),
-  deleteEmailGroup: (id: string) => ipcRenderer.invoke('branchpulse:deleteEmailGroup', id),
+  listEmailGroups: () => ipcRenderer.invoke('gitmanager:listEmailGroups'),
+  saveEmailGroup: (group: Partial<EmailGroup> & { id?: string }) => ipcRenderer.invoke('gitmanager:saveEmailGroup', group),
+  deleteEmailGroup: (id: string) => ipcRenderer.invoke('gitmanager:deleteEmailGroup', id),
 
-  listJobs: () => ipcRenderer.invoke('branchpulse:listJobs'),
-  saveJob: (job: Partial<SchedulerJob> & { id?: string }) => ipcRenderer.invoke('branchpulse:saveJob', job),
-  deleteJob: (id: string) => ipcRenderer.invoke('branchpulse:deleteJob', id),
-  deleteAllJobs: () => ipcRenderer.invoke('branchpulse:deleteAllJobs'),
-  runSchedulerJob: (id: string) => ipcRenderer.invoke('branchpulse:runSchedulerJob', id),
-  listRuns: () => ipcRenderer.invoke('branchpulse:listRuns'),
-  calendarRuns: () => ipcRenderer.invoke('branchpulse:calendarRuns'),
+  listJobs: () => ipcRenderer.invoke('gitmanager:listJobs'),
+  saveJob: (job: Partial<SchedulerJob> & { id?: string }) => ipcRenderer.invoke('gitmanager:saveJob', job),
+  deleteJob: (id: string) => ipcRenderer.invoke('gitmanager:deleteJob', id),
+  deleteAllJobs: () => ipcRenderer.invoke('gitmanager:deleteAllJobs'),
+  runSchedulerJob: (id: string) => ipcRenderer.invoke('gitmanager:runSchedulerJob', id),
+  listRuns: () => ipcRenderer.invoke('gitmanager:listRuns'),
+  calendarRuns: () => ipcRenderer.invoke('gitmanager:calendarRuns'),
 
-  listNotifications: () => ipcRenderer.invoke('branchpulse:listNotifications'),
-  markNotificationRead: (id: string) => ipcRenderer.invoke('branchpulse:markNotificationRead', id),
-  clearNotifications: () => ipcRenderer.invoke('branchpulse:clearNotifications'),
+  listNotifications: () => ipcRenderer.invoke('gitmanager:listNotifications'),
+  markNotificationRead: (id: string) => ipcRenderer.invoke('gitmanager:markNotificationRead', id),
+  clearNotifications: () => ipcRenderer.invoke('gitmanager:clearNotifications'),
 
-  getEmailConfig: () => ipcRenderer.invoke('branchpulse:getEmailConfig'),
-  saveEmailConfig: (config: EmailConfig & { password?: string }) => ipcRenderer.invoke('branchpulse:saveEmailConfig', config),
-  testEmailConnection: (config?: EmailConfig) => ipcRenderer.invoke('branchpulse:testEmailConnection', config),
-  sendTestEmail: (config?: EmailConfig) => ipcRenderer.invoke('branchpulse:sendTestEmail', config),
+  getEmailConfig: () => ipcRenderer.invoke('gitmanager:getEmailConfig'),
+  saveEmailConfig: (config: EmailConfig & { password?: string }) => ipcRenderer.invoke('gitmanager:saveEmailConfig', config),
+  testEmailConnection: (config?: EmailConfig) => ipcRenderer.invoke('gitmanager:testEmailConnection', config),
+  sendTestEmail: (config?: EmailConfig) => ipcRenderer.invoke('gitmanager:sendTestEmail', config),
 
-  listReports: () => ipcRenderer.invoke('branchpulse:listReports'),
+  listReports: () => ipcRenderer.invoke('gitmanager:listReports'),
   generateReport: (period: string, format?: string, repositoryId?: string | null) =>
-    ipcRenderer.invoke('branchpulse:generateReport', period, format, repositoryId),
-  exportReport: (id: string, format: string) => ipcRenderer.invoke('branchpulse:exportReport', id, format),
-  deleteReport: (id: string) => ipcRenderer.invoke('branchpulse:deleteReport', id),
-  openReportFolder: () => ipcRenderer.invoke('branchpulse:openReportFolder'),
-  openReportFile: (id: string) => ipcRenderer.invoke('branchpulse:openReportFile', id),
+    ipcRenderer.invoke('gitmanager:generateReport', period, format, repositoryId),
+  exportReport: (id: string, format: string) => ipcRenderer.invoke('gitmanager:exportReport', id, format),
+  deleteReport: (id: string) => ipcRenderer.invoke('gitmanager:deleteReport', id),
+  openReportFolder: () => ipcRenderer.invoke('gitmanager:openReportFolder'),
+  openReportFile: (id: string) => ipcRenderer.invoke('gitmanager:openReportFile', id),
 
-  listReportSchedules: () => ipcRenderer.invoke('branchpulse:listReportSchedules'),
+  listReportSchedules: () => ipcRenderer.invoke('gitmanager:listReportSchedules'),
   saveReportSchedule: (schedule: Partial<ReportSchedule> & { id?: string }) =>
-    ipcRenderer.invoke('branchpulse:saveReportSchedule', schedule),
-  deleteReportSchedule: (id: string) => ipcRenderer.invoke('branchpulse:deleteReportSchedule', id),
+    ipcRenderer.invoke('gitmanager:saveReportSchedule', schedule),
+  deleteReportSchedule: (id: string) => ipcRenderer.invoke('gitmanager:deleteReportSchedule', id),
 
-  listBackups: () => ipcRenderer.invoke('branchpulse:listBackups'),
+  listBackups: () => ipcRenderer.invoke('gitmanager:listBackups'),
   startBackup: (options?: { repositoryId?: string | null; folderPath?: string }) =>
-    ipcRenderer.invoke('branchpulse:startBackup', options),
-  deleteBackup: (id: string) => ipcRenderer.invoke('branchpulse:deleteBackup', id),
-  selectBackupFolder: () => ipcRenderer.invoke('branchpulse:selectBackupFolder'),
-  openBackupFolder: (path: string) => ipcRenderer.invoke('branchpulse:openBackupFolder', path),
+    ipcRenderer.invoke('gitmanager:startBackup', options),
+  deleteBackup: (id: string) => ipcRenderer.invoke('gitmanager:deleteBackup', id),
+  selectBackupFolder: () => ipcRenderer.invoke('gitmanager:selectBackupFolder'),
+  openBackupFolder: (path: string) => ipcRenderer.invoke('gitmanager:openBackupFolder', path),
 
-  listAudit: () => ipcRenderer.invoke('branchpulse:listAudit'),
-  exportAuditLogs: (format: 'csv' | 'json' | 'txt') => ipcRenderer.invoke('branchpulse:exportAuditLogs', format),
-  getSettings: () => ipcRenderer.invoke('branchpulse:getSettings'),
-  saveSettings: (settings: AppSettings) => ipcRenderer.invoke('branchpulse:saveSettings', settings),
-  getAppVersion: () => ipcRenderer.invoke('branchpulse:getAppVersion'),
-  exportConfig: (extras?: ConfigExtras) => ipcRenderer.invoke('branchpulse:exportConfig', extras),
-  importConfig: (confirmReplace?: boolean) => ipcRenderer.invoke('branchpulse:importConfig', confirmReplace),
+  listAudit: () => ipcRenderer.invoke('gitmanager:listAudit'),
+  exportAuditLogs: (format: 'csv' | 'json' | 'txt') => ipcRenderer.invoke('gitmanager:exportAuditLogs', format),
+  getSettings: () => ipcRenderer.invoke('gitmanager:getSettings'),
+  saveSettings: (settings: AppSettings) => ipcRenderer.invoke('gitmanager:saveSettings', settings),
+  getAppVersion: () => ipcRenderer.invoke('gitmanager:getAppVersion'),
+  exportConfig: (extras?: ConfigExtras) => ipcRenderer.invoke('gitmanager:exportConfig', extras),
+  importConfig: (confirmReplace?: boolean) => ipcRenderer.invoke('gitmanager:importConfig', confirmReplace),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
-    ipcRenderer.on('branchpulse:scan-progress', listener)
-    return () => ipcRenderer.removeListener('branchpulse:scan-progress', listener)
+    ipcRenderer.on('gitmanager:scan-progress', listener)
+    return () => ipcRenderer.removeListener('gitmanager:scan-progress', listener)
   },
   onNavigate: (callback: (route: string) => void) => {
     const listener = (_e: unknown, route: string): void => callback(route)
-    ipcRenderer.on('branchpulse:navigate', listener)
-    return () => ipcRenderer.removeListener('branchpulse:navigate', listener)
+    ipcRenderer.on('gitmanager:navigate', listener)
+    return () => ipcRenderer.removeListener('gitmanager:navigate', listener)
   }
 }
 
-contextBridge.exposeInMainWorld('branchpulse', api)
+contextBridge.exposeInMainWorld('gitmanager', api)

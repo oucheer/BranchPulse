@@ -10,7 +10,7 @@ import { newId } from '../utils/ids'
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
   return {
     id: String(row.id),
-    name: String(row.name ?? 'BranchPulse Report'),
+    name: String(row.name ?? 'GitManager Report'),
     repositoryId: (row.repository_id as string | null) ?? null,
     frequency: ((row.frequency as ReportScheduleFrequency) ?? 'daily'),
     time: String(row.time ?? '09:00'),

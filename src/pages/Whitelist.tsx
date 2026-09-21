@@ -32,9 +32,9 @@ export default function Whitelist(): JSX.Element {
       for (const branch of branches) {
         const type: ProtectionEntry['type'] = /[*?]/.test(branch) ? 'glob' : 'exact'
         if (kind === 'whitelist') {
-          await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
+          await window.gitmanager.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         } else {
-          await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
+          await window.gitmanager.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         }
       }
       toast(`已导入 ${branches.length} 个分支到${kind === 'whitelist' ? '白名单' : '保护列表'}`, 'success')
@@ -49,9 +49,9 @@ export default function Whitelist(): JSX.Element {
   const remove = async (id: string, kind: 'whitelist' | 'protected'): Promise<void> => {
     try {
       if (kind === 'whitelist') {
-        await window.branchpulse.removeWhitelist(id, activeRepositoryId)
+        await window.gitmanager.removeWhitelist(id, activeRepositoryId)
       } else {
-        await window.branchpulse.removeProtected(id, activeRepositoryId)
+        await window.gitmanager.removeProtected(id, activeRepositoryId)
       }
       toast('Removed', 'success')
       void refresh()
@@ -64,9 +64,9 @@ export default function Whitelist(): JSX.Element {
     if (!form.pattern) return
     try {
       if (addMode === 'whitelist') {
-        await window.branchpulse.addWhitelist({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
+        await window.gitmanager.addWhitelist({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       } else {
-        await window.branchpulse.addProtected({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
+        await window.gitmanager.addProtected({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       }
       toast('Added', 'success')
       setAddOpen(false)

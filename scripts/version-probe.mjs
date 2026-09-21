@@ -1,7 +1,7 @@
 /**
  * Version display probe.
  *
- * The sidebar footer used to hardcode `BranchPulse v0.1.1`, so the displayed
+ * The sidebar footer used to hardcode `GitManager v0.1.1`, so the displayed
  * version never followed `package.json` and the shipped exe. This probe checks
  * that the running build reports the real version through IPC and renders it.
  *
@@ -55,7 +55,7 @@ const check = (name, ok, detail) => {
 await evaluate("location.hash = '/'")
 await new Promise((resolve) => setTimeout(resolve, 900))
 
-const ipcVersion = await evaluate('window.branchpulse.getAppVersion()')
+const ipcVersion = await evaluate('window.gitmanager.getAppVersion()')
 check('the main process reports a non-empty version', typeof ipcVersion === 'string' && ipcVersion.length > 0, ipcVersion)
 
 if (expected) {

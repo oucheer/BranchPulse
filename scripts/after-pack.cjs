@@ -19,17 +19,17 @@ exports.default = async function afterPack(context) {
   const iconPath = path.join(__dirname, '..', 'build', 'icon.ico')
   const rceditPath = path.join(__dirname, '..', 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe')
   execFileSync(rceditPath, [exePath, '--set-icon', iconPath], { stdio: 'ignore' })
-  console.log(`[branchpulse] set exe icon: ${exePath}`)
+  console.log(`[gitmanager] set exe icon: ${exePath}`)
   await flipFusesForExe(exePath)
-  console.log(`[branchpulse] flipped Electron fuses: ${exePath}`)
+  console.log(`[gitmanager] flipped Electron fuses: ${exePath}`)
 }
 
 exports.flipFusesForExe = flipFusesForExe
 
 if (require.main === module) {
-  const target = process.argv[2] || path.join(__dirname, '..', 'release', 'win-unpacked', 'BranchPulse.exe')
+  const target = process.argv[2] || path.join(__dirname, '..', 'release', 'win-unpacked', 'GitManager.exe')
   flipFusesForExe(path.resolve(target))
-    .then(() => console.log(`[branchpulse] flipped Electron fuses: ${path.resolve(target)}`))
+    .then(() => console.log(`[gitmanager] flipped Electron fuses: ${path.resolve(target)}`))
     .catch((error) => {
       console.error(error)
       process.exit(1)

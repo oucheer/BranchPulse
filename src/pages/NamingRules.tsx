@@ -54,7 +54,7 @@ export default function NamingRules(): JSX.Element {
 
   const save = async (rule: Partial<NamingRule> & { id?: string }): Promise<void> => {
     try {
-      await window.branchpulse.saveNamingRule({ ...rule, repositoryId: activeRepositoryId })
+      await window.gitmanager.saveNamingRule({ ...rule, repositoryId: activeRepositoryId })
       toast(tr('saved'), 'success')
       setEditRule(null)
       void refresh()
@@ -65,7 +65,7 @@ export default function NamingRules(): JSX.Element {
 
   const remove = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteNamingRule(id, activeRepositoryId)
+      await window.gitmanager.deleteNamingRule(id, activeRepositoryId)
       toast('Rule deleted', 'success')
       void refresh()
     } catch (err) {
@@ -75,7 +75,7 @@ export default function NamingRules(): JSX.Element {
 
   const reorder = async (id: string, direction: -1 | 1): Promise<void> => {
     try {
-      await window.branchpulse.reorderNamingRule(id, direction, activeRepositoryId)
+      await window.gitmanager.reorderNamingRule(id, direction, activeRepositoryId)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -85,7 +85,7 @@ export default function NamingRules(): JSX.Element {
   const validate = async (): Promise<void> => {
     if (!validateName) return
     try {
-      const result = await window.branchpulse.validateBranchName(validateName, activeRepositoryId)
+      const result = await window.gitmanager.validateBranchName(validateName, activeRepositoryId)
       setValidationResult(result)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')

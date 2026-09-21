@@ -98,7 +98,7 @@ export default function Audit(): JSX.Element {
   const exportLogs = async (format: 'csv' | 'json' | 'txt'): Promise<void> => {
     setExporting(true)
     try {
-      const result = await window.branchpulse.exportAuditLogs(format)
+      const result = await window.gitmanager.exportAuditLogs(format)
       if (!result.ok) {
         toast(result.error || '审计日志导出失败', 'error')
         return

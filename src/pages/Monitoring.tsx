@@ -39,7 +39,7 @@ export default function Monitoring(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
+      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -51,7 +51,7 @@ export default function Monitoring(): JSX.Element {
 
   const toggleMonitoring = async (enabled: boolean): Promise<void> => {
     try {
-      await window.branchpulse.saveMonitoring({ ...monitoring, enabled }, activeRepositoryId)
+      await window.gitmanager.saveMonitoring({ ...monitoring, enabled }, activeRepositoryId)
       toast(enabled ? '监控已开启' : '监控已关闭', 'success')
       void refresh()
     } catch (err) {
@@ -64,8 +64,8 @@ export default function Monitoring(): JSX.Element {
     setScanning(true)
     suppressDraftSync.current = true
     try {
-      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
-      const run = await window.branchpulse.runCheckNow({
+      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
+      const run = await window.gitmanager.runCheckNow({
         bypassEnabledCheck: true,
         notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',

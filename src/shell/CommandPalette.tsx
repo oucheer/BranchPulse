@@ -91,7 +91,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
     if (action === 'runCheck') {
       setScanning(true)
       try {
-        const run = await window.branchpulse.runCheckNow({ bypassEnabledCheck: true, trigger: 'manual' })
+        const run = await window.gitmanager.runCheckNow({ bypassEnabledCheck: true, trigger: 'manual' })
         toast(`Check complete: ${run.branches} branches analyzed`, 'success')
       } catch (err) {
         toast(err instanceof Error ? err.message : String(err), 'error')
@@ -101,7 +101,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
       }
     } else if (action === 'report') {
       try {
-        await window.branchpulse.generateReport('on-demand', 'html')
+        await window.gitmanager.generateReport('on-demand', 'html')
         toast('Report generated', 'success')
         void refresh()
       } catch (err) {
@@ -161,7 +161,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onInputKeyDown}
                 className="flex-1 bg-transparent text-sm text-canvas-fg outline-none placeholder:text-muted"
-                placeholder={language === 'zh' ? '搜索 BranchPulse...' : 'Search BranchPulse...'}
+                placeholder={language === 'zh' ? '搜索 GitManager...' : 'Search GitManager...'}
               />
             </div>
             {/* Results */}

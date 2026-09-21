@@ -184,7 +184,7 @@ function textToHtml(subject: string, body: string, lang: EmailLang = 'zh'): stri
     <h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(subject)}</h2>
     ${content}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
   </div>
 </body></html>`
 }
@@ -243,7 +243,7 @@ function htmlEmailShell(subject: string, body: string, lang: EmailLang = 'zh'): 
     ${body}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${formatDateTime(new Date().toISOString(), lang)}</div>
   </div>
 </body></html>`
 }
@@ -478,7 +478,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     ${sections.join('')}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
-    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 BranchPulse 自动发送' : 'Sent by BranchPulse'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
+    <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
 }
@@ -525,8 +525,8 @@ export function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEma
 
   if (scenario === 'naming') {
     const subject = zh
-      ? `【BranchPulse】${count} 个分支命名不符合规范，请修改`
-      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} need renaming`
+      ? `【GitManager】${count} 个分支命名不符合规范，请修改`
+      : `GitManager: ${count} branch${count === 1 ? '' : 'es'} need renaming`
     const body = zh
       ? `<p>以下 ${count} 个分支命名不符合规范${repoContext}，请按规范重命名后重新推送：</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
       : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} do not follow the naming rules:</p>${gitCommands}${namingRules}${scenarioRowsTable(rows, lang, scenario)}`
@@ -534,8 +534,8 @@ export function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEma
   }
 
   const subject = zh
-    ? `【BranchPulse】${count} 个分支已停更，请及时处理`
-    : `BranchPulse: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
+    ? `【GitManager】${count} 个分支已停更，请及时处理`
+    : `GitManager: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
   const body = zh
     ? `<p>以下 ${count} 个分支已停更${repoContext}。为避免进入清理候选，请合并、归档或继续提交：</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
     : `<p>The following ${count} stale branch${count === 1 ? '' : 'es'}${repoContext} need attention. Merge, archive, or push a new commit:</p>${scenarioRowsTable(rows, lang, scenario)}`
@@ -651,7 +651,7 @@ export class EmailService {
   getTemplate(kind: string): { subject: string; body: string } {
     const row = this.storage.get<Record<string, unknown>>('SELECT subject, body FROM email_templates WHERE kind = ?', [kind])
     if (row) return { subject: String(row.subject), body: String(row.body) }
-    return { subject: 'BranchPulse Notification', body: '{{branch}} needs attention.' }
+    return { subject: 'GitManager Notification', body: '{{branch}} needs attention.' }
   }
 
   renderTemplate(kind: string, data: Record<string, unknown>): { subject: string; body: string } {
@@ -666,8 +666,8 @@ export class EmailService {
 
   private async runOutlookScript(script: string, payload?: Record<string, unknown>): Promise<string> {
     if (process.platform !== 'win32') throw new Error('本机 Outlook 发送仅支持 Windows。')
-    const scriptPath = path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.ps1`)
-    const payloadPath = payload ? path.join(app.getPath('temp'), `branchpulse-outlook-${newId()}.json`) : ''
+    const scriptPath = path.join(app.getPath('temp'), `gitmanager-outlook-${newId()}.ps1`)
+    const payloadPath = payload ? path.join(app.getPath('temp'), `gitmanager-outlook-${newId()}.json`) : ''
     if (payload) fs.writeFileSync(payloadPath, Buffer.from(JSON.stringify(payload, null, 2), 'utf8'))
     const args = payload ? [payloadPath] : []
     // Windows PowerShell 5.1 requires UTF-8 BOM to parse non-ASCII content correctly.
@@ -782,10 +782,10 @@ export class EmailService {
     try {
       await this.sendWithOutlook({
         to: [testRecipient],
-        subject: lang === 'zh' ? 'BranchPulse 测试邮件' : 'BranchPulse Test Email',
+        subject: lang === 'zh' ? 'GitManager 测试邮件' : 'GitManager Test Email',
         body: lang === 'zh'
-          ? '这是来自 BranchPulse 的测试邮件，本机 Outlook 发送正常。'
-          : 'This is a test email from BranchPulse. Local Outlook delivery is working.',
+          ? '这是来自 GitManager 的测试邮件，本机 Outlook 发送正常。'
+          : 'This is a test email from GitManager. Local Outlook delivery is working.',
         lang
       })
       this.audit.record('email_test_sent', { to: testRecipient }, 'success')
@@ -817,7 +817,7 @@ export class EmailService {
     try {
       await this.sendWithOutlook({
         to: recipientList,
-        subject: lang === 'zh' ? 'BranchPulse 分支治理汇总' : 'BranchPulse Branch Summary',
+        subject: lang === 'zh' ? 'GitManager 分支治理汇总' : 'GitManager Branch Summary',
         body: '',
         html: buildBranchEmailHtml(data, lang, 'summary')
       })

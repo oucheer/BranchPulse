@@ -1,6 +1,6 @@
 # AGENT.md
 
-本文件记录 BranchPulse 多轮开发、修复与冒烟验证中沉淀的经验和固定规则。后续会话开始前应先阅读本文件；会话中出现新的通用经验、应用红线或常用验证方法时，应更新到这里。
+本文件记录 GitManager 多轮开发、修复与冒烟验证中沉淀的经验和固定规则。后续会话开始前应先阅读本文件；会话中出现新的通用经验、应用红线或常用验证方法时，应更新到这里。
 
 ## 工作流约定
 
@@ -31,7 +31,7 @@
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
 - 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。
 - 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
-- 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 BranchPulse 的统一文案。
+- 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 GitManager 的统一文案。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
 - 定时调度周期支持 `周`、`天`、`小时`、`分钟`；内部存储保持分钟字段兼容。
 - 界面语言必须全局一致：托盘菜单、侧边栏分组标题、筛选按钮、设置卡片标题等所有用户可见文本都必须走 `tr()`，不允许硬编码英文。托盘菜单语言跟随 `settings.language`，保存设置后立即重建菜单。
@@ -39,15 +39,15 @@
 
 ## 构建与打包
 
-- 对齐邮件正文和 HTML 报告结构时使用的参考项目克隆在 `.tmp-git-management-ref/`（`oucheer/git-management`，Python 版 BranchGuardian，约 0.8MB，已被 `.gitignore` 忽略）。不要提交它，也不要把它当成 BranchPulse 的源码。
+- 对齐邮件正文和 HTML 报告结构时使用的参考项目克隆在 `.tmp-git-management-ref/`（`oucheer/git-management`，Python 版 BranchGuardian，约 0.8MB，已被 `.gitignore` 忽略）。不要提交它，也不要把它当成 GitManager 的源码。
 
 - 常用命令：
   - 类型检查：`npm run typecheck`
   - 单元测试：`npm run test -- --run`
   - 完整打包：`npm run package`
   - 快速本地验证：`npm run package:dir`
-- 完整打包输出位于 `release/`，安装包为 `BranchPulse-<version>-x64.exe`，便携包为 `BranchPulse-Portable-<version>.exe`。
-- 验证打包结果时不要只看构建成功日志，要确认新 exe 的时间戳和体积；`release/win-unpacked/BranchPulse.exe` 更适合快速启动冒烟。
+- 完整打包输出位于 `release/`，安装包为 `GitManager-<version>-x64.exe`，便携包为 `GitManager-Portable-<version>.exe`。
+- 验证打包结果时不要只看构建成功日志，要确认新 exe 的时间戳和体积；`release/win-unpacked/GitManager.exe` 更适合快速启动冒烟。
 - 空白屏类问题必须在真实打包产物中验证，不能只依赖 dev server。用户重复出现空白屏时，先确认运行的确实是最新的安装包或便携包。
 
 ## 冒烟与回归验证
@@ -57,12 +57,12 @@
   2. 黑盒验证：按用户路径操作页面，不依赖实现细节。
   3. 冒烟验证：隔离用户数据目录启动新包，遍历主要路由，确认不空白、主内容渲染、术语正确。
   4. 回归验证：覆盖之前修复过的缺陷，尤其是动效、术语、筛选、监控配置、通知开关、报告文件和 Token 持久化。
-- Electron 单实例锁会阻止第二个实例。冒烟测试必须设置独立的 `BRANCHPULSE_USER_DATA_DIR`，例如使用 `.tmp-branchpulse-smoke/userdata`，并通过 `--remote-debugging-port=9335` 连接 CDP。
-- 冒烟启动用 `scripts/run-smoke.ps1`（隔离 userdata、`-WindowStyle Hidden`、打印 PID 与 CDP 地址），随后跑 `node scripts/smoke-cdp.mjs`。`run-smoke.ps1` 里的 `$env:BRANCHPULSE_USER_DATA_DIR` 只对子进程生效，不要指望它改变当前 shell 之后的行为。
+- Electron 单实例锁会阻止第二个实例。冒烟测试必须设置独立的 `GITMANAGER_USER_DATA_DIR`，例如使用 `.tmp-gitmanager-smoke/userdata`，并通过 `--remote-debugging-port=9335` 连接 CDP。
+- 冒烟启动用 `scripts/run-smoke.ps1`（隔离 userdata、`-WindowStyle Hidden`、打印 PID 与 CDP 地址），随后跑 `node scripts/smoke-cdp.mjs`。`run-smoke.ps1` 里的 `$env:GITMANAGER_USER_DATA_DIR` 只对子进程生效，不要指望它改变当前 shell 之后的行为。
 - Node 24 自带全局 `WebSocket`，可以直接连接 CDP，不需要为冒烟脚本额外安装依赖。
 - 这个应用的 `Page.captureScreenshot` 可能被 3D 场景阻塞或挂起。视觉截图优先使用系统级窗口截图，例如 PowerShell `CopyFromScreen`，不要把 CDP 截图作为唯一手段。
 - 冒烟脚本应抓取路由完整 `innerText`，扫描禁止术语和重复开关，并检查关键控件的选中值。截图只能确认视觉布局，不能替代文本检查。
-- 冒烟实例不要直接批量杀 BranchPulse 进程，可能误伤用户已打开的实例。只关闭由独立用户数据目录启动、可识别的冒烟进程。
+- 冒烟实例不要直接批量杀 GitManager 进程，可能误伤用户已打开的实例。只关闭由独立用户数据目录启动、可识别的冒烟进程。
 - 截图只能证明视觉布局，锁屏或后台窗口会让 `CopyFromScreen` 拍到无关画面。此时改用产物字符串校验做白盒确认：直接在 `release/win-unpacked/resources/app.asar` 中搜索本次新增的中文文案或 CSS 变量值，命中即说明修复真的进入了安装包。
 - 用户报告“已修复但现象仍在”时，第一步比对 exe 时间戳与对应 commit 时间戳。产物早于 commit 说明运行的不是新包，不要先怀疑代码。
 
@@ -91,8 +91,8 @@
 - 托盘菜单是主进程用 `Menu.buildFromTemplate` 手工构造的，不会随 i18n 自动更新。新增或修改用户可见菜单项时，必须同步维护中英文 label 并在设置保存回调里 `setContextMenu` 重建。
 - 窗口 `close` 事件里无条件 `event.preventDefault()` 会拦截 `app.quit()`，表现为点击“退出”后应用关不掉。必须用 `isQuitting` 标志区分“用户关窗口”和“应用退出”。
 - 只重建不覆盖安装，会让用户继续打开旧副本，表现成“重新打包后仍然空白”。必须核对产物时间戳并明确用户应运行的新包路径。
-- `npm run package` 会在打包前清空并重写 `release/win-unpacked/`。只要有旧实例还在从该目录运行，就会报 `EBUSY: resource busy or locked, unlink 'release\win-unpacked\icudtl.dat'`。打包前先确认并退出 `release\win-unpacked\BranchPulse.exe` 实例；不要再三重复尝试，先解决文件锁。
-- `npm run package` 偶发在 `after-pack.cjs` 的 `rcedit --set-icon` 步骤失败退出，但 `release/win-unpacked/` 已经写入了 Electron 本体。这种失败是文件句柄/杀软扫描的瞬时占用，不是配置错误：先手动执行 `.\node_modules\rcedit\bin\rcedit-x64.exe release\win-unpacked\BranchPulse.exe --set-icon build\icon.ico` 确认返回 0，再重跑 `npm run package` 即可通过。重跑后务必核对 `release/*.exe` 时间戳晚于本次 commit。
+- `npm run package` 会在打包前清空并重写 `release/win-unpacked/`。只要有旧实例还在从该目录运行，就会报 `EBUSY: resource busy or locked, unlink 'release\win-unpacked\icudtl.dat'`。打包前先确认并退出 `release\win-unpacked\GitManager.exe` 实例；不要再三重复尝试，先解决文件锁。
+- `npm run package` 偶发在 `after-pack.cjs` 的 `rcedit --set-icon` 步骤失败退出，但 `release/win-unpacked/` 已经写入了 Electron 本体。这种失败是文件句柄/杀软扫描的瞬时占用，不是配置错误：先手动执行 `.\node_modules\rcedit\bin\rcedit-x64.exe release\win-unpacked\GitManager.exe --set-icon build\icon.ico` 确认返回 0，再重跑 `npm run package` 即可通过。重跑后务必核对 `release/*.exe` 时间戳晚于本次 commit。
 - 概念相似但文案不同的生命周期状态，会在仪表盘、分支列表、分支详情、报告、邮件、审计导出中出现不一致。文案修改要用仓库级搜索收尾。
 - 配置回灌是高危路径：立即检查、表单刷新或页面重新加载时把数据库旧值写回表单，会让用户误以为开关或默认值被自动重置。
 - 报告文件存在但用户找不到，等同于功能失败。新增或修改报告输出时必须验证真实磁盘路径。
@@ -122,9 +122,9 @@
 
 - **提交前先确认当前分支**：`git rev-parse --abbrev-ref HEAD`。本项目多次出现 HEAD 被切到 `pantum` 而非 `main`，导致 commit 落在错误分支上。发现错位后用 `git checkout main` + `git merge --ff-only <branch>` 归位（提交已在远程 `pantum` 上时也能快进），不要用 rebase 改写已推送历史。
 - 用户要求「推送到远程 + tag 最新 commit」时，先 `git log --oneline <tag>..HEAD` 确认 tag 是否落后，再 `git tag -f V0.1.x <sha>` 并 `git push origin main --follow-tags`（或 `git push -f origin V0.1.x`）。
-- **绝不要按进程名批量杀 `BranchPulse.exe` / `electron.exe`**。用户可能同时开着自己的实例，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里的 `--user-data-dir` 是否指向 `.tmp-*` 冒烟目录，或直接用 `scripts\run-smoke.ps1` 打印的 PID 加 `taskkill /PID <pid> /T`。
-- `npm run package` 前必须先确认没有实例占用 `release\win-unpacked\`：`Get-CimInstance Win32_Process -Filter "Name='BranchPulse.exe'"` 看 `CommandLine`，指向 `release\win-unpacked` 的才是需要退出的，`.tmp-*\userdata` 的是冒烟实例。
-- 工作区长期存在几个无关未跟踪文件（`BranchPulse-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
+- **绝不要按进程名批量杀 `GitManager.exe` / `electron.exe`**。用户可能同时开着自己的实例，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里的 `--user-data-dir` 是否指向 `.tmp-*` 冒烟目录，或直接用 `scripts\run-smoke.ps1` 打印的 PID 加 `taskkill /PID <pid> /T`。
+- `npm run package` 前必须先确认没有实例占用 `release\win-unpacked\`：`Get-CimInstance Win32_Process -Filter "Name='GitManager.exe'"` 看 `CommandLine`，指向 `release\win-unpacked` 的才是需要退出的，`.tmp-*\userdata` 的是冒烟实例。
+- 工作区长期存在几个无关未跟踪文件（`GitManager-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
 
 ## 定时调度
 

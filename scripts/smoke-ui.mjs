@@ -180,7 +180,7 @@ await navigate('/monitoring')
 await waitFor('() => location.hash === "#/monitoring"', 'monitoring')
 await waitFor('() => document.body.innerText.includes("未提交阈值") && document.querySelectorAll("select").length >= 2', 'monitoring form')
 const monitoringBefore = await evaluate(`(() => ({
-  activeRepositoryId: localStorage.getItem('branchpulse:activeRepositoryId'),
+  activeRepositoryId: localStorage.getItem('gitmanager:activeRepositoryId'),
   text: document.body.innerText.slice(0, 800),
   thresholdOptions: [...document.querySelectorAll('.label')].find(el => el.textContent.includes('未提交阈值'))?.parentElement.querySelectorAll('select option').length || 0,
   unitOptions: [...document.querySelectorAll('.label')].find(el => el.textContent.includes('单位'))?.parentElement.querySelectorAll('select option').length || 0

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { readStorage } from './legacyKeys'
 
 export type EffectKey = 'ambientBackground' | 'splashCursor' | 'clickSpark' | 'depthText' | 'particleSplash'
 
@@ -11,8 +12,10 @@ export interface EffectSettings {
   particleSplash: boolean
 }
 
-const STORAGE_KEY = 'branchpulse:effectSettings'
-const CHANGE_EVENT = 'branchpulse:effect-settings-change'
+const STORAGE_KEY = 'gitmanager:effectSettings'
+const CHANGE_EVENT = 'gitmanager:effect-settings-change'
+const LEGACY_STORAGE_KEY = 'branchpulse:effectSettings'
+const LEGACY_CHANGE_EVENT = 'branchpulse:effect-settings-change'
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const GL_RENDERER = 0x1f01
@@ -61,7 +64,7 @@ export function computeWebGLAvailable(): boolean {
 
 export function readEffectSettings(): EffectSettings {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = readStorage(STORAGE_KEY, LEGACY_STORAGE_KEY)
     if (raw === cachedRaw && cachedSettings !== null) return cachedSettings
     if (!raw) {
       cachedRaw = null

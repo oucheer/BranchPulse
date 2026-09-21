@@ -48,10 +48,10 @@ function Run-Case {
   )
   $stdout = "D:\Apps\codex\files\git-management-3\.dbg-$Tag-out.log"
   $stderr = "D:\Apps\codex\files\git-management-3\.dbg-$Tag-err.log"
-  $logFile = "$env:APPDATA\branchpulse\logs\branchpulse-2026-09-03.log"
+  $logFile = "$env:APPDATA\gitmanager\logs\gitmanager-2026-09-03.log"
   Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
   if (Test-Path $logFile) { Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue }
-  Get-Process -Name BranchPulse, branchpulse-stock -ErrorAction SilentlyContinue | Stop-Process -Force
+  Get-Process -Name GitManager, gitmanager-stock -ErrorAction SilentlyContinue | Stop-Process -Force
   Start-Sleep -Seconds 2
 
   Write-Output "=== CASE $Tag ==="
@@ -65,10 +65,10 @@ function Run-Case {
     return
   }
   Start-Sleep -Seconds 9
-  $procs = Get-Process -Name BranchPulse, branchpulse-stock -ErrorAction SilentlyContinue
+  $procs = Get-Process -Name GitManager, gitmanager-stock -ErrorAction SilentlyContinue
   Write-Output "process_count=$($procs.Count)"
   $procs | ForEach-Object { Write-Output ("proc id={0} name={1} title={2}" -f $_.Id, $_.ProcessName, $_.MainWindowTitle) }
-  $all = Get-CimInstance Win32_Process -Filter "Name = 'BranchPulse.exe' OR Name = 'branchpulse-stock.exe'"
+  $all = Get-CimInstance Win32_Process -Filter "Name = 'GitManager.exe' OR Name = 'gitmanager-stock.exe'"
   $renderers = $all | Where-Object { $_.CommandLine -like '*--type=renderer*' }
   Write-Output "renderer_count=$($renderers.Count)"
   foreach ($proc in $procs) {
@@ -90,18 +90,18 @@ function Run-Case {
     Get-Content -LiteralPath $stderr -Tail 50
   }
   Remove-Item Env:ELECTRON_ENABLE_LOGGING -ErrorAction SilentlyContinue
-  Get-Process -Name BranchPulse, branchpulse-stock -ErrorAction SilentlyContinue | Stop-Process -Force
+  Get-Process -Name GitManager, gitmanager-stock -ErrorAction SilentlyContinue | Stop-Process -Force
   Start-Sleep -Seconds 2
 }
 
 $unpacked = "D:\Apps\codex\files\git-management-3\release\win-unpacked"
-$stock = Join-Path $unpacked "branchpulse-stock.exe"
+$stock = Join-Path $unpacked "gitmanager-stock.exe"
 if (-not (Test-Path $stock)) {
   Copy-Item -LiteralPath "D:\Apps\codex\files\git-management-3\node_modules\electron\dist\electron.exe" -Destination $stock
 }
 
 Run-Case -Exe $stock -ArgsList @("--no-sandbox", "--enable-logging") -Tag "stock"
-Run-Case -Exe "D:\Apps\codex\files\git-management-3\release\win-unpacked\BranchPulse.exe" -ArgsList @("--no-sandbox", "--enable-logging") -Tag "packed"
-Run-Case -Exe "D:\Apps\codex\files\git-management-3\release\win-unpacked\BranchPulse.exe" -ArgsList @("D:\Apps\codex\files\git-management-3\release\win-unpacked\resources\app.asar", "--no-sandbox", "--enable-logging") -Tag "packedasar"
+Run-Case -Exe "D:\Apps\codex\files\git-management-3\release\win-unpacked\GitManager.exe" -ArgsList @("--no-sandbox", "--enable-logging") -Tag "packed"
+Run-Case -Exe "D:\Apps\codex\files\git-management-3\release\win-unpacked\GitManager.exe" -ArgsList @("D:\Apps\codex\files\git-management-3\release\win-unpacked\resources\app.asar", "--no-sandbox", "--enable-logging") -Tag "packedasar"
 
 Write-Output "ALL DONE"

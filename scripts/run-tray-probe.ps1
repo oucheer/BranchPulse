@@ -13,11 +13,11 @@ Usage:
 param(
   [int]$MainPort = 9338,
   [int]$RendererPort = 9339,
-  [string]$UserData = "$PSScriptRoot\..\.tmp-branchpulse-tray6\userdata"
+  [string]$UserData = "$PSScriptRoot\..\.tmp-gitmanager-tray6\userdata"
 )
 
 New-Item -ItemType Directory -Force -Path $UserData | Out-Null
-$env:BRANCHPULSE_USER_DATA_DIR = (Resolve-Path $UserData).Path
+$env:GITMANAGER_USER_DATA_DIR = (Resolve-Path $UserData).Path
 
 $electron = "$PSScriptRoot\..\node_modules\electron\dist\electron.exe"
 $proc = Start-Process -FilePath (Resolve-Path $electron).Path `

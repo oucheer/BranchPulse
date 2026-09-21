@@ -51,7 +51,7 @@ export default function App(): JSX.Element {
   const splashParticlesEnabled = isEffectOn(effectSettings, 'particleSplash')
   const location = useLocation()
   const navigate = useNavigate()
-  const desktopAvailable = typeof window !== 'undefined' && Boolean(window.branchpulse)
+  const desktopAvailable = typeof window !== 'undefined' && Boolean(window.gitmanager)
   const [splashDone, setSplashDone] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
 
@@ -76,7 +76,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!desktopAvailable) return
-    return window.branchpulse.onNavigate((route) => navigate(route))
+    return window.gitmanager.onNavigate((route) => navigate(route))
   }, [desktopAvailable, navigate])
 
   useEffect(() => {
@@ -103,9 +103,9 @@ export default function App(): JSX.Element {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
         <div className="text-center">
-          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
+          <div className="mb-3 text-3xl font-bold text-primary">GitManager</div>
           <div className="text-sm text-muted">
-            BranchPulse is a desktop application. Launch the installed app instead of opening this URL in a browser.
+            GitManager is a desktop application. Launch the installed app instead of opening this URL in a browser.
           </div>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function App(): JSX.Element {
           <>
             <div className="absolute inset-0">
               <ParticleText
-                text="BranchPulse"
+                text="GitManager"
                 duration={2600}
                 onComplete={() => {
                   if (ready) setSplashDone(true)
@@ -137,7 +137,7 @@ export default function App(): JSX.Element {
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="text-4xl font-bold text-canvas-fg">BranchPulse</div>
+            <div className="text-4xl font-bold text-canvas-fg">GitManager</div>
             {!ready ? (
               <div className="mt-4 text-sm font-medium text-muted">Loading...</div>
             ) : null}
@@ -151,7 +151,7 @@ export default function App(): JSX.Element {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
         <div className="text-center">
-          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
+          <div className="mb-3 text-3xl font-bold text-primary">GitManager</div>
           <div className="text-sm text-danger">{startupError}</div>
         </div>
       </div>
@@ -162,7 +162,7 @@ export default function App(): JSX.Element {
     return (
       <div className="flex h-screen items-center justify-center bg-canvas">
         <div className="text-center">
-          <div className="mb-3 text-3xl font-bold text-primary">BranchPulse</div>
+          <div className="mb-3 text-3xl font-bold text-primary">GitManager</div>
           <div className="text-sm text-muted">Loading...</div>
         </div>
       </div>

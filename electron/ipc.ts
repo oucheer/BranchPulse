@@ -142,11 +142,11 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
 
   services.monitoring.onProgress = (progress) => {
     for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('branchpulse:scan-progress', progress)
+      win.webContents.send('gitmanager:scan-progress', progress)
     }
   }
 
-  ipcMain.handle('branchpulse:init', async (): Promise<DashboardSnapshot> => {
+  ipcMain.handle('gitmanager:init', async (): Promise<DashboardSnapshot> => {
     const currentSettings = settings.get()
     const activeRepositoryId = currentSettings.activeRepositoryId
     const scanRuns = listScanRuns(activeRepositoryId, 50)
@@ -210,29 +210,29 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
 
   // --- IPC handlers ---
 
-  ipcMain.handle('branchpulse:addGitLabRepository', (_e, projectId: number, config?: GitLabConnectionConfig): Promise<Repository> =>
+  ipcMain.handle('gitmanager:addGitLabRepository', (_e, projectId: number, config?: GitLabConnectionConfig): Promise<Repository> =>
     repository.addGitLab(projectId, config).then((repo) => {
       audit.record('repository_added', { repository: repo.name, url: repo.webUrl })
       return repo
     }))
-  ipcMain.handle('branchpulse:listGitLabProjects', (_e, config?: GitLabConnectionConfig): Promise<GitLabProject[]> =>
+  ipcMain.handle('gitmanager:listGitLabProjects', (_e, config?: GitLabConnectionConfig): Promise<GitLabProject[]> =>
     gitlab.listProjects(config))
-  ipcMain.handle('branchpulse:testGitLabConnection', (_e, config?: GitLabConnectionConfig): Promise<GitLabTestResult> =>
+  ipcMain.handle('gitmanager:testGitLabConnection', (_e, config?: GitLabConnectionConfig): Promise<GitLabTestResult> =>
     gitlab.testConnection(config))
-  ipcMain.handle('branchpulse:removeRepository', (_e, id: string): Repository[] => {
+  ipcMain.handle('gitmanager:removeRepository', (_e, id: string): Repository[] => {
     const repo = repository.get(id)
     const next = repository.remove(id)
     audit.record('repository_removed', { repository: repo?.name ?? id })
     return next
   })
-  ipcMain.handle('branchpulse:listRepositories', (): Repository[] => repository.list())
-  ipcMain.handle('branchpulse:scanRepository', (_e, id: string, fetch?: boolean): Promise<ScanRun> =>
+  ipcMain.handle('gitmanager:listRepositories', (): Repository[] => repository.list())
+  ipcMain.handle('gitmanager:scanRepository', (_e, id: string, fetch?: boolean): Promise<ScanRun> =>
     monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository', bypassEnabledCheck: true }).then((run) => {
       const repo = repository.get(id)
       audit.record('repository_scanned', { repository: repo?.name ?? id, branches: run.branches, stale: run.stale })
       return run
     }))
-  ipcMain.handle('branchpulse:runCheckNow', async (_e, options: RunCheckOptions = {}): Promise<ScanRun> => {
+  ipcMain.handle('gitmanager:runCheckNow', async (_e, options: RunCheckOptions = {}): Promise<ScanRun> => {
     try {
       const run = await monitoring.runCheckNow(options)
       audit.record('check_requested', { trigger: options.trigger ?? 'manual', branches: run.branches, emailsSent: run.emailsSent })
@@ -245,13 +245,13 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       throw err
     }
   })
-  ipcMain.handle('branchpulse:listBranches', (): BranchSummary[] => branch.listBranches())
-  ipcMain.handle('branchpulse:getBranch', (_e, criteria: BranchCriteria): Promise<BranchSummary | null> => branch.getBranch(criteria))
-  ipcMain.handle('branchpulse:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
-  ipcMain.handle('branchpulse:notifyBranchesEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifyBranchesEmail(bs))
-  ipcMain.handle('branchpulse:notifySelfEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifySelfEmail(bs))
-  ipcMain.handle('branchpulse:listNamingRules', (_e, repositoryId?: string | null): NamingRule[] => naming.listRules(repositoryId))
-  ipcMain.handle('branchpulse:saveNamingRule', (_e, rule: Partial<NamingRule> & { id?: string }): NamingRule[] => {
+  ipcMain.handle('gitmanager:listBranches', (): BranchSummary[] => branch.listBranches())
+  ipcMain.handle('gitmanager:getBranch', (_e, criteria: BranchCriteria): Promise<BranchSummary | null> => branch.getBranch(criteria))
+  ipcMain.handle('gitmanager:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
+  ipcMain.handle('gitmanager:notifyBranchesEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifyBranchesEmail(bs))
+  ipcMain.handle('gitmanager:notifySelfEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifySelfEmail(bs))
+  ipcMain.handle('gitmanager:listNamingRules', (_e, repositoryId?: string | null): NamingRule[] => naming.listRules(repositoryId))
+  ipcMain.handle('gitmanager:saveNamingRule', (_e, rule: Partial<NamingRule> & { id?: string }): NamingRule[] => {
     const list = naming.listRules(rule.repositoryId ?? null)
     if (rule.id) {
       const idx = list.findIndex((r) => r.id === rule.id)
@@ -281,7 +281,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     })
     return naming.listRules(rule.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:deleteNamingRule', (_e, id: string, repositoryId?: string | null): NamingRule[] => {
+  ipcMain.handle('gitmanager:deleteNamingRule', (_e, id: string, repositoryId?: string | null): NamingRule[] => {
     const removedRule = storage.get<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE id = ?', [id])
     storage.delete('branch_naming_rules', 'id = ?', [id])
     audit.record('naming_rule_deleted', {
@@ -291,7 +291,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     })
     return naming.listRules(repositoryId)
   })
-  ipcMain.handle('branchpulse:reorderNamingRule', (_e, id: string, direction: -1 | 1, repositoryId?: string | null): NamingRule[] => {
+  ipcMain.handle('gitmanager:reorderNamingRule', (_e, id: string, direction: -1 | 1, repositoryId?: string | null): NamingRule[] => {
     const list = naming.listRules(repositoryId)
     const idx = list.findIndex((r) => r.id === id)
     if (idx < 0 || (direction === -1 && idx === 0) || (direction === 1 && idx === list.length - 1)) return list
@@ -304,48 +304,48 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     storage.update('branch_naming_rules', { priority: swap.priority }, 'id = ?', [swap.id])
     return naming.listRules(repositoryId)
   })
-  ipcMain.handle('branchpulse:validateBranchName', (_e, name: string, repositoryId?: string | null): NamingResult => naming.validate(name, naming.listRules(repositoryId)))
+  ipcMain.handle('gitmanager:validateBranchName', (_e, name: string, repositoryId?: string | null): NamingResult => naming.validate(name, naming.listRules(repositoryId)))
 
-  ipcMain.handle('branchpulse:listWhitelist', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listWhitelist(repositoryId))
-  ipcMain.handle('branchpulse:addWhitelist', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
+  ipcMain.handle('gitmanager:listWhitelist', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listWhitelist(repositoryId))
+  ipcMain.handle('gitmanager:addWhitelist', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
     audit.record('whitelist_added', { pattern: entry.pattern, type: entry.type, repositoryId: entry.repositoryId ?? null })
     return protection.addWhitelist(entry, entry.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:removeWhitelist', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
+  ipcMain.handle('gitmanager:removeWhitelist', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
     const removed = storage.get<Record<string, unknown>>('SELECT * FROM whitelist WHERE id = ?', [id])
     audit.record('whitelist_removed', { id, pattern: String(removed?.pattern ?? '') })
     return protection.removeWhitelist(id, repositoryId)
   })
-  ipcMain.handle('branchpulse:listProtected', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listProtected(repositoryId))
-  ipcMain.handle('branchpulse:addProtected', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
+  ipcMain.handle('gitmanager:listProtected', (_e, repositoryId?: string | null): ProtectionEntry[] => protection.listProtected(repositoryId))
+  ipcMain.handle('gitmanager:addProtected', (_e, entry: Omit<ProtectionEntry, 'id' | 'createdAt'>): ProtectionEntry[] => {
     audit.record('protected_added', { pattern: entry.pattern, type: entry.type, repositoryId: entry.repositoryId ?? null })
     return protection.addProtected(entry, entry.repositoryId ?? null)
   })
-  ipcMain.handle('branchpulse:removeProtected', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
+  ipcMain.handle('gitmanager:removeProtected', (_e, id: string, repositoryId?: string | null): ProtectionEntry[] => {
     const removed = storage.get<Record<string, unknown>>('SELECT * FROM protected_branches WHERE id = ?', [id])
     audit.record('protected_removed', { id, pattern: String(removed?.pattern ?? '') })
     return protection.removeProtected(id, repositoryId)
   })
 
-  ipcMain.handle('branchpulse:listEmailGroups', (): EmailGroup[] => email.listGroups())
-  ipcMain.handle('branchpulse:saveEmailGroup', (_e, group: Partial<EmailGroup> & { id?: string }): EmailGroup[] => email.saveGroup(group))
-  ipcMain.handle('branchpulse:deleteEmailGroup', (_e, id: string): EmailGroup[] => email.deleteGroup(id))
+  ipcMain.handle('gitmanager:listEmailGroups', (): EmailGroup[] => email.listGroups())
+  ipcMain.handle('gitmanager:saveEmailGroup', (_e, group: Partial<EmailGroup> & { id?: string }): EmailGroup[] => email.saveGroup(group))
+  ipcMain.handle('gitmanager:deleteEmailGroup', (_e, id: string): EmailGroup[] => email.deleteGroup(id))
 
-  ipcMain.handle('branchpulse:getMonitoring', (_e, repositoryId?: string | null) => getMonitoring(repositoryId))
-  ipcMain.handle('branchpulse:saveMonitoring', async (_e, config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> => saveMonitoring(config, repositoryId))
+  ipcMain.handle('gitmanager:getMonitoring', (_e, repositoryId?: string | null) => getMonitoring(repositoryId))
+  ipcMain.handle('gitmanager:saveMonitoring', async (_e, config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> => saveMonitoring(config, repositoryId))
 
-  ipcMain.handle('branchpulse:listJobs', (): SchedulerJob[] => scheduler.listJobs())
-  ipcMain.handle('branchpulse:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] => scheduler.saveJob(job))
-  ipcMain.handle('branchpulse:deleteJob', (_e, id: string): SchedulerJob[] => scheduler.deleteJob(id))
-  ipcMain.handle('branchpulse:deleteAllJobs', (): SchedulerJob[] => scheduler.deleteAllJobs())
-  ipcMain.handle('branchpulse:runSchedulerJob', (_e, id: string): Promise<ScanRun> => scheduler.runSchedulerJob(id))
-  ipcMain.handle('branchpulse:listRuns', (): ScanRun[] => {
+  ipcMain.handle('gitmanager:listJobs', (): SchedulerJob[] => scheduler.listJobs())
+  ipcMain.handle('gitmanager:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] => scheduler.saveJob(job))
+  ipcMain.handle('gitmanager:deleteJob', (_e, id: string): SchedulerJob[] => scheduler.deleteJob(id))
+  ipcMain.handle('gitmanager:deleteAllJobs', (): SchedulerJob[] => scheduler.deleteAllJobs())
+  ipcMain.handle('gitmanager:runSchedulerJob', (_e, id: string): Promise<ScanRun> => scheduler.runSchedulerJob(id))
+  ipcMain.handle('gitmanager:listRuns', (): ScanRun[] => {
     return listScanRuns(null, 100)
   })
-  ipcMain.handle('branchpulse:calendarRuns', (): { date: string; status: ScanRun['status']; runs: number }[] => scheduler.calendarRuns())
+  ipcMain.handle('gitmanager:calendarRuns', (): { date: string; status: ScanRun['status']; runs: number }[] => scheduler.calendarRuns())
 
-  ipcMain.handle('branchpulse:listNotifications', (): NotificationRecord[] => monitoring.listNotifications())
-  ipcMain.handle('branchpulse:markNotificationRead', (_e, id: string): NotificationRecord[] => {
+  ipcMain.handle('gitmanager:listNotifications', (): NotificationRecord[] => monitoring.listNotifications())
+  ipcMain.handle('gitmanager:markNotificationRead', (_e, id: string): NotificationRecord[] => {
     try {
       const notifications = monitoring.markNotificationRead(id)
       audit.record('notification_marked_read', { id })
@@ -355,7 +355,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       throw err
     }
   })
-  ipcMain.handle('branchpulse:clearNotifications', (): void => {
+  ipcMain.handle('gitmanager:clearNotifications', (): void => {
     try {
       monitoring.clearNotifications()
       audit.record('notifications_cleared', { count: monitoring.listNotifications().length })
@@ -365,8 +365,8 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     }
   })
 
-  ipcMain.handle('branchpulse:getEmailConfig', (): EmailConfig => email.getConfig())
-  ipcMain.handle('branchpulse:saveEmailConfig', (_e, config: EmailConfig & { password?: string }): EmailConfig => {
+  ipcMain.handle('gitmanager:getEmailConfig', (): EmailConfig => email.getConfig())
+  ipcMain.handle('gitmanager:saveEmailConfig', (_e, config: EmailConfig & { password?: string }): EmailConfig => {
     try {
       const saved = email.saveConfig(config)
       audit.record('email_config_updated', {
@@ -381,26 +381,26 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       throw err
     }
   })
-  ipcMain.handle('branchpulse:testEmailConnection', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.testConnection(config))
-  ipcMain.handle('branchpulse:sendTestEmail', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.sendTestEmail(config))
+  ipcMain.handle('gitmanager:testEmailConnection', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.testConnection(config))
+  ipcMain.handle('gitmanager:sendTestEmail', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.sendTestEmail(config))
 
-  ipcMain.handle('branchpulse:listReports', (): ReportRecord[] => report.listReports())
-  ipcMain.handle('branchpulse:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
-  ipcMain.handle('branchpulse:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
-  ipcMain.handle('branchpulse:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
-  ipcMain.handle('branchpulse:openReportFolder', (): Promise<void> => report.openReportFolder())
-  ipcMain.handle('branchpulse:openReportFile', (_e, id: string): Promise<void> => report.openReportFile(id))
+  ipcMain.handle('gitmanager:listReports', (): ReportRecord[] => report.listReports())
+  ipcMain.handle('gitmanager:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
+  ipcMain.handle('gitmanager:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
+  ipcMain.handle('gitmanager:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
+  ipcMain.handle('gitmanager:openReportFolder', (): Promise<void> => report.openReportFolder())
+  ipcMain.handle('gitmanager:openReportFile', (_e, id: string): Promise<void> => report.openReportFile(id))
 
-  ipcMain.handle('branchpulse:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
-  ipcMain.handle('branchpulse:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))
-  ipcMain.handle('branchpulse:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
+  ipcMain.handle('gitmanager:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
+  ipcMain.handle('gitmanager:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))
+  ipcMain.handle('gitmanager:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
 
-  ipcMain.handle('branchpulse:listBackups', (): BackupRecord[] => backup.list())
-  ipcMain.handle('branchpulse:startBackup', (_e, options: { repositoryId?: string | null; folderPath?: string } = {}): Promise<BackupRecord> => {
+  ipcMain.handle('gitmanager:listBackups', (): BackupRecord[] => backup.list())
+  ipcMain.handle('gitmanager:startBackup', (_e, options: { repositoryId?: string | null; folderPath?: string } = {}): Promise<BackupRecord> => {
     return backup.start(options)
   })
-  ipcMain.handle('branchpulse:deleteBackup', (_e, id: string): void => backup.delete(id))
-  ipcMain.handle('branchpulse:selectBackupFolder', async (): Promise<string> => {
+  ipcMain.handle('gitmanager:deleteBackup', (_e, id: string): void => backup.delete(id))
+  ipcMain.handle('gitmanager:selectBackupFolder', async (): Promise<string> => {
     const selected = await dialog.showOpenDialog({
       title: 'Select backup folder',
       defaultPath: app.getPath('documents'),
@@ -408,13 +408,13 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     })
     return selected.canceled || selected.filePaths.length === 0 ? '' : selected.filePaths[0]
   })
-  ipcMain.handle('branchpulse:openBackupFolder', (_e, backupPath: string): Promise<string> => {
+  ipcMain.handle('gitmanager:openBackupFolder', (_e, backupPath: string): Promise<string> => {
     const target = backupPath ? path.dirname(backupPath) : app.getPath('documents')
     return shell.openPath(target)
   })
 
-  ipcMain.handle('branchpulse:listAudit', (): AuditEntry[] => audit.list())
-  ipcMain.handle('branchpulse:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv'): Promise<AuditExportResult> => {
+  ipcMain.handle('gitmanager:listAudit', (): AuditEntry[] => audit.list())
+  ipcMain.handle('gitmanager:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv'): Promise<AuditExportResult> => {
     try {
       const selected = await dialog.showOpenDialog({
         title: 'Select audit export folder',
@@ -435,13 +435,13 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     }
   })
 
-  ipcMain.handle('branchpulse:getSettings', (): AppSettings => settings.get())
-  ipcMain.handle('branchpulse:exportConfig', async (_e, extras: ConfigExtras = {}): Promise<ConfigExportResult> => {
+  ipcMain.handle('gitmanager:getSettings', (): AppSettings => settings.get())
+  ipcMain.handle('gitmanager:exportConfig', async (_e, extras: ConfigExtras = {}): Promise<ConfigExportResult> => {
     try {
       const selected = await dialog.showSaveDialog({
-        title: '导出 BranchPulse 配置',
-        defaultPath: path.join(app.getPath('documents'), `branchpulse-config-${dateStamp()}.json`),
-        filters: [{ name: 'BranchPulse 配置', extensions: ['json'] }]
+        title: '导出 GitManager 配置',
+        defaultPath: path.join(app.getPath('documents'), `gitmanager-config-${dateStamp()}.json`),
+        filters: [{ name: 'GitManager 配置', extensions: ['json'] }]
       })
       if (selected.canceled || !selected.filePath) return { ok: false, path: '', sections: [] }
       const result = configPort.exportToFile(selected.filePath, extras)
@@ -453,13 +453,13 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       return { ok: false, path: '', sections: [], error: message }
     }
   })
-  ipcMain.handle('branchpulse:importConfig', async (_e, confirmReplace = true): Promise<ConfigImportResult> => {
+  ipcMain.handle('gitmanager:importConfig', async (_e, confirmReplace = true): Promise<ConfigImportResult> => {
     try {
       const selected = await dialog.showOpenDialog({
-        title: '选择 BranchPulse 配置文件',
+        title: '选择 GitManager 配置文件',
         defaultPath: app.getPath('documents'),
         properties: ['openFile'],
-        filters: [{ name: 'BranchPulse 配置', extensions: ['json'] }]
+        filters: [{ name: 'GitManager 配置', extensions: ['json'] }]
       })
       if (selected.canceled || selected.filePaths.length === 0) {
         return { ok: false, path: '', applied: [], warnings: [] }
@@ -489,8 +489,8 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   })
   // The sidebar renders this, so the displayed version follows package.json /
   // the built exe instead of a hardcoded string that silently goes stale.
-  ipcMain.handle('branchpulse:getAppVersion', (): string => app.getVersion())
-  ipcMain.handle('branchpulse:saveSettings', (_e, s: AppSettings): AppSettings => {
+  ipcMain.handle('gitmanager:getAppVersion', (): string => app.getVersion())
+  ipcMain.handle('gitmanager:saveSettings', (_e, s: AppSettings): AppSettings => {
     try {
       const saved = settings.save(s)
       audit.record('settings_updated', {

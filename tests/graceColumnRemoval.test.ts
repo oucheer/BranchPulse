@@ -64,8 +64,8 @@ async function seedLegacyDatabase(file: string): Promise<void> {
       VALUES ('run-1', '2026-01-01T00:00:00.000Z', 'completed', 'manual', 7, 2, 1);
     INSERT INTO email_templates (id, kind, subject, body) VALUES
       ('t-summary', 'summary', 'GitManager Monitoring Summary', '{{total}} branches checked'),
-      ('t-grace', 'grace_period', 'BranchPulse: branch entered grace period', 'Grace period: {{grace_period}} days'),
-      ('t-grace-expired', 'grace_expired', 'BranchPulse: grace period expired', 'Grace period expired.');
+      ('t-grace', 'grace_period', 'GitManager: branch entered grace period', 'Grace period: {{grace_period}} days'),
+      ('t-grace-expired', 'grace_expired', 'GitManager: grace period expired', 'Grace period expired.');
   `)
   fs.writeFileSync(file, Buffer.from(db.export()))
   db.close()

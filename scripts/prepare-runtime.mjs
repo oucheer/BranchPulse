@@ -22,4 +22,4 @@ if (!existsSync(source)) {
 }
 
 copyFileSync(source, target)
-console.log(`[branchpulse] copied sql.js WASM: ${source} -> ${target}`)
+console.log(`[gitmanager] copied sql.js WASM: ${source} -> ${target}`)

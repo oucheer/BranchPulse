@@ -44,7 +44,7 @@ public static class WinText2 {
 "@
 
 function Kill-TestApps {
-  Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('BranchPulse.exe', 'branchpulse-stock.exe', 'electron.exe') } | ForEach-Object {
+  Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('GitManager.exe', 'gitmanager-stock.exe', 'electron.exe') } | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
   }
   Start-Sleep -Seconds 2
@@ -64,11 +64,11 @@ function Screenshot {
 Kill-TestApps
 
 $unpacked = "D:\Apps\codex\files\git-management-3\release\win-unpacked"
-$exe = Join-Path $unpacked "BranchPulse.exe"
+$exe = Join-Path $unpacked "GitManager.exe"
 $asar = Join-Path $unpacked "resources\app.asar"
 $stdout = "D:\Apps\codex\files\git-management-3\.clean-out.log"
 $stderr = "D:\Apps\codex\files\git-management-3\.clean-err.log"
-$logFile = "$env:APPDATA\branchpulse\logs\branchpulse-2026-09-03.log"
+$logFile = "$env:APPDATA\gitmanager\logs\gitmanager-2026-09-03.log"
 Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 if (Test-Path $logFile) { Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue }
 
@@ -78,14 +78,14 @@ $p = Start-Process -FilePath $exe -ArgumentList @($asar, "--no-sandbox", "--enab
 Write-Output "pid=$($p.Id)"
 Start-Sleep -Seconds 15
 
-$procs = Get-Process -Name BranchPulse -ErrorAction SilentlyContinue
+$procs = Get-Process -Name GitManager -ErrorAction SilentlyContinue
 Write-Output "process_count=$($procs.Count)"
 $procs | ForEach-Object { Write-Output ("proc id={0} title={1}" -f $_.Id, $_.MainWindowTitle) }
 foreach ($proc in $procs) {
   $texts = [WinText2]::GetWindowTexts([uint32]$proc.Id)
   foreach ($t in $texts) { Write-Output "windowtext $t" }
 }
-$all = Get-CimInstance Win32_Process -Filter "Name = 'BranchPulse.exe'"
+$all = Get-CimInstance Win32_Process -Filter "Name = 'GitManager.exe'"
 $renderers = $all | Where-Object { $_.CommandLine -like '*--type=renderer*' }
 Write-Output "renderer_count=$($renderers.Count)"
 $all | ForEach-Object { Write-Output ("cmdline {0}: {1}" -f $_.ProcessId, $_.CommandLine) }

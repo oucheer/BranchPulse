@@ -1,6 +1,6 @@
-# BranchPulse
+# GitManager
 
-BranchPulse 是一个 Git 分支生命周期监控与管理桌面应用，用于帮助团队识别长期未提交分支、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
+GitManager 是一个 Git 分支生命周期监控与管理桌面应用，用于帮助团队识别长期未提交分支、命名不规范分支和清理候选，并支持通知、报告和审计追踪。
 
 ## 功能概览
 
@@ -49,9 +49,9 @@ npm run package:portable
 
 完整打包输出位于 `release/`：
 
-- Windows 安装包：`BranchPulse-<version>-x64.exe`
-- Windows 便携版：`BranchPulse-Portable-<version>.exe`
-- 快速本地验证产物：`release/win-unpacked/BranchPulse.exe`
+- Windows 安装包：`GitManager-<version>-x64.exe`
+- Windows 便携版：`GitManager-Portable-<version>.exe`
+- 快速本地验证产物：`release/win-unpacked/GitManager.exe`
 
 打包或发布前必须运行类型检查和单元测试；涉及启动流程、主界面、监控、通知、报告或持久化配置时，还应使用最新打包产物做实际启动冒烟。
 
@@ -86,6 +86,6 @@ release/            本地打包产物
 1. 执行 `npm run typecheck`。
 2. 执行 `npm run test -- --run`。
 3. 使用 `npm run package:dir` 生成可启动产物。
-4. 启动 `release/win-unpacked/BranchPulse.exe`，确认启动动效后进入主界面。
+4. 启动 `release/win-unpacked/GitManager.exe`，确认启动动效后进入主界面。
 5. 遍历仪表盘、仓库、分支、监控、命名规则、白名单、备份、通知、报告、定时调度、审计日志和设置页面。
 6. 修改监控、通知、报告、Token 或仓库配置后重启应用，确认数据仍然保留。

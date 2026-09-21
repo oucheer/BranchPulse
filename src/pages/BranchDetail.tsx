@@ -22,7 +22,7 @@ export default function BranchDetail(): JSX.Element {
 
   useEffect(() => {
     let active = true
-    void window.branchpulse
+    void window.gitmanager
       .getBranch({ repositoryId, type: type as BranchCriteria['type'], name: decodedName })
       .then((result) => {
         if (active) setBranch(result ?? undefined)

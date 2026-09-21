@@ -1,5 +1,5 @@
 /**
- * BranchPulse Design System — Global Tokens
+ * GitManager Design System — Global Tokens
  * Single source of truth for all visual primitives.
  * Business pages must reference these tokens, never hardcode values.
  */

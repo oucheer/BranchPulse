@@ -67,8 +67,8 @@ export async function createDemoRepository(targetDir: string): Promise<void> {
   fs.mkdirSync(targetDir, { recursive: true })
 
   await run(['init', '-b', 'main'], targetDir)
-  await run(['config', 'user.name', 'BranchPulse Demo'], targetDir)
-  await run(['config', 'user.email', 'demo@branchpulse.local'], targetDir)
+  await run(['config', 'user.name', 'GitManager Demo'], targetDir)
+  await run(['config', 'user.email', 'demo@gitmanager.local'], targetDir)
   await run(['config', 'commit.gpgsign', 'false'], targetDir)
 
   const file = 'README.md'

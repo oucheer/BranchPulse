@@ -61,7 +61,7 @@ describe('config export', () => {
   it('captures rules, settings, mail groups, monitoring and repositories', () => {
     seedSource()
     const bundle = exportedBundle(['app_settings', 'monitoring_rules', 'branch_naming_rules', 'whitelist', 'email_groups', 'scheduler_jobs', 'repositories', 'monitoring_rules_repo'])
-    expect(bundle.app).toBe('BranchPulse')
+    expect(bundle.app).toBe('GitManager')
     expect(bundle.sections.extras).toEqual({ effects: { enabled: false, clickSpark: true }, language: 'zh' })
     expect(bundle.sections.singletons.app_settings.language).toBe('zh')
     expect(bundle.sections.singletons.email_config.self_email).toBe('me@example.com')
@@ -117,11 +117,29 @@ describe('config import', () => {
     local.close()
   })
 
-  it('rejects files that were not produced by BranchPulse', () => {
+  it('rejects files that were not produced by GitManager', () => {
     expect(() => port.importFromFile(path.join(workDir, 'missing.json'))).toThrow(/配置文件不存在/)
     const bogus = path.join(workDir, 'bogus.json')
     fs.writeFileSync(bogus, JSON.stringify({ app: 'Other' }))
-    expect(() => port.importFromFile(bogus)).toThrow(/不是 BranchPulse/)
+    expect(() => port.importFromFile(bogus)).toThrow(/不是 GitManager/)
+  })
+
+  it('imports configuration bundles exported before the rename', async () => {
+    seedSource()
+    const target = path.join(workDir, 'legacy-bundle.json')
+    port.exportToFile(target, { language: 'zh' })
+    const bundle = JSON.parse(fs.readFileSync(target, 'utf8')) as Record<string, any>
+    bundle.app = 'BranchPulse'
+    bundle.kind = 'branchpulse-config'
+    fs.writeFileSync(target, JSON.stringify(bundle))
+
+    const fresh = await openStorage('legacy-target.db')
+    const freshPort = new ConfigPortService(fresh, () => '0.2.0')
+    const summary = freshPort.importFromFile(target)
+
+    expect(summary.applied).toContain('repositories')
+    expect(fresh.all('SELECT id FROM repositories')).toHaveLength(1)
+    fresh.close()
   })
 
   it('exports every repository, not only the active one', async () => {

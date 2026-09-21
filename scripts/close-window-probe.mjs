@@ -78,8 +78,8 @@ const pid = await main.evaluate('process.pid')
 
 // Mirror the Settings page's own save path for the tray toggle.
 const saved = await renderer.evaluate(`(async () => {
-  const current = await window.branchpulse.getSettings()
-  const next = await window.branchpulse.saveSettings({ ...current, trayEnabled: false })
+  const current = await window.gitmanager.getSettings()
+  const next = await window.gitmanager.saveSettings({ ...current, trayEnabled: false })
   return next.trayEnabled
 })()`)
 check('turning the tray off is persisted', saved === false, String(saved))

@@ -61,7 +61,7 @@ export default function Settings(): JSX.Element {
   const saveApp = async (): Promise<void> => {
     setSavingApp(true)
     try {
-      const saved = await window.branchpulse.saveSettings(draft)
+      const saved = await window.gitmanager.saveSettings(draft)
       setDraft(saved)
       setLanguage(saved.language)
       toast(tr('saved'), 'success')
@@ -76,7 +76,7 @@ export default function Settings(): JSX.Element {
   const saveEmail = async (): Promise<void> => {
     setSavingEmail(true)
     try {
-      const saved = await window.branchpulse.saveEmailConfig(emailDraft)
+      const saved = await window.gitmanager.saveEmailConfig(emailDraft)
       setEmailDraft(saved)
       toast(tr('saveConfig') + ' OK', 'success')
       void refresh()
@@ -90,13 +90,13 @@ export default function Settings(): JSX.Element {
   const connectGitLab = async (): Promise<void> => {
     setGitlabBusy(true)
     try {
-      const saved = await window.branchpulse.saveSettings({
+      const saved = await window.gitmanager.saveSettings({
         ...draft,
         gitlabUrl: draft.gitlabUrl,
         ...(gitlabApiKey ? { gitlabApiKey } : {})
       })
       setDraft(saved)
-      await window.branchpulse.listGitLabProjects({ url: saved.gitlabUrl })
+      await window.gitmanager.listGitLabProjects({ url: saved.gitlabUrl })
       toast('远程仓库 API 已连接', 'success')
       void refresh()
     } catch (err) {
@@ -107,7 +107,7 @@ export default function Settings(): JSX.Element {
   }
   const saveGroup = async (): Promise<void> => {
     try {
-      await window.branchpulse.saveEmailGroup(groupDraft)
+      await window.gitmanager.saveEmailGroup(groupDraft)
       setGroupDraft({ name: '', recipients: '' })
       toast('邮箱分组已保存', 'success')
       void refresh()
@@ -118,7 +118,7 @@ export default function Settings(): JSX.Element {
 
   const deleteGroup = async (id: string): Promise<void> => {
     try {
-      await window.branchpulse.deleteEmailGroup(id)
+      await window.gitmanager.deleteEmailGroup(id)
       toast('邮箱分组已删除', 'success')
       void refresh()
     } catch (err) {
@@ -130,7 +130,7 @@ export default function Settings(): JSX.Element {
 
     setTesting(true)
     try {
-      const result = await window.branchpulse.sendTestEmail()
+      const result = await window.gitmanager.sendTestEmail()
       toast(result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')

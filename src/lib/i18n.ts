@@ -2,7 +2,7 @@ export type Language = 'en' | 'zh'
 
 const dictionaries = {
   en: {
-    app: 'BranchPulse',
+    app: 'GitManager',
     dashboard: 'Dashboard',
     repositories: 'Repositories',
     branches: 'Branches',
@@ -40,7 +40,7 @@ const dictionaries = {
     generateReport: 'Generate report',
     search: 'Search',
     noRepositories: 'No repositories yet',
-    addFirst: 'Add your first repository or create a demo repository to explore BranchPulse.',
+    addFirst: 'Add your first repository or create a demo repository to explore GitManager.',
     createDemo: 'Create demo repository',
     pickFolder: 'Choose folder',
     totalBranches: 'Total branches',
@@ -161,7 +161,7 @@ const dictionaries = {
     edit: 'Edit'
   },
   zh: {
-    app: 'BranchPulse',
+    app: 'GitManager',
     dashboard: '仪表盘',
     repositories: '仓库',
     branches: '分支',
@@ -199,7 +199,7 @@ const dictionaries = {
     generateReport: '生成报告',
     search: '搜索',
     noRepositories: '还没有仓库',
-    addFirst: '添加第一个仓库，或创建演示仓库来体验 BranchPulse。',
+    addFirst: '添加第一个仓库，或创建演示仓库来体验 GitManager。',
     createDemo: '创建演示仓库',
     pickFolder: '选择文件夹',
     totalBranches: '分支总数',

@@ -127,7 +127,7 @@ export default function Sidebar(): JSX.Element {
         </div>
         {effectsEnabled ? (
           <DepthText
-            text="BranchPulse"
+            text="GitManager"
             layers={8}
             depth={0.6}
             faceColor="rgb(var(--fg))"
@@ -143,7 +143,7 @@ export default function Sidebar(): JSX.Element {
             shadow
           />
         ) : (
-          <div className="text-sm font-bold text-canvas-fg">BranchPulse</div>
+          <div className="text-sm font-bold text-canvas-fg">GitManager</div>
         )}
       </div>
 
@@ -211,7 +211,7 @@ export default function Sidebar(): JSX.Element {
           {language === 'zh' ? '监控服务' : 'Monitoring service'}
         </div>
         <div className="opacity-70">
-          {appVersion ? `BranchPulse V${appVersion.replace(/^v/i, '').replace(/\.0$/, '')}` : 'BranchPulse'}
+          {appVersion ? `GitManager V${appVersion.replace(/^v/i, '').replace(/\.0$/, '')}` : 'GitManager'}
         </div>
       </div>
     </aside>

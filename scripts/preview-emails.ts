@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   const links = ['summary-zh.html', 'summary-en.html', 'report-zh.html', 'report-en.html', 'creator-zh.html', 'creator-en.html']
     .map((name) => `<li><a href="${name}">${name}</a></li>`)
     .join('')
-  write('index.html', `<!doctype html><meta charset="utf-8"><h1>BranchPulse email previews</h1><ul>${links}</ul><p>Generated at ${generatedAt}</p>`)
+  write('index.html', `<!doctype html><meta charset="utf-8"><h1>GitManager email previews</h1><ul>${links}</ul><p>Generated at ${generatedAt}</p>`)
 }
 
 main().catch((err) => {

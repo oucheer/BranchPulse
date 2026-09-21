@@ -27,10 +27,10 @@ const needles = [
   '分支创始人',
   '已停更的分支',
   'table-layout:fixed',
-  '导出 BranchPulse 配置',
+  '导出 GitManager 配置',
   '导入配置',
-  'branchpulse:exportConfig',
-  'branchpulse:importConfig'
+  'gitmanager:exportConfig',
+  'gitmanager:importConfig'
 ]
 
 const forbidden = ['过期', '已合并', '到期', '陈旧']

@@ -1,5 +1,5 @@
-$logPath = "$env:APPDATA\branchpulse\logs\branchpulse-2026-09-03.log"
-$exePath = "D:\Apps\codex\files\git-management-3\release\win-unpacked\BranchPulse.exe"
+$logPath = "$env:APPDATA\gitmanager\logs\gitmanager-2026-09-03.log"
+$exePath = "D:\Apps\codex\files\git-management-3\release\win-unpacked\GitManager.exe"
 $stderrPath = "D:\Apps\codex\files\git-management-3\.bp-launch-stderr.log"
 $stdoutPath = "D:\Apps\codex\files\git-management-3\.bp-launch-stdout.log"
 
@@ -9,7 +9,7 @@ if (Test-Path $stderrPath) { Remove-Item -LiteralPath $stderrPath -Force }
 if (Test-Path $stdoutPath) { Remove-Item -LiteralPath $stdoutPath -Force }
 
 # Kill any existing instance
-Get-Process -Name BranchPulse -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name GitManager -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
 # Launch with logging and capture stderr
@@ -20,12 +20,12 @@ Write-Output "started_pid=$($p.Id)"
 Start-Sleep -Seconds 12
 
 # Check processes
-$procs = Get-Process -Name BranchPulse -ErrorAction SilentlyContinue
+$procs = Get-Process -Name GitManager -ErrorAction SilentlyContinue
 Write-Output "process_count=$($procs.Count)"
 $procs | Select-Object Id,ProcessName,MainWindowTitle | Format-Table -AutoSize
 
 # Check for renderer via WMI
-$all = Get-CimInstance Win32_Process -Filter "Name = 'BranchPulse.exe'"
+$all = Get-CimInstance Win32_Process -Filter "Name = 'GitManager.exe'"
 $renderers = $all | Where-Object { $_.CommandLine -like '*--type=renderer*' }
 Write-Output "renderer_count=$($renderers.Count)"
 
@@ -46,5 +46,5 @@ if (Test-Path $stderrPath) {
 }
 
 # Cleanup
-Get-Process -Name BranchPulse -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name GitManager -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "done"

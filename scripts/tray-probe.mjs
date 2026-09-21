@@ -15,7 +15,7 @@
  * invokes the Exit item's click handler the same way the tray would.
  *
  * Usage (start the app first):
- *   $env:BRANCHPULSE_USER_DATA_DIR=".tmp-branchpulse-tray6\userdata"
+ *   $env:GITMANAGER_USER_DATA_DIR=".tmp-gitmanager-tray6\userdata"
  *   node_modules\electron\dist\electron.exe . --inspect=9338 --remote-debugging-port=9339
  *   node scripts\tray-probe.mjs 9338 9339
  */
@@ -105,8 +105,8 @@ const probeLabels = () =>
 
 const saveLanguage = async (language) => {
   const saved = await renderer.evaluate(`(async () => {
-    const current = await window.branchpulse.getSettings()
-    const next = await window.branchpulse.saveSettings({ ...current, language: '${language}' })
+    const current = await window.gitmanager.getSettings()
+    const next = await window.gitmanager.saveSettings({ ...current, language: '${language}' })
     return next.language
   })()`)
   await sleep(1500)

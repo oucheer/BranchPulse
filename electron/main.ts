@@ -28,6 +28,11 @@ let tray: Tray | null = null
 let services: AppServices | null = null
 let isQuitting = false
 
+// Set the application name before Electron resolves userData so the renamed
+// profile is used from the first launch. The path utility performs the
+// one-time migration from the legacy BranchPulse profile.
+app.setName('GitManager')
+
 interface TrayLabels {
   open: string
   runCheck: string
@@ -62,8 +67,9 @@ const TRAY_LABELS: Record<LanguageCode, TrayLabels> = {
   }
 }
 
-if (process.env.BRANCHPULSE_USER_DATA_DIR) {
-  app.setPath('userData', path.resolve(process.env.BRANCHPULSE_USER_DATA_DIR))
+const userDataOverride = process.env.GITMANAGER_USER_DATA_DIR ?? process.env.BRANCHPULSE_USER_DATA_DIR
+if (userDataOverride) {
+  app.setPath('userData', path.resolve(userDataOverride))
 }
 
 function iconPath(): string {
@@ -84,7 +90,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1080,
     minHeight: 680,
     show: false,
-    title: 'BranchPulse',
+    title: 'GitManager',
     icon: iconPath(),
     backgroundColor: services?.settings.get().theme === 'dark' || (services?.settings.get().theme === 'system' && nativeTheme.shouldUseDarkColors) ? '#0b0d12' : '#f4f5f8',
     autoHideMenuBar: true,
@@ -155,7 +161,7 @@ function createTray(): void {
     logger.error('Failed to create tray', err)
     return
   }
-  tray.setToolTip('BranchPulse')
+  tray.setToolTip('GitManager')
   const showWindow = (): void => {
     if (!mainWindow) mainWindow = createWindow()
     mainWindow.show()
@@ -170,7 +176,7 @@ function buildTrayMenu(showWindow: () => void): Electron.Menu {
   const labels = TRAY_LABELS[language] ?? TRAY_LABELS.zh
   const openRoute = (route: string): void => {
     showWindow()
-    mainWindow?.webContents.send('branchpulse:navigate', route)
+    mainWindow?.webContents.send('gitmanager:navigate', route)
   }
   return Menu.buildFromTemplate([
     { label: labels.open, click: () => openRoute('/') },
@@ -240,11 +246,10 @@ function syncTray(): void {
 
 async function bootstrap(): Promise<void> {
   logger.init()
-  app.setName('BranchPulse')
-  app.setAppUserModelId('com.branchpulse.app')
+  app.setAppUserModelId('com.gitmanager.app')
 
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.branchpulse.app')
+    app.setAppUserModelId('com.gitmanager.app')
   }
 
   const storage = new StorageService(dbFile())
@@ -294,7 +299,7 @@ async function bootstrap(): Promise<void> {
     }
   })
 
-  logger.info(`BranchPulse started. Data: ${dataDir()}`)
+  logger.info(`GitManager started. Data: ${dataDir()}`)
 }
 
 const gotLock = app.requestSingleInstanceLock()
@@ -323,8 +328,8 @@ if (!gotLock) {
   })
 
   void app.whenReady().then(bootstrap).catch((err) => {
-    logger.error('BranchPulse failed to start', err)
+    logger.error('GitManager failed to start', err)
     Notification.isSupported() &&
-      new Notification({ title: 'BranchPulse', body: 'Failed to start. See logs for details.' }).show()
+      new Notification({ title: 'GitManager', body: 'Failed to start. See logs for details.' }).show()
   })
 }

@@ -75,7 +75,7 @@ export default function Animation(): JSX.Element {
 
   const saveAppearance = async (colorTheme: ColorTheme, backgroundTheme: BackgroundTheme): Promise<void> => {
     try {
-      await window.branchpulse.saveSettings({ ...settings, colorTheme, backgroundTheme })
+      await window.gitmanager.saveSettings({ ...settings, colorTheme, backgroundTheme })
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {

@@ -1,9 +1,9 @@
 {
-  "name": "branchpulse",
+  "name": "gitmanager",
   "version": "0.2.0",
   "description": "Git Branch Lifecycle Management & Monitoring Center",
   "main": "./out/main/index.js",
-  "author": "BranchPulse",
+  "author": "GitManager",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -59,8 +59,8 @@
     "zustand": "^4.5.5"
   },
   "build": {
-    "appId": "com.branchpulse.app",
-    "productName": "BranchPulse",
+    "appId": "com.gitmanager.app",
+    "productName": "GitManager",
     "afterPack": "scripts/after-pack.cjs",
     "asar": true,
     "electronDist": "node_modules/electron/dist",
@@ -94,17 +94,17 @@
           ]
         }
       ],
-      "artifactName": "BranchPulse-${version}-${arch}.${ext}"
+      "artifactName": "GitManager-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "BranchPulse"
+      "shortcutName": "GitManager"
     },
     "portable": {
-      "artifactName": "BranchPulse-Portable-${version}.${ext}"
+      "artifactName": "GitManager-Portable-${version}.${ext}"
     }
   },
   "allowScripts": {

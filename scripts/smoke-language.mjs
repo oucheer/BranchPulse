@@ -103,11 +103,11 @@ const setLanguage = async (language) => {
   if (picked !== 'clicked') throw new Error(`language button (${language}): ${picked}`)
   await sleep(400)
   // The save button label follows the language currently rendered.
-  const saveLabel = (await evaluate('window.branchpulse.getSettings().then((s) => s.language)')) === 'zh' ? '保存' : 'Save'
+  const saveLabel = (await evaluate('window.gitmanager.getSettings().then((s) => s.language)')) === 'zh' ? '保存' : 'Save'
   const saved = await clickByText(saveLabel)
   if (saved !== 'clicked') throw new Error(`save button: ${saved}`)
   await sleep(1600)
-  return evaluate('window.branchpulse.getSettings().then((s) => s.language)')
+  return evaluate('window.gitmanager.getSettings().then((s) => s.language)')
 }
 
 const ENGLISH_NAV = ['Dashboard', 'Repositories', 'Branches', 'Monitoring', 'Notifications', 'Reports', 'Scheduler', 'Audit', 'Settings']
@@ -137,7 +137,7 @@ for (const [route, heading] of routes) {
 }
 check('every route stays Chinese after the switch', staleRoutes.length === 0, JSON.stringify(staleRoutes))
 
-const persisted = await evaluate('window.branchpulse.getSettings().then((s) => s.language)')
+const persisted = await evaluate('window.gitmanager.getSettings().then((s) => s.language)')
 check('language choice is persisted', persisted === 'zh', String(persisted))
 
 try {
