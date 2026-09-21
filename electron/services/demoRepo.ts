@@ -12,7 +12,7 @@ interface Author {
 
 const AUTHORS: Author[] = [
   { name: 'Ada Lovelace', email: 'ada@example.com' },
-  { name: 'Grace Hopper', email: 'grace@example.com' },
+  { name: 'Gloria Chen', email: 'gloria.chen@example.com' },
   { name: 'Linus Chen', email: 'linus.chen@example.com' },
   { name: 'Maya Zhang', email: 'maya.zhang@example.com' }
 ]
@@ -86,15 +86,15 @@ export async function createDemoRepository(targetDir: string): Promise<void> {
   await commit(targetDir, 'feature/login', 'feat: social login providers', daysAgo(12), AUTHORS[1], file, content('Social login with GitHub and Google.'))
   await commit(targetDir, 'feature/login', 'feat: session refresh flow', daysAgo(3), AUTHORS[1], file, content('Refresh token rotation and session expiry handling.'))
 
-  // Grace period branch (16 days ago, threshold 14)
+  // Stale branch (16 days ago, threshold 14)
   await commit(targetDir, 'feature/ai-agent', 'feat: AI agent scaffolding', daysAgo(40), AUTHORS[0], file, content('Agent tooling with prompt orchestration.'))
   await commit(targetDir, 'feature/ai-agent', 'feat: agent executor', daysAgo(16), AUTHORS[0], file, content('Executor loop with tool dispatch.'))
 
-  // Grace period branch (17 days)
+  // Stale branch (17 days)
   await commit(targetDir, 'feature/payment', 'feat: payment webhooks', daysAgo(30), AUTHORS[2], file, content('Webhook receiver for payment provider.'))
   await commit(targetDir, 'feature/payment', 'fix: webhook signature', daysAgo(17), AUTHORS[2], file, content('Validate webhook signature before processing.'))
 
-  // Grace expired cleanup candidate
+  // Stale cleanup candidate
   await commit(targetDir, 'bugfix/payment', 'fix: currency rounding', daysAgo(35), AUTHORS[3], file, content('Correct currency rounding for international payments.'))
   await commit(targetDir, 'bugfix/payment', 'fix: invoice totals', daysAgo(30), AUTHORS[3], file, content('Recalculate invoice totals on discount change.'))
 
@@ -122,7 +122,7 @@ export async function createDemoRepository(targetDir: string): Promise<void> {
   // Naming invalid, active
   await commit(targetDir, 'test', 'test: exploration branch', daysAgo(10), AUTHORS[0], file, content('Exploration branch without conventional prefix.'))
 
-  // Old feature: stale, grace expired, naming invalid
+  // Old feature: stale and naming invalid
   await commit(targetDir, 'old-feature', 'feat: legacy reporting', daysAgo(90), AUTHORS[1], file, content('Legacy reporting module from an earlier sprint.'))
   await commit(targetDir, 'old-feature', 'fix: legacy chart colors', daysAgo(45), AUTHORS[1], file, content('Adjust legacy chart palette.'))
 

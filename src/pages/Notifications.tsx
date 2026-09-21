@@ -34,9 +34,17 @@ export default function Notifications(): JSX.Element {
   }
 
   const notificationTone = (type: string): 'danger' | 'warn' | 'info' | 'default' => {
-    if (type === 'grace_expired' || type === 'naming_violation' || type === 'cleanup_candidate') return 'danger'
-    if (type === 'stale' || type === 'grace_period') return 'warn'
+    if (type === 'naming_violation' || type === 'cleanup_candidate') return 'danger'
+    if (type === 'stale') return 'warn'
     return 'default'
+  }
+
+  /** 历史通知里可能残留宽限期时代的 type，统一按「已停更」展示。 */
+  const notificationLabel = (type: string): string => {
+    if (type === 'stale' || type === 'grace_period' || type === 'grace_expired') return '已停更分支'
+    if (type === 'naming_violation') return '命名不规范'
+    if (type === 'cleanup_candidate') return '清理候选'
+    return type
   }
 
   return (
@@ -77,7 +85,7 @@ export default function Notifications(): JSX.Element {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Badge tone={notificationTone(n.type)}>
-                    {n.type === 'stale' ? '已停更分支' : n.type === 'grace_period' ? '宽限期内' : n.type === 'grace_expired' ? '宽限期已过' : n.type === 'naming_violation' ? '命名不规范' : n.type === 'cleanup_candidate' ? '清理候选' : n.type}
+                    {notificationLabel(n.type)}
                   </Badge>
                   {!n.read ? <span className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
                 </div>

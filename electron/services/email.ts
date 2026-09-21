@@ -19,7 +19,6 @@ export interface EmailIssueRow {
   lastCommitDate: string
   lastCommitAt?: string | null
   inactiveDays: number
-  gracePeriod: number
   namingStatus: string
   namingRuleName?: string
   namingReason?: string
@@ -34,8 +33,6 @@ export interface EmailIssueRow {
 export interface EmailSummaryData {
   total: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   namingInvalid: number
   merged: number
   cleanupCandidates: number
@@ -61,7 +58,6 @@ export function toEmailIssueRow(branch: BranchSummary): EmailIssueRow {
     lastCommitDate: branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : '-',
     lastCommitAt: branch.lastCommitAt,
     inactiveDays: branch.inactiveDays,
-    gracePeriod: branch.gracePeriodDays,
     namingStatus: branch.naming.status,
     namingRuleName: branch.naming.ruleName,
     namingReason: branch.naming.reason,
@@ -134,15 +130,11 @@ function formatDateTime(value: string | null | undefined, lang: EmailLang): stri
 const STATE_LABELS: Record<EmailLang, Record<string, string>> = {
   zh: {
     active: '活跃',
-    stale: '已停更',
-    grace_period: '宽限期内',
-    grace_expired: '宽限期已过'
+    stale: '已停更'
   },
   en: {
     active: 'Active',
-    stale: 'Stale',
-    grace_period: 'Grace period',
-    grace_expired: 'Grace expired'
+    stale: 'Stale'
   }
 }
 
@@ -323,8 +315,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         total: '总分支',
         active: '活跃',
         stale: '已停更',
-        gracePeriod: '宽限期内',
-        graceExpired: '宽限期已过',
         namingInvalid: '命名不规范',
         cleanup: '清理候选',
         attention: '已停更的分支',
@@ -354,8 +344,6 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         total: 'Total',
         active: 'Active',
         stale: 'Stale',
-        gracePeriod: 'Grace period',
-        graceExpired: 'Grace expired',
         namingInvalid: 'Naming invalid',
         cleanup: 'Cleanup candidates',
         attention: 'Stale branches',
@@ -383,20 +371,17 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
       <div style="color:#6b7280;font-size:12px;margin-top:4px">${escapeHtml(card.label)}</div>
     </div>`).join('')
   const statusLabel = (row: EmailIssueRow): string => {
-    if (row.whitelisted && row.state !== 'active') return lang === 'zh' ? '白名单保留（宽限期已过）' : 'Whitelist retained (expired)'
+    if (row.whitelisted && row.state !== 'active') return lang === 'zh' ? '白名单保留（已停更）' : 'Whitelist retained (stale)'
     if (row.protectedBranch) return lang === 'zh' ? '保护 / 默认分支' : 'Protected / default branch'
     if (row.cleanupCandidate) return lang === 'zh' ? '清理候选' : 'Cleanup candidate'
     return stateLabel(row.state, lang)
   }
   const activeCount = data.branches.filter((row) => row.state === 'active').length
-  const gracePeriodCount = data.branches.filter((row) => row.state === 'grace_period').length
-  const graceExpiredCount = data.branches.filter((row) => row.state === 'grace_expired').length
   const protectedCount = data.branches.filter((row) => row.protectedBranch).length
   const whitelistedCount = data.branches.filter((row) => row.whitelisted && !row.protectedBranch).length
   const statusSegments = [
     { label: t.active, value: activeCount, color: '#16a34a' },
-    { label: t.gracePeriod, value: gracePeriodCount, color: '#f59e0b' },
-    { label: t.graceExpired, value: graceExpiredCount, color: '#dc2626' },
+    { label: t.stale, value: data.branches.filter((row) => row.state === 'stale').length, color: '#f59e0b' },
     { label: lang === 'zh' ? '保护 / 默认分支' : 'Protected / default', value: protectedCount, color: '#2563eb' },
     { label: lang === 'zh' ? '白名单保留' : 'Whitelist retained', value: whitelistedCount, color: '#9333ea' }
   ]
@@ -498,7 +483,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
 </body></html>`
 }
 
-type CreatorEmailScenario = 'stale' | 'grace_expired' | 'idle' | 'naming'
+type CreatorEmailScenario = 'stale' | 'naming'
 
 function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: CreatorEmailScenario): string {
   const zh = lang === 'zh'
@@ -548,31 +533,11 @@ export function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEma
     return { subject, html: htmlEmailShell(subject, body, lang) }
   }
 
-  if (scenario === 'grace_expired') {
-    const subject = zh
-      ? `【BranchPulse】${count} 个分支宽限期已过，请尽快处理`
-      : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} past the grace period`
-    const body = zh
-      ? `<p>以下 ${count} 个分支宽限期已过${repoContext}。如需保留，请尽快 push 新提交或回复保留说明；如无需保留，请回复说明以便后续跟进。</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
-      : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} ${count === 1 ? 'has' : 'have'} passed the grace period. Push a new commit if it should be retained.</p>${scenarioRowsTable(rows, lang, scenario)}`
-    return { subject, html: htmlEmailShell(subject, body, lang) }
-  }
-
-  if (scenario === 'idle') {
-    const subject = zh
-      ? `【BranchPulse】${count} 个分支长时间无提交，请确认去留`
-      : `BranchPulse: Confirm ${count} inactive branch${count === 1 ? '' : 'es'}`
-    const body = zh
-      ? `<p>以下 ${count} 个分支长时间没有 commit 记录${repoContext}：</p><ul><li>如还需要保留：请回复说明保留理由，并尽快 push 一次新提交或归档。</li><li>如无需保留：请回复说明，以便后续跟进处理。</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
-      : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} have been inactive for a long time:</p><ul><li>To retain: reply with the reason and push a new commit.</li><li>If it should no longer be kept: reply with a note for follow-up.</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
-    return { subject, html: htmlEmailShell(subject, body, lang) }
-  }
-
   const subject = zh
     ? `【BranchPulse】${count} 个分支已停更，请及时处理`
     : `BranchPulse: ${count} stale branch${count === 1 ? '' : 'es'} need attention`
   const body = zh
-    ? `<p>以下 ${count} 个分支已进入已停更状态${repoContext}。为避免进入清理候选，请合并、归档或继续提交：</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
+    ? `<p>以下 ${count} 个分支已停更${repoContext}。为避免进入清理候选，请合并、归档或继续提交：</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
     : `<p>The following ${count} stale branch${count === 1 ? '' : 'es'}${repoContext} need attention. Merge, archive, or push a new commit:</p>${scenarioRowsTable(rows, lang, scenario)}`
   return { subject, html: htmlEmailShell(subject, body, lang) }
 }
@@ -893,9 +858,7 @@ export class EmailService {
         continue
       }
       const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
-        ['stale', branchRows.filter((row) => row.state === 'grace_period')],
-        ['grace_expired', branchRows.filter((row) => row.state === 'grace_expired')],
-        ['idle', branchRows.filter((row) => row.state === 'stale')],
+        ['stale', branchRows.filter((row) => row.state === 'stale')],
         ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
       ]
       for (const [scenario, scenarioBranchRows] of scenarios) {

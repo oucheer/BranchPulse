@@ -151,14 +151,6 @@ export default function BranchDetail(): JSX.Element {
               <span className="font-mono text-sm text-canvas-fg">{durationLabel(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted">提醒宽限期</span>
-              <span className="font-mono text-sm text-canvas-fg">{durationLabel(branch.gracePeriodDays, monitoring.gracePeriodUnit)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted">宽限期已过</span>
-              <Badge tone={branch.graceExpired ? 'danger' : 'ok'}>{branch.graceExpired ? '是' : '否'}</Badge>
-            </div>
-            <div className="flex items-center justify-between">
               <span className="text-muted">可清理候选</span>
               <Badge tone={branch.cleanupCandidate ? 'danger' : 'default'}>{branch.cleanupCandidate ? '是' : '否'}</Badge>
             </div>

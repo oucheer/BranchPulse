@@ -58,8 +58,6 @@ function sampleRun(): ScanRun {
     branches: 4,
     active: 2,
     stale: 1,
-    gracePeriod: 0,
-    graceExpired: 1,
     merged: 1,
     namingInvalid: 1,
     cleanupCandidates: 1,

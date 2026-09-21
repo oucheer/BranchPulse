@@ -112,7 +112,7 @@ export default function Monitoring(): JSX.Element {
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">
-              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支先进入宽限期内，宽限期已过后标记为可清理候选，并按下面的通知方式提醒你或分支创始人。
+              巡查会实时读取远程仓库平台上的分支列表和最近提交：超过未提交时间阈值的分支标记为已停更，符合清理条件时进入清理候选，并按下面的通知方式提醒你或分支创始人。
             </div>
             <div className="grid grid-cols-[1fr_5.5rem] gap-2">
               <div>
@@ -132,32 +132,6 @@ export default function Monitoring(): JSX.Element {
                   className="input"
                   value={draft.staleThresholdUnit}
                   onChange={(e) => setDraft({ ...draft, staleThresholdUnit: e.target.value as ThresholdUnit })}
-                >
-                  <option value="weeks">周</option>
-                  <option value="days">天</option>
-                  <option value="hours">小时</option>
-                  <option value="minutes">分钟</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-[1fr_5.5rem] gap-2">
-              <div>
-                <div className="label mb-1.5">提醒宽限期</div>
-                <input
-                  type="number"
-                  min={0}
-                  max={maxByUnit[draft.gracePeriodUnit]}
-                  className="input"
-                  value={draft.gracePeriodDays}
-                  onChange={(e) => setDraft({ ...draft, gracePeriodDays: Math.max(0, Number(e.target.value) || 0) })}
-                />
-              </div>
-              <div>
-                <div className="label mb-1.5">单位</div>
-                <select
-                  className="input"
-                  value={draft.gracePeriodUnit}
-                  onChange={(e) => setDraft({ ...draft, gracePeriodUnit: e.target.value as ThresholdUnit })}
                 >
                   <option value="weeks">周</option>
                   <option value="days">天</option>

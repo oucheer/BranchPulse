@@ -23,9 +23,7 @@ function safeJson<T>(value: unknown, fallback: T): T {
 /** 报告是用户可见产物，状态与命名结果必须使用全局统一的中文术语，不能输出底层英文枚举。 */
 const REPORT_STATE_LABELS: Record<string, string> = {
   active: '活跃',
-  stale: '已停更',
-  grace_period: '宽限期内',
-  grace_expired: '宽限期已过'
+  stale: '已停更'
 }
 
 const REPORT_NAMING_LABELS: Record<string, string> = {
@@ -82,8 +80,6 @@ export class ReportService {
       compliancePercent: Math.round(((valid + excluded) / total) * 100),
       active: count((b) => b.state === 'active'),
       stale: count((b) => b.stale),
-      gracePeriod: count((b) => b.state === 'grace_period'),
-      graceExpired: count((b) => b.state === 'grace_expired'),
       merged: count((b) => b.merged),
       namingViolations: invalid,
       cleanupCandidates: count((b) => b.cleanupCandidate),
@@ -101,8 +97,6 @@ export class ReportService {
     return {
       total: branches.length,
       stale: count((branch) => branch.stale),
-      gracePeriod: count((branch) => branch.state === 'grace_period'),
-      graceExpired: count((branch) => branch.state === 'grace_expired'),
       namingInvalid: count((branch) => branch.naming.status === 'invalid'),
       merged: count((branch) => branch.merged),
       cleanupCandidates: count((branch) => branch.cleanupCandidate),
@@ -125,8 +119,6 @@ export class ReportService {
       branches: Number(r.branches ?? 0),
       active: Number(r.active ?? 0),
       stale: Number(r.stale ?? 0),
-      gracePeriod: Number(r.grace_period ?? 0),
-      graceExpired: Number(r.grace_expired ?? 0),
       merged: Number(r.merged ?? 0),
       namingInvalid: Number(r.naming_invalid ?? 0),
       cleanupCandidates: Number(r.cleanup_candidates ?? 0),
@@ -258,8 +250,6 @@ export class ReportService {
     const data: EmailSummaryData = {
       total: summary.totalBranches,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       namingInvalid: summary.namingViolations,
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,
@@ -284,8 +274,6 @@ export class ReportService {
       ['分支总数', summary.totalBranches],
       ['活跃分支', summary.active],
       ['已停更分支', summary.stale],
-      ['宽限期内', summary.gracePeriod],
-      ['宽限期已过', summary.graceExpired],
       ['命名不规范', summary.namingViolations],
       ['清理候选', summary.cleanupCandidates]
     ]
@@ -309,8 +297,6 @@ export class ReportService {
     const chartItems = [
       { label: '活跃', value: summary.active, color: '#16a34a' },
       { label: '已停更', value: summary.stale, color: '#f59e0b' },
-      { label: '宽限期内', value: summary.gracePeriod, color: '#f97316' },
-      { label: '宽限期已过', value: summary.graceExpired, color: '#dc2626' },
       { label: '命名不规范', value: summary.namingViolations, color: '#7c5cfc' },
       { label: '清理候选', value: summary.cleanupCandidates, color: '#e11d48' }
     ]
@@ -347,7 +333,7 @@ export class ReportService {
       .map((run, index) => `${24 + index * Math.max(1, 512 / Math.max(1, trendData.length - 1))},${164 - (run.branches / trendMax) * 136}`)
       .join(' ')
     const riskBranches = branches
-      .filter((b) => b.stale || b.graceExpired || b.cleanupCandidate)
+      .filter((b) => b.stale || b.cleanupCandidate)
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 120)
     const riskRows = riskBranches.length ? riskBranches.map((b) => `
@@ -439,8 +425,6 @@ function emptySummary(): ReportSummary {
     compliancePercent: 0,
     active: 0,
     stale: 0,
-    gracePeriod: 0,
-    graceExpired: 0,
     merged: 0,
     namingViolations: 0,
     cleanupCandidates: 0,

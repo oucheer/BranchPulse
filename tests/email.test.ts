@@ -15,13 +15,12 @@ const row: EmailIssueRow = {
   lastCommitDate: '2026-05-01',
   lastCommitAt: '2026-05-01T00:00:00.000Z',
   inactiveDays: 200,
-  gracePeriod: 60,
   namingStatus: 'invalid',
   namingRuleName: 'Feature',
   namingReason: '前缀不在允许的前缀内',
   mergeStatus: 'unknown',
   healthScore: 30,
-  state: 'grace_period',
+  state: 'stale',
   cleanupCandidate: false,
   whitelisted: false,
   protectedBranch: false
@@ -31,8 +30,6 @@ function summary(overrides: Partial<EmailSummaryData> = {}): EmailSummaryData {
   return {
     total: 1,
     stale: 1,
-    gracePeriod: 1,
-    graceExpired: 0,
     namingInvalid: 1,
     merged: 0,
     cleanupCandidates: 0,
@@ -65,8 +62,8 @@ describe('processingDeadlineNotice', () => {
 describe('inspection-only creator emails', () => {
   it('never suggests deleting a branch and marks whitelisted branches as inspection only', () => {
     const idleWhitelisted = { ...row, state: 'stale', whitelisted: true }
-    const zh = creatorScenarioEmail([idleWhitelisted], 'idle', 'zh')
-    const en = creatorScenarioEmail([idleWhitelisted], 'idle', 'en')
+    const zh = creatorScenarioEmail([idleWhitelisted], 'stale', 'zh')
+    const en = creatorScenarioEmail([idleWhitelisted], 'stale', 'en')
 
     expect(zh.html).toContain('白名单分支，仅检查')
     expect(zh.html).not.toContain('删除')

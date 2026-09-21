@@ -19,8 +19,8 @@ export function timeAgo(iso: string | null | undefined, now = Date.now()): strin
 export function stateLabel(state: BranchState, language: 'en' | 'zh'): string {
   const labels: Record<BranchState, string> =
     language === 'zh'
-      ? { active: '活跃', stale: '已停更', grace_period: '宽限期内', grace_expired: '宽限期已过' }
-      : { active: 'Active', stale: 'Stale', grace_period: 'Grace', grace_expired: 'Expired' }
+      ? { active: '活跃', stale: '已停更' }
+      : { active: 'Active', stale: 'Stale' }
   return labels[state] ?? state
 }
 
@@ -32,7 +32,5 @@ export function healthTone(level: HealthLevel): 'ok' | 'warn' | 'danger' {
 
 export function stateTone(state: BranchState): 'ok' | 'warn' | 'danger' | 'info' {
   if (state === 'active') return 'ok'
-  if (state === 'grace_period') return 'warn'
-  if (state === 'grace_expired') return 'danger'
   return 'warn'
 }

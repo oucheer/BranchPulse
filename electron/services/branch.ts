@@ -83,7 +83,6 @@ interface AnalysisFacts {
   merged: boolean
   mergedInto: string | null
   baseBranch: string
-  gracePeriodDays: number
   recentCommits: CommitInfo[]
 }
 
@@ -129,7 +128,7 @@ function fingerprint(monitoring: MonitoringConfig, naming: NamingService, protec
     .join('|')
   const wl = protection.listWhitelist(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
   const pr = protection.listProtected(repositoryId).map((e) => `${e.type}:${e.pattern}`).join('|')
-  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${monitoring.gracePeriodUnit}|${monitoring.gracePeriodDays}|${rules}|${wl}|${pr}`
+  return `${monitoring.staleThresholdUnit}|${monitoring.staleThresholdDays}|${rules}|${wl}|${pr}`
 }
 
 function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdUnit']): number {
@@ -141,7 +140,7 @@ function thresholdToHours(value: number, unit: MonitoringConfig['staleThresholdU
 
 /**
  * 基准分支（main / develop / 仓库默认分支）是所有分支的评分参照物，
- * 不参与生命周期评比：不计已停更、不计宽限期、不进清理候选、不进需要关注的列表。
+ * 不参与生命周期评比：不计已停更、不进清理候选、不进需要关注的列表。
  */
 export function isBaselineBranch(name: string, baseBranch?: string | null): boolean {
   if (/^(main|develop)$/i.test(name)) return true
@@ -175,9 +174,7 @@ export class BranchService {
     return {
       enabled: (row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
-      gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
-      gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
       fetchEnabled: (row?.fetch_enabled ?? 1) === 1,
       namingEnabled: (row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none') as MonitoringConfig['emailPolicy'],
@@ -357,7 +354,6 @@ export class BranchService {
       merged: branch.merged === true || ownCommits.length === 0,
       mergedInto: branch.merged || ownCommits.length === 0 ? defaultBranch : null,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays,
       recentCommits: recentCommits.map((c) => this.gitLabCommitToInfo(c))
     }
     const result = this.buildFromFacts(facts, ref, repo.id, monitoring)
@@ -466,7 +462,6 @@ export class BranchService {
       merged: aheadBehind.ahead === 0,
       mergedInto,
       baseBranch: defaultBranch,
-      gracePeriodDays: monitoring.gracePeriodDays,
       recentCommits
     }
   }
@@ -481,12 +476,10 @@ export class BranchService {
     const inactiveDays = elapsedDays(facts.lastCommitAt, now)
     const ageDays = elapsedDays(facts.createdAt, now)
     const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
-    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(facts.lastCommitAt, now)
     const baseline = isBaselineBranch(facts.name, facts.baseBranch)
     const stale = !baseline && inactiveHours >= thresholdHours
-    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
-    const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
+    const state: BranchState = stale ? 'stale' : 'active'
     const naming: NamingResult = monitoring.namingEnabled
       ? this.naming.validate(facts.name, this.naming.listRules(repositoryId))
       : { status: 'excluded', reason: 'Naming validation disabled.' }
@@ -495,7 +488,6 @@ export class BranchService {
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
-      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       namingExempt: facts.name === 'main' || facts.name === 'develop',
@@ -538,9 +530,7 @@ export class BranchService {
       protection,
       state,
       stale,
-      gracePeriodDays: monitoring.gracePeriodDays,
-      graceExpired,
-      cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
+      cleanupCandidate: stale && !protection.whitelisted && !protection.isDefault && !protection.protected,
       recentCommits: facts.recentCommits,
       lastScannedAt: new Date().toISOString()
     }
@@ -551,12 +541,10 @@ export class BranchService {
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
     const thresholdHours = thresholdToHours(monitoring.staleThresholdDays, monitoring.staleThresholdUnit)
-    const graceHours = thresholdToHours(monitoring.gracePeriodDays, monitoring.gracePeriodUnit)
     const inactiveHours = elapsedHours(cached.lastCommitAt, now)
     const baseline = isBaselineBranch(cached.name, cached.baseBranch)
     const stale = !baseline && inactiveHours >= thresholdHours
-    const graceExpired = stale && inactiveHours > thresholdHours + graceHours
-    const state: BranchState = !stale ? 'active' : graceExpired ? 'grace_expired' : 'grace_period'
+    const state: BranchState = stale ? 'stale' : 'active'
     const naming: NamingResult = monitoring.namingEnabled
       ? this.naming.validate(cached.name, this.naming.listRules(cached.repositoryId))
       : { status: 'excluded', reason: 'Naming validation disabled.' }
@@ -565,7 +553,6 @@ export class BranchService {
     const health: HealthResult = this.health.compute({
       inactiveDays,
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
-      gracePeriodDays: graceHours / 24,
       state,
       namingStatus: naming.status,
       namingExempt: cached.name === 'main' || cached.name === 'develop',
@@ -586,8 +573,7 @@ export class BranchService {
       ageDays,
       state,
       stale,
-      graceExpired,
-      cleanupCandidate: graceExpired && !protection.whitelisted && !protection.isDefault && !protection.protected,
+      cleanupCandidate: stale && !protection.whitelisted && !protection.isDefault && !protection.protected,
       naming,
       protection,
       health,

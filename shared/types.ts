@@ -1,5 +1,5 @@
 export type BranchType = 'local' | 'remote'
-export type BranchState = 'active' | 'stale' | 'grace_period' | 'grace_expired'
+export type BranchState = 'active' | 'stale'
 export type NamingStatus = 'valid' | 'invalid' | 'excluded'
 export type HealthLevel = 'healthy' | 'good' | 'warning' | 'critical'
 export type ScanStatus = 'idle' | 'running' | 'completed' | 'failed'
@@ -80,8 +80,6 @@ export interface BranchSummary {
   protection: ProtectionInfo
   state: BranchState
   stale: boolean
-  gracePeriodDays: number
-  graceExpired: boolean
   cleanupCandidate: boolean
   recentCommits: CommitInfo[]
   lastScannedAt: string
@@ -138,9 +136,7 @@ export interface ProtectionEntry {
 export interface MonitoringConfig {
   enabled: boolean
   staleThresholdDays: number
-  gracePeriodDays: number
   staleThresholdUnit: 'minutes' | 'hours' | 'days' | 'weeks'
-  gracePeriodUnit: 'minutes' | 'hours' | 'days' | 'weeks'
   fetchEnabled: boolean
   namingEnabled: boolean
   emailPolicy: EmailPolicy
@@ -186,8 +182,6 @@ export interface ScanRun {
   branches: number
   active: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   merged: number
   namingInvalid: number
   cleanupCandidates: number
@@ -200,8 +194,6 @@ export interface ScanRun {
 
 export type NotificationType =
   | 'stale'
-  | 'grace_period'
-  | 'grace_expired'
   | 'naming_violation'
   | 'merged'
   | 'cleanup_candidate'
@@ -258,8 +250,6 @@ export interface ReportSummary {
   compliancePercent: number
   active: number
   stale: number
-  gracePeriod: number
-  graceExpired: number
   merged: number
   namingViolations: number
   cleanupCandidates: number
@@ -424,8 +414,6 @@ export interface ScanProgress {
     | 'status'
     | 'branches'
     | 'stale'
-    | 'gracePeriod'
-    | 'graceExpired'
     | 'merged'
     | 'namingInvalid'
     | 'cleanupCandidates'

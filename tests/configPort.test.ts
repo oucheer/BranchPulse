@@ -32,7 +32,7 @@ function seedSource(): void {
   source.insert('email_groups', { id: 'group-1', name: '审核组', recipients: 'a@example.com,b@example.com', created_at: '2026-01-01T00:00:00.000Z' })
   source.insert('branch_naming_rules', { id: 'rule-1', name: 'feature/*', pattern: 'feature/*', type: 'glob', mode: 'allow', description: 'Feature', enabled: 1, priority: 5, repository_id: null })
   source.insert('whitelist', { id: 'wl-1', pattern: 'release/*', type: 'glob', note: '发布分支', created_at: '2026-01-01T00:00:00.000Z' })
-  source.insert('monitoring_rules_repo', { repository_id: 'repo-1', enabled: 1, stale_threshold_days: 180, grace_period_days: 60, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'both' })
+  source.insert('monitoring_rules_repo', { repository_id: 'repo-1', enabled: 1, stale_threshold_days: 180, stale_threshold_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'both' })
   source.insert('scheduler_jobs', { id: 'job-1', name: '每晚检查', kind: 'interval', enabled: 1, interval_hours: 24, interval_minutes: 1440, days_json: '[]', time: '09:00', email_policy: 'summary', fetch_enabled: 1, notify_target: 'self', created_at: '2026-01-01T00:00:00.000Z' })
   source.insert('repositories', { id: 'repo-1', name: 'demo', path: 'gitlab://1', source: 'gitlab', gitlab_project_id: 1, remote_project_path: 'group/demo', web_url: 'https://gitlab.example.com/group/demo', remote_api_key: 'ENCRYPTED-REPO-KEY', created_at: '2026-01-01T00:00:00.000Z' })
 }
@@ -130,7 +130,7 @@ describe('config import', () => {
     source.insert('repositories', { id: 'repo-2', name: 'second', path: 'gitlab://2', source: 'gitlab', gitlab_project_id: 2, remote_project_path: 'group/second', created_at: '2026-01-02T00:00:00.000Z' })
     source.insert('branch_naming_rules', { id: 'rule-2', name: 'hotfix/*', pattern: 'hotfix/*', type: 'glob', mode: 'allow', enabled: 1, priority: 1, repository_id: 'repo-2' })
     source.insert('whitelist', { id: 'wl-2', pattern: 'keep/*', type: 'glob', created_at: '2026-01-02T00:00:00.000Z', repository_id: 'repo-2' })
-    source.insert('monitoring_rules_repo', { repository_id: 'repo-2', enabled: 1, stale_threshold_days: 200, grace_period_days: 30, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'self' })
+    source.insert('monitoring_rules_repo', { repository_id: 'repo-2', enabled: 1, stale_threshold_days: 200, stale_threshold_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'self' })
 
     const target = path.join(workDir, 'multi.json')
     port.exportToFile(target, {})

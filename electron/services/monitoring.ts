@@ -41,8 +41,6 @@ export class MonitoringService {
       branches: summary.branches,
       active: summary.active,
       stale: summary.stale,
-      grace_period: summary.gracePeriod,
-      grace_expired: summary.graceExpired,
       merged: summary.merged,
       naming_invalid: summary.namingInvalid,
       cleanup_candidates: summary.cleanupCandidates,
@@ -63,8 +61,7 @@ export class MonitoringService {
   private thresholdHint(row?: Record<string, unknown> | null): string {
     const unitLabel = (unit: string): string => unit === 'weeks' ? '周' : unit === 'hours' ? '小时' : unit === 'minutes' ? '分钟' : '天'
     const staleValue = Number(row?.stale_threshold_days ?? 180)
-    const graceValue = Number(row?.grace_period_days ?? 60)
-    return `阈值 ${staleValue} ${unitLabel(String(row?.stale_threshold_unit ?? 'days'))} · 提醒窗口 ${graceValue} ${unitLabel(String(row?.grace_period_unit ?? 'days'))}`
+    return `阈值 ${staleValue} ${unitLabel(String(row?.stale_threshold_unit ?? 'days'))}`
   }
 
   async runCheckNow(options: RunCheckOptions = {}): Promise<ScanRun> {
@@ -120,7 +117,7 @@ export class MonitoringService {
 
     const summary = this.summarize(allBranches, targets.length)
     addActivity(
-      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.graceExpired} grace expired, ${summary.namingInvalid} naming violations.`,
+      `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.namingInvalid} naming violations.`,
       'success'
     )
 
@@ -158,8 +155,6 @@ export class MonitoringService {
         const data: EmailSummaryData = {
           total: summary.branches,
           stale: summary.stale,
-          gracePeriod: summary.gracePeriod,
-          graceExpired: summary.graceExpired,
           namingInvalid: summary.namingInvalid,
           merged: summary.merged,
           cleanupCandidates: summary.cleanupCandidates,
@@ -215,8 +210,6 @@ export class MonitoringService {
       branches: summary.branches,
       active: summary.active,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       merged: summary.merged,
       namingInvalid: summary.namingInvalid,
       cleanupCandidates: summary.cleanupCandidates,
@@ -238,8 +231,6 @@ export class MonitoringService {
       branches: run.branches,
       active: run.active,
       stale: run.stale,
-      grace_period: run.gracePeriod,
-      grace_expired: run.graceExpired,
       merged: run.merged,
       naming_invalid: run.namingInvalid,
       cleanup_candidates: run.cleanupCandidates,
@@ -265,8 +256,6 @@ export class MonitoringService {
       status: 'completed',
       branches: run.branches,
       stale: run.stale,
-      gracePeriod: run.gracePeriod,
-      graceExpired: run.graceExpired,
       merged: run.merged,
       namingInvalid: run.namingInvalid,
       cleanupCandidates: run.cleanupCandidates
@@ -285,8 +274,6 @@ export class MonitoringService {
       branches: branches.length,
       active: count((b) => b.state === 'active'),
       stale: count((b) => b.stale),
-      gracePeriod: count((b) => b.state === 'grace_period'),
-      graceExpired: count((b) => b.state === 'grace_expired'),
       merged: count((b) => b.merged),
       namingInvalid: count((b) => b.naming.status === 'invalid'),
       cleanupCandidates: count((b) => b.cleanupCandidate),
@@ -301,13 +288,7 @@ export class MonitoringService {
     const created: NotificationRecord[] = []
     for (const branch of branches) {
       const candidates: Array<{ type: NotificationType; state: string; message: string }> = []
-      if (branch.state === 'grace_expired') {
-        candidates.push({
-          type: 'grace_expired',
-          state: branch.state,
-          message: `${branch.displayName} 宽限期已过，已连续 ${branch.inactiveDays} 天未提交。`
-        })
-      } else if (branch.stale) {
+      if (branch.stale) {
         candidates.push({
           type: 'stale',
           state: branch.state,
@@ -385,8 +366,6 @@ export class MonitoringService {
     const data: EmailSummaryData = {
       total: summary.branches,
       stale: summary.stale,
-      gracePeriod: summary.gracePeriod,
-      graceExpired: summary.graceExpired,
       namingInvalid: summary.namingInvalid,
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,
@@ -401,19 +380,25 @@ export class MonitoringService {
 
   listNotifications(): NotificationRecord[] {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 500')
-    return rows.map((r) => ({
-      id: String(r.id),
-      repositoryId: String(r.repository_id ?? ''),
-      repositoryName: String(r.repository_name ?? ''),
-      branch: String(r.branch ?? ''),
-      type: (r.type as NotificationRecord['type']) ?? 'stale',
-      state: String(r.state ?? ''),
-      message: String(r.message ?? ''),
-      createdAt: String(r.created_at),
-      deliveredToDesktop: Number(r.desktop ?? 0) === 1,
-      deliveredViaEmail: Number(r.email ?? 0) === 1,
-      read: Number(r.read ?? 0) === 1
-    }))
+    return rows.map((r) => {
+      const rawType = String(r.type ?? '')
+      const type: NotificationRecord['type'] = rawType === 'naming_violation' || rawType === 'cleanup_candidate'
+        ? rawType
+        : 'stale'
+      return {
+        id: String(r.id),
+        repositoryId: String(r.repository_id ?? ''),
+        repositoryName: String(r.repository_name ?? ''),
+        branch: String(r.branch ?? ''),
+        type,
+        state: type === 'stale' ? 'stale' : String(r.state ?? ''),
+        message: String(r.message ?? '').replace(/宽限期|grace period/gi, '已停更'),
+        createdAt: String(r.created_at),
+        deliveredToDesktop: Number(r.desktop ?? 0) === 1,
+        deliveredViaEmail: Number(r.email ?? 0) === 1,
+        read: Number(r.read ?? 0) === 1
+      }
+    })
   }
 
   markNotificationRead(id: string): NotificationRecord[] {

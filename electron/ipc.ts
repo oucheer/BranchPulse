@@ -93,8 +93,6 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
     branches: Number(row.branches ?? 0),
     active: Number(row.active ?? 0),
     stale: Number(row.stale ?? 0),
-    gracePeriod: Number(row.grace_period ?? 0),
-    graceExpired: Number(row.grace_expired ?? 0),
     merged: Number(row.merged ?? 0),
     namingInvalid: Number(row.naming_invalid ?? 0),
     cleanupCandidates: Number(row.cleanup_candidates ?? 0),
@@ -171,9 +169,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     return {
       enabled: Number(row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
-      gracePeriodDays: Number(row?.grace_period_days ?? 60),
       staleThresholdUnit: ((row?.stale_threshold_unit as MonitoringConfig['staleThresholdUnit']) ?? 'days'),
-      gracePeriodUnit: ((row?.grace_period_unit as MonitoringConfig['gracePeriodUnit']) ?? 'days'),
       fetchEnabled: Number(row?.fetch_enabled ?? 1) === 1,
       namingEnabled: Number(row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none'),
@@ -186,9 +182,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     const values = {
       enabled: config.enabled ? 1 : 0,
       stale_threshold_days: config.staleThresholdDays,
-      grace_period_days: config.gracePeriodDays,
       stale_threshold_unit: config.staleThresholdUnit,
-      grace_period_unit: config.gracePeriodUnit,
       fetch_enabled: config.fetchEnabled ? 1 : 0,
       naming_enabled: config.namingEnabled ? 1 : 0,
       email_policy: config.emailPolicy,
@@ -209,9 +203,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       repositoryId: repositoryId ?? null,
       enabled: config.enabled,
       staleThresholdDays: config.staleThresholdDays,
-      gracePeriodDays: config.gracePeriodDays,
-      staleThresholdUnit: config.staleThresholdUnit,
-      gracePeriodUnit: config.gracePeriodUnit
+      staleThresholdUnit: config.staleThresholdUnit
     })
     return getMonitoring(repositoryId)
   }

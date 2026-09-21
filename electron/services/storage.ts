@@ -63,9 +63,7 @@ CREATE TABLE IF NOT EXISTS monitoring_rules (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL DEFAULT 1,
   stale_threshold_days INTEGER NOT NULL,
-  grace_period_days INTEGER NOT NULL,
   stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
-  grace_period_unit TEXT NOT NULL DEFAULT 'days',
   fetch_enabled INTEGER NOT NULL DEFAULT 1,
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL,
@@ -159,9 +157,7 @@ CREATE TABLE IF NOT EXISTS monitoring_rules_repo (
   repository_id TEXT PRIMARY KEY,
   enabled INTEGER NOT NULL DEFAULT 1,
   stale_threshold_days INTEGER NOT NULL,
-  grace_period_days INTEGER NOT NULL,
   stale_threshold_unit TEXT NOT NULL DEFAULT 'days',
-  grace_period_unit TEXT NOT NULL DEFAULT 'days',
   fetch_enabled INTEGER NOT NULL DEFAULT 1,
   naming_enabled INTEGER NOT NULL DEFAULT 1,
   email_policy TEXT NOT NULL DEFAULT 'none',
@@ -244,8 +240,6 @@ CREATE TABLE IF NOT EXISTS scan_runs (
   branches INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 0,
   stale INTEGER NOT NULL DEFAULT 0,
-  grace_period INTEGER NOT NULL DEFAULT 0,
-  grace_expired INTEGER NOT NULL DEFAULT 0,
   merged INTEGER NOT NULL DEFAULT 0,
   naming_invalid INTEGER NOT NULL DEFAULT 0,
   cleanup_candidates INTEGER NOT NULL DEFAULT 0,
@@ -262,8 +256,6 @@ CREATE TABLE IF NOT EXISTS scan_run_repositories (
   branches INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 0,
   stale INTEGER NOT NULL DEFAULT 0,
-  grace_period INTEGER NOT NULL DEFAULT 0,
-  grace_expired INTEGER NOT NULL DEFAULT 0,
   merged INTEGER NOT NULL DEFAULT 0,
   naming_invalid INTEGER NOT NULL DEFAULT 0,
   cleanup_candidates INTEGER NOT NULL DEFAULT 0,
@@ -350,7 +342,6 @@ export class StorageService {
     this.ensureColumn('repositories', 'remote_api_key', 'TEXT')
     this.ensureColumn('monitoring_rules', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('monitoring_rules', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
-    this.ensureColumn('monitoring_rules', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
@@ -373,7 +364,6 @@ export class StorageService {
     this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('monitoring_rules_repo', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
-    this.ensureColumn('monitoring_rules_repo', 'grace_period_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules_repo', 'notification_enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('reports', 'repository_id', 'TEXT')
     this.ensureColumn('report_schedules', 'next_run_at', 'TEXT')
@@ -385,8 +375,19 @@ export class StorageService {
     this.run(`DELETE FROM protected_branches WHERE rowid NOT IN (SELECT MIN(rowid) FROM protected_branches GROUP BY pattern)`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
     this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
-    this.run(`UPDATE monitoring_rules SET stale_threshold_days = 180, grace_period_days = 60 WHERE stale_threshold_days = 14 AND grace_period_days = 7`)
-    this.run(`UPDATE monitoring_rules_repo SET stale_threshold_days = 180, grace_period_days = 60 WHERE stale_threshold_days = 14 AND grace_period_days = 7`)
+    this.run(`UPDATE monitoring_rules SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
+    this.run(`UPDATE monitoring_rules_repo SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
+    this.dropColumn('monitoring_rules', 'grace_period_days')
+    this.dropColumn('monitoring_rules', 'grace_period_unit')
+    this.dropColumn('monitoring_rules_repo', 'grace_period_days')
+    this.dropColumn('monitoring_rules_repo', 'grace_period_unit')
+    this.dropColumn('scan_runs', 'grace_period')
+    this.dropColumn('scan_runs', 'grace_expired')
+    this.dropColumn('scan_run_repositories', 'grace_period')
+    this.dropColumn('scan_run_repositories', 'grace_expired')
+    // Dropping the columns is not enough: older installs seeded placeholder
+    // templates for the removed states, and seed() only runs on an empty table.
+    this.run(`DELETE FROM email_templates WHERE kind IN ('grace_period', 'grace_expired')`)
     this.run(`DELETE FROM whitelist WHERE pattern = 'whitelisted-feature' AND type = 'exact' AND note = 'Demo whitelisted branch'`)
     this.run(`DELETE FROM protected_branches WHERE pattern = 'hotfix/*' AND type = 'glob' AND note = 'Demo protected hotfix branches'`)
   }
@@ -401,9 +402,19 @@ export class StorageService {
     }
   }
 
+  /** 宽限期功能已整体移除，旧库里的遗留列在这里一次性丢弃。 */
+  private dropColumn(table: string, column: string): void {
+    const result = this.db.exec(`PRAGMA table_info(${table})`)
+    const values = result[0]?.values ?? []
+    const exists = values.some((row) => row[1] === column)
+    if (!exists) return
+    this.db.run(`ALTER TABLE ${table} DROP COLUMN ${column}`)
+    this.save()
+  }
+
   private seed(): void {
-    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, grace_period_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, notify_target)
-      VALUES (1, 1, 180, 60, 1, 1, 'none', 1, 'self')`)
+    this.run(`INSERT OR IGNORE INTO monitoring_rules (id, enabled, stale_threshold_days, fetch_enabled, naming_enabled, email_policy, notification_enabled, notify_target)
+      VALUES (1, 1, 180, 1, 1, 'none', 1, 'self')`)
     this.run(`INSERT OR IGNORE INTO app_settings (id, theme, language, notifications_enabled, tray_enabled, launch_minimized, start_with_windows, fetch_policy)
       VALUES (1, 'dark', 'zh', 1, 1, 0, 0, 'auto')`)
     this.run(`INSERT OR IGNORE INTO email_config (id, server, port, from_address, secure, tls, enabled)
@@ -428,8 +439,6 @@ export class StorageService {
           body: [
             '{{total}} branches checked',
             '{{stale}} stale',
-            '{{grace_period}} in grace period',
-            '{{grace_expired}} grace expired',
             '{{naming_invalid}} naming violations',
             '{{merged}} merged',
             '{{cleanup_candidates}} cleanup candidates'
@@ -444,35 +453,10 @@ export class StorageService {
             'Creator: {{creator}}',
             'Last commit: {{last_commit_date}}',
             'Inactive: {{inactive_days}} days',
-            'Grace period: {{grace_period}} days',
             'Naming: {{naming_status}}',
             'Merge status: {{merge_status}}',
             'Health: {{health_score}}',
             'Recommended action: review and clean up.'
-          ].join('\n')
-        },
-        {
-          kind: 'grace_period',
-          subject: 'BranchPulse: branch entered grace period',
-          body: [
-            'Repository: {{repository}}',
-            'Branch: {{branch}}',
-            'Creator: {{creator}}',
-            'Inactive: {{inactive_days}} days',
-            'Grace period: {{grace_period}} days',
-            'Health: {{health_score}}'
-          ].join('\n')
-        },
-        {
-          kind: 'grace_expired',
-          subject: 'BranchPulse: grace period expired',
-          body: [
-            'Repository: {{repository}}',
-            'Branch: {{branch}}',
-            'Creator: {{creator}}',
-            'Inactive: {{inactive_days}} days',
-            'Grace period expired.',
-            'Recommended action: cleanup candidate.'
           ].join('\n')
         },
         {
