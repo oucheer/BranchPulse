@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CalendarClock, Play, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, ConfirmCheckbox, EmptyState, Modal, Toggle } from '../components/ui'
+import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
 import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
@@ -66,7 +66,7 @@ export default function Scheduler(): JSX.Element {
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
   const emailDisabled = !emailConfig?.enabled
   const [deleteAllOpen, setDeleteAllOpen] = useState(false)
-  const [deleteAllConfirmed, setDeleteAllConfirmed] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   // Every job is listed regardless of the active repository. The scheduler
   // executes all enabled jobs, so hiding the ones bound to another repository
@@ -104,16 +104,18 @@ export default function Scheduler(): JSX.Element {
   }
 
   const removeAll = async (): Promise<void> => {
-    if (!deleteAllConfirmed) return
+    if (deletingAll) return
+    setDeletingAll(true)
     try {
       const removed = jobs.length
       await window.gitmanager.deleteAllJobs()
       setDeleteAllOpen(false)
-      setDeleteAllConfirmed(false)
       toast(`已删除全部 ${removed} 个定时任务`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setDeletingAll(false)
     }
   }
 
@@ -370,12 +372,12 @@ export default function Scheduler(): JSX.Element {
       <Modal
         open={deleteAllOpen}
         title="删除全部定时任务"
-        onClose={() => { setDeleteAllOpen(false); setDeleteAllConfirmed(false) }}
+        onClose={() => setDeleteAllOpen(false)}
         footer={
           <div className="flex gap-2">
-            <button className="btn" onClick={() => { setDeleteAllOpen(false); setDeleteAllConfirmed(false) }}>{tr('cancel')}</button>
-            <button className="btn text-danger" disabled={!deleteAllConfirmed} onClick={() => void removeAll()}>
-              确认删除
+            <button className="btn" disabled={deletingAll} onClick={() => setDeleteAllOpen(false)}>{tr('cancel')}</button>
+            <button className="btn text-danger" disabled={deletingAll} onClick={() => void removeAll()}>
+              {deletingAll ? '删除中...' : '确认删除'}
             </button>
           </div>
         }
@@ -386,7 +388,9 @@ export default function Scheduler(): JSX.Element {
             <span className="font-semibold text-canvas-fg">其他仓库</span>以及「全部仓库」范围的任务。
             删除后不会再有自动检查与定时邮件，且无法恢复。
           </div>
-          <ConfirmCheckbox label="我已了解删除后无法恢复" checked={deleteAllConfirmed} onChange={setDeleteAllConfirmed} />
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+            再次点击“确认删除”后，全部定时任务将立即清除。
+          </div>
         </div>
       </Modal>
     </div>

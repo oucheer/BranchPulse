@@ -130,5 +130,5 @@
 
 - `scheduler_jobs` 是**全局表**，`listJobs()` 不带仓库过滤，`tick()` 每 30s 让所有 `enabled` 任务运行。因此调度页**不能**按 `activeRepositoryId` 过滤显示，否则会出现「任务在别处轮询发邮件但 UI 完全看不到」。当前实现：显示全部任务、按「本仓库优先」排序、非当前仓库的任务用 `text-warn` 高亮仓库名。
 - 托盘「暂停监控」必须作用于全部任务（`setAllEnabled()`），只改第一个 enabled 任务会让其余任务继续发信。
-- 「删除全部定时任务」走 `deleteAllJobs()`：`DELETE FROM scheduler_jobs WHERE 1 = 1` + 审计 `scheduler_jobs_deleted_all`，UI 侧必须用 `ConfirmCheckbox` 二次确认（未勾选时确认按钮 disabled）。
+- 「删除全部定时任务」走 `deleteAllJobs()`：`DELETE FROM scheduler_jobs WHERE 1 = 1` + 审计 `scheduler_jobs_deleted_all`。每次点击入口都必须弹出二次确认框，用户再次点击「确认删除」后才执行清空；确认按钮立即可用，请求进行中禁用按钮防止重复提交。
 - 配置导入会整表带入别的机器的 `scheduler_jobs`（`configPort.ts`），`pruneOrphans()` 只在仓库不存在时清理，所以跨机导入后残留任务需要用户手动一键删除——这是该功能存在的理由。
