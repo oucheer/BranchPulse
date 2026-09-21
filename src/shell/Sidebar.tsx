@@ -210,7 +210,9 @@ export default function Sidebar(): JSX.Element {
           <span className={`h-2 w-2 rounded-full ${scanning ? 'animate-pulse bg-primary' : 'bg-ok'}`} />
           {language === 'zh' ? '监控服务' : 'Monitoring service'}
         </div>
-        <div className="opacity-70">{appVersion ? `BranchPulse v${appVersion}` : 'BranchPulse'}</div>
+        <div className="opacity-70">
+          {appVersion ? `BranchPulse V${appVersion.replace(/^v/i, '').replace(/\.0$/, '')}` : 'BranchPulse'}
+        </div>
       </div>
     </aside>
   )

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildBranchEmailHtml,
+  creatorScenarioEmail,
   processingDeadlineNotice,
   type EmailIssueRow,
   type EmailSummaryData
@@ -58,6 +59,20 @@ describe('processingDeadlineNotice', () => {
   it('appears in summary emails and generated report HTML', () => {
     expect(buildBranchEmailHtml(summary(), 'zh', 'summary')).toContain('对分支不合规处进行处理')
     expect(buildBranchEmailHtml(summary(), 'en', 'report')).toContain('within 1 month')
+  })
+})
+
+describe('inspection-only creator emails', () => {
+  it('never suggests deleting a branch and marks whitelisted branches as inspection only', () => {
+    const idleWhitelisted = { ...row, state: 'stale', whitelisted: true }
+    const zh = creatorScenarioEmail([idleWhitelisted], 'idle', 'zh')
+    const en = creatorScenarioEmail([idleWhitelisted], 'idle', 'en')
+
+    expect(zh.html).toContain('白名单分支，仅检查')
+    expect(zh.html).not.toContain('删除')
+    expect(zh.html).not.toContain('自动回收')
+    expect(en.html).toContain('Whitelisted; inspection only')
+    expect(en.html).not.toMatch(/delete/i)
   })
 })
 

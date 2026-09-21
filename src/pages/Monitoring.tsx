@@ -39,7 +39,7 @@ export default function Monitoring(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.branchpulse.saveMonitoring({ ...draft, autoDeleteEnabled: false }, activeRepositoryId)
+      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -64,12 +64,11 @@ export default function Monitoring(): JSX.Element {
     setScanning(true)
     suppressDraftSync.current = true
     try {
-      await window.branchpulse.saveMonitoring({ ...draft, autoDeleteEnabled: false }, activeRepositoryId)
+      await window.branchpulse.saveMonitoring(draft, activeRepositoryId)
       const run = await window.branchpulse.runCheckNow({
         bypassEnabledCheck: true,
         notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
-        autoDelete: false,
         trigger: 'manual',
         ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {})
       })
@@ -213,7 +212,6 @@ export default function Monitoring(): JSX.Element {
             <Badge tone={monitoring.notificationEnabled ? 'ok' : 'warn'}>
               {monitoring.notificationEnabled ? tr('notificationsOn') : tr('notificationsOff')}
             </Badge>
-            <Badge tone="secondary">{tr('inspectionOnly')}</Badge>
           </div>
         </Card>
 

@@ -145,7 +145,6 @@ export interface MonitoringConfig {
   namingEnabled: boolean
   emailPolicy: EmailPolicy
   notificationEnabled: boolean
-  autoDeleteEnabled: boolean
   notifyTarget: NotifyTarget
 }
 
@@ -162,7 +161,6 @@ export interface SchedulerJob {
   endDate: string | null
   emailPolicy: EmailPolicy
   fetchEnabled: boolean
-  autoDeleteEnabled: boolean
   notifyTarget: NotifyTarget
   lastRunAt: string | null
   nextRunAt: string | null
@@ -193,7 +191,6 @@ export interface ScanRun {
   merged: number
   namingInvalid: number
   cleanupCandidates: number
-  deleted: number
   notifications: number
   emailsSent: number
   error: string | null
@@ -374,61 +371,12 @@ export interface AppSettings {
   gitlabApiKey?: string
   hasGitlabApiKey: boolean
   activeRepositoryId: string | null
-  deletionDisabled: boolean
-}
-
-export interface DeleteAuthorization {
-  authorized: boolean
-  targetType: BranchType
-  repositoryId: string
-  branch: string
-  confirmationToken: string
-  confirmed: boolean
-}
-
-export type DeleteBlockCode =
-  | 'WHITELIST'
-  | 'DEFAULT_BRANCH'
-  | 'PROTECTED_BRANCH'
-  | 'USER_NOT_AUTHORIZED'
-  | 'NOT_CONFIRMED'
-  | 'TARGET_MISSING'
-  | 'TOKEN_MISMATCH'
-  | 'STALE_STATE'
-
-export interface DeleteDecision {
-  allowed: boolean
-  code: DeleteBlockCode | null
-  message: string
-  checks: { name: string; passed: boolean; detail: string }[]
-}
-
-export interface DeleteRequest {
-  authorization: DeleteAuthorization
-  confirmationToken: string
-  reason?: string
-}
-
-export interface DeleteAuthSession {
-  token: string
-  decision: DeleteDecision
-  branch: BranchSummary | null
-  expiresAt: number
-}
-
-export interface DeleteResult {
-  branch: string
-  targetType: BranchType
-  ok: boolean
-  message: string
-  decision: DeleteDecision
 }
 
 export interface RunCheckOptions {
   bypassEnabledCheck?: boolean
   emailPolicy?: EmailPolicy
   notifyTarget?: NotifyTarget
-  autoDelete?: boolean
   fetch?: boolean
   repositoryIds?: string[]
   trigger?: ScanRun['trigger']
@@ -484,17 +432,6 @@ export interface ScanProgress {
   >
 }
 
-export const DeleteBlockLabels: Record<DeleteBlockCode, string> = {
-  WHITELIST: 'Branch is protected by whitelist.',
-  DEFAULT_BRANCH: 'Default branch cannot be deleted.',
-  PROTECTED_BRANCH: 'Branch is protected by a protection rule.',
-  USER_NOT_AUTHORIZED: 'Explicit user authorization is required.',
-  NOT_CONFIRMED: 'Deletion confirmation is required.',
-  TARGET_MISSING: 'Branch target no longer exists.',
-  TOKEN_MISMATCH: 'Confirmation token is invalid or expired.',
-  STALE_STATE: 'Branch state changed since authorization.'
-}
-
 export interface BranchApi {
   init(): Promise<DashboardSnapshot>
   addGitLabRepository(projectId: number, config?: GitLabConnectionConfig): Promise<Repository>
@@ -509,9 +446,6 @@ export interface BranchApi {
   notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]>
   notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
   notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
-  beginDelete(criteria: BranchCriteria): Promise<DeleteAuthSession>
-  deleteBranch(request: DeleteRequest): Promise<DeleteResult>
-  batchDelete(requests: DeleteRequest[]): Promise<DeleteResult[]>
 
   listNamingRules(repositoryId?: string | null): Promise<NamingRule[]>
   saveNamingRule(rule: Partial<NamingRule> & { id?: string }): Promise<NamingRule[]>

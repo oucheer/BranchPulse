@@ -1,6 +1,6 @@
 {
   "name": "branchpulse",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Git Branch Lifecycle Management & Monitoring Center",
   "main": "./out/main/index.js",
   "author": "BranchPulse",

@@ -9,9 +9,6 @@ import type {
   BranchCriteria,
   BranchSummary,
   DashboardSnapshot,
-  DeleteAuthSession,
-  DeleteRequest,
-  DeleteResult,
   EmailConfig,
   EmailGroup,
   EmailSendResult,
@@ -40,7 +37,6 @@ import type { RepositoryService } from './services/repository'
 import type { BranchService } from './services/branch'
 import type { NamingService } from './services/naming'
 import type { ProtectionService } from './services/protection'
-import type { DeletionPolicyEngine, DeletionTokenRegistry } from './services/deletion'
 import type { MonitoringService } from './services/monitoring'
 import type { EmailService } from './services/email'
 import type { GitLabService } from './services/gitlab'
@@ -59,8 +55,6 @@ export interface AppServices {
   branch: BranchService
   naming: NamingService
   protection: ProtectionService
-  deletionEngine: DeletionPolicyEngine
-  deletionTokens: DeletionTokenRegistry
   monitoring: MonitoringService
   email: EmailService
   gitlab: GitLabService
@@ -104,7 +98,6 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
     merged: Number(row.merged ?? 0),
     namingInvalid: Number(row.naming_invalid ?? 0),
     cleanupCandidates: Number(row.cleanup_candidates ?? 0),
-    deleted: Number(row.deleted ?? 0),
     notifications: Number(row.notifications ?? 0),
     emailsSent: Number(row.emails_sent ?? 0),
     error: (row.error as string | null) ?? null,
@@ -114,7 +107,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function registerIpc(services: AppServices, onSettingsSaved?: (settings: AppSettings) => void): void {
-  const { storage, gitlab, repository, branch, naming, protection, deletionEngine, deletionTokens, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
+  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
 
   function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
     const rows = repositoryId
@@ -185,7 +178,6 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       namingEnabled: Number(row?.naming_enabled ?? 1) === 1,
       emailPolicy: ((row?.email_policy as MonitoringConfig['emailPolicy']) ?? 'none'),
       notificationEnabled: Number(row?.notification_enabled ?? 1) === 1,
-      autoDeleteEnabled: Number(row?.auto_delete_enabled ?? 0) === 1,
       notifyTarget: ((row?.notify_target as MonitoringConfig['notifyTarget']) ?? 'self')
     }
   }
@@ -201,7 +193,6 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       naming_enabled: config.namingEnabled ? 1 : 0,
       email_policy: config.emailPolicy,
       notification_enabled: config.notificationEnabled ? 1 : 0,
-      auto_delete_enabled: config.autoDeleteEnabled ? 1 : 0,
       notify_target: config.notifyTarget
     }
     if (repositoryId) {
@@ -223,102 +214,6 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       gracePeriodUnit: config.gracePeriodUnit
     })
     return getMonitoring(repositoryId)
-  }
-
-  // --- beginDelete / deleteBranch local helpers (shared by single and batch) ---
-
-  async function beginDeleteFor(criteria: BranchCriteria): Promise<DeleteAuthSession> {
-    const branchSummary = await branch.getBranch(criteria)
-    const target = branchSummary
-      ? { existsLocally: branchSummary.existsLocally, existsRemotely: branchSummary.existsRemotely }
-      : { existsLocally: false, existsRemotely: false }
-    const protectionInfo = branchSummary?.protection ?? { whitelisted: false, isDefault: false, protected: false, rules: [] }
-    const decision = deletionEngine.evaluate(
-      { name: criteria.name, protection: protectionInfo, existsLocally: target.existsLocally, existsRemotely: target.existsRemotely },
-      { authorized: false, targetType: criteria.type, repositoryId: criteria.repositoryId, branch: criteria.name, confirmationToken: '', confirmed: false },
-      target
-    )
-    if (settings.get().deletionDisabled) {
-      return {
-        token: '',
-        branch: branchSummary,
-        expiresAt: 0,
-        decision: { allowed: false, code: 'USER_NOT_AUTHORIZED', message: 'Branch deletion is globally disabled.', checks: [{ name: 'GLOBAL_DISABLED', passed: false, detail: 'Branch deletion is globally disabled.' }] }
-      }
-    }
-    if (!branchSummary || !decision.allowed) {
-      return { token: '', decision, branch: branchSummary, expiresAt: 0 }
-    }
-    const session = deletionTokens.create(criteria.repositoryId, criteria.name, criteria.type)
-    return { token: session.token, decision, branch: branchSummary, expiresAt: session.expiresAt }
-  }
-
-  async function executeDelete(request: DeleteRequest): Promise<DeleteResult> {
-    const auth = request.authorization
-    const criteria: BranchCriteria = { repositoryId: auth.repositoryId, name: auth.branch, type: auth.targetType }
-    if (settings.get().deletionDisabled) {
-      const message = 'Branch deletion is globally disabled.'
-      audit.record('branch_delete', { repository: auth.repositoryId, branch: auth.branch, targetType: auth.targetType, result: 'blocked', reason: 'global_deletion_disabled' }, 'failure')
-      return {
-        branch: auth.branch,
-        targetType: auth.targetType,
-        ok: false,
-        message,
-        decision: { allowed: false, code: 'USER_NOT_AUTHORIZED', message, checks: [{ name: 'GLOBAL_DISABLED', passed: false, detail: message }] }
-      }
-    }
-    const failResult = (code: DeleteResult['decision']['code'], message: string, reason: string): DeleteResult => {
-      const result: DeleteResult = {
-        branch: auth.branch, targetType: auth.targetType, ok: false, message,
-        decision: { allowed: false, code, message, checks: [{ name: code ?? 'error', passed: false, detail: message }] }
-      }
-      audit.record('branch_delete', { repository: auth.repositoryId, branch: auth.branch, targetType: auth.targetType, result: 'blocked', reason }, 'failure')
-      return result
-    }
-
-    const tokenValid = deletionTokens.consume(request.confirmationToken, auth.repositoryId, auth.branch, auth.targetType)
-    if (!tokenValid) return failResult('TOKEN_MISMATCH', 'Confirmation token is invalid or expired.', 'token_mismatch')
-
-    const branchSummary = await branch.getBranch(criteria)
-    if (!branchSummary) return failResult('TARGET_MISSING', 'Branch target no longer exists.', 'target_missing')
-
-    const target = { existsLocally: branchSummary.existsLocally, existsRemotely: branchSummary.existsRemotely }
-    const decision = deletionEngine.evaluate(
-      { name: branchSummary.name, protection: branchSummary.protection, existsLocally: target.existsLocally, existsRemotely: target.existsRemotely },
-      { authorized: true, targetType: auth.targetType, repositoryId: auth.repositoryId, branch: auth.branch, confirmationToken: request.confirmationToken, confirmed: true },
-      target
-    )
-    if (!decision.allowed) {
-      return failResult(decision.code, decision.message, decision.code ?? 'policy_blocked')
-    }
-
-    try {
-      const repo = repository.get(auth.repositoryId)
-      if (auth.targetType === 'local') {
-        throw new Error('当前仅支持通过远程仓库 API 删除远程分支。')
-      } else if (repo && repo.source !== 'local' && repo.gitlabProjectId) {
-        await gitlab.deleteBranch(repo.gitlabProjectId, auth.branch, {
-          provider: repo.source,
-          url: repo.gitlabUrl,
-          projectPath: repo.remoteProjectPath,
-          ...(repository.getRemoteToken(repo.id) ? { apiKey: repository.getRemoteToken(repo.id) } : {})
-        })
-        branch.deleteRemoteRecord(criteria)
-      } else if (repo && auth.targetType === 'remote') {
-        throw new Error('远程仓库配置不完整，无法通过 API 删除分支。')
-      } else {
-        throw new Error('当前仅支持通过远程仓库 API 管理分支。')
-      }
-      audit.record('branch_delete', {
-        repository: branchSummary.repositoryName, branch: auth.branch, targetType: auth.targetType, remote: branchSummary.remote,
-        userAuthorization: true, reason: request.reason ?? 'user_request', result: 'deleted'
-      })
-      return { branch: auth.branch, targetType: auth.targetType, ok: true, message: `Branch ${auth.branch} (${auth.targetType}) deleted.`, decision }
-    } catch (err) {
-      const technical = err instanceof Error ? err.message : String(err)
-      audit.record('branch_delete', { repository: branchSummary.repositoryName, branch: auth.branch, targetType: auth.targetType, result: 'failed', technical }, 'failure')
-      return { branch: auth.branch, targetType: auth.targetType, ok: false, message: `Unable to delete ${auth.branch}.`, decision: { allowed: false, code: 'STALE_STATE', message: `Git operation failed: ${technical}`, checks: decision.checks } }
-    }
   }
 
   // --- IPC handlers ---
@@ -363,12 +258,6 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   ipcMain.handle('branchpulse:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
   ipcMain.handle('branchpulse:notifyBranchesEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifyBranchesEmail(bs))
   ipcMain.handle('branchpulse:notifySelfEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifySelfEmail(bs))
-  ipcMain.handle('branchpulse:beginDelete', (_e, criteria: BranchCriteria): Promise<DeleteAuthSession> => beginDeleteFor(criteria))
-  ipcMain.handle('branchpulse:deleteBranch', (_e, request: DeleteRequest): Promise<DeleteResult> => executeDelete(request))
-  ipcMain.handle('branchpulse:batchDelete', (_e, requests: DeleteRequest[]): Promise<DeleteResult[]> => {
-    return Promise.all(requests.map((r) => executeDelete(r)))
-  })
-
   ipcMain.handle('branchpulse:listNamingRules', (_e, repositoryId?: string | null): NamingRule[] => naming.listRules(repositoryId))
   ipcMain.handle('branchpulse:saveNamingRule', (_e, rule: Partial<NamingRule> & { id?: string }): NamingRule[] => {
     const list = naming.listRules(rule.repositoryId ?? null)
@@ -619,8 +508,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
         launchMinimized: saved.launchMinimized,
         startWithWindows: saved.startWithWindows,
         gitPath: saved.gitPath,
-        activeRepositoryId: saved.activeRepositoryId,
-        deletionDisabled: saved.deletionDisabled
+        activeRepositoryId: saved.activeRepositoryId
       })
       onSettingsSaved?.(saved)
       return saved

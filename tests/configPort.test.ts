@@ -18,7 +18,7 @@ async function openStorage(name: string): Promise<StorageService> {
 beforeEach(async () => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-config-'))
   source = await openStorage('source.db')
-  port = new ConfigPortService(source, () => '0.1.3')
+  port = new ConfigPortService(source, () => '0.2.0')
 })
 
 afterEach(() => {
@@ -32,8 +32,8 @@ function seedSource(): void {
   source.insert('email_groups', { id: 'group-1', name: '审核组', recipients: 'a@example.com,b@example.com', created_at: '2026-01-01T00:00:00.000Z' })
   source.insert('branch_naming_rules', { id: 'rule-1', name: 'feature/*', pattern: 'feature/*', type: 'glob', mode: 'allow', description: 'Feature', enabled: 1, priority: 5, repository_id: null })
   source.insert('whitelist', { id: 'wl-1', pattern: 'release/*', type: 'glob', note: '发布分支', created_at: '2026-01-01T00:00:00.000Z' })
-  source.insert('monitoring_rules_repo', { repository_id: 'repo-1', enabled: 1, stale_threshold_days: 180, grace_period_days: 60, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, auto_delete_enabled: 0, notify_target: 'both' })
-  source.insert('scheduler_jobs', { id: 'job-1', name: '每晚检查', kind: 'interval', enabled: 1, interval_hours: 24, interval_minutes: 1440, days_json: '[]', time: '09:00', email_policy: 'summary', fetch_enabled: 1, auto_delete_enabled: 0, notify_target: 'self', created_at: '2026-01-01T00:00:00.000Z' })
+  source.insert('monitoring_rules_repo', { repository_id: 'repo-1', enabled: 1, stale_threshold_days: 180, grace_period_days: 60, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'both' })
+  source.insert('scheduler_jobs', { id: 'job-1', name: '每晚检查', kind: 'interval', enabled: 1, interval_hours: 24, interval_minutes: 1440, days_json: '[]', time: '09:00', email_policy: 'summary', fetch_enabled: 1, notify_target: 'self', created_at: '2026-01-01T00:00:00.000Z' })
   source.insert('repositories', { id: 'repo-1', name: 'demo', path: 'gitlab://1', source: 'gitlab', gitlab_project_id: 1, remote_project_path: 'group/demo', web_url: 'https://gitlab.example.com/group/demo', remote_api_key: 'ENCRYPTED-REPO-KEY', created_at: '2026-01-01T00:00:00.000Z' })
 }
 
@@ -78,7 +78,7 @@ describe('config import', () => {
     port.exportToFile(target, { effects: { enabled: false, clickAuto: true }, language: 'zh' })
 
     const fresh = await openStorage('target.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.2.0')
     const summary = freshPort.importFromFile(target)
     expect(summary.applied).toEqual(expect.arrayContaining(['app_settings', 'email_groups', 'branch_naming_rules', 'repositories']))
 
@@ -106,7 +106,7 @@ describe('config import', () => {
     const local = await openStorage('local.db')
     local.update('app_settings', { gitlab_api_key: 'LOCAL-TOKEN', gitlab_has_key: 1 }, 'id = 1')
     local.insert('repositories', { id: 'repo-1', name: 'demo', path: 'gitlab://1', source: 'gitlab', gitlab_project_id: 1, remote_project_path: 'group/demo', remote_api_key: 'LOCAL-REPO-KEY', created_at: '2026-01-01T00:00:00.000Z' })
-    const localPort = new ConfigPortService(local, () => '0.1.3')
+    const localPort = new ConfigPortService(local, () => '0.2.0')
     localPort.importFromFile(target)
 
     const settings = local.all<Record<string, unknown>>('SELECT * FROM app_settings WHERE id = 1')[0]
@@ -130,7 +130,7 @@ describe('config import', () => {
     source.insert('repositories', { id: 'repo-2', name: 'second', path: 'gitlab://2', source: 'gitlab', gitlab_project_id: 2, remote_project_path: 'group/second', created_at: '2026-01-02T00:00:00.000Z' })
     source.insert('branch_naming_rules', { id: 'rule-2', name: 'hotfix/*', pattern: 'hotfix/*', type: 'glob', mode: 'allow', enabled: 1, priority: 1, repository_id: 'repo-2' })
     source.insert('whitelist', { id: 'wl-2', pattern: 'keep/*', type: 'glob', created_at: '2026-01-02T00:00:00.000Z', repository_id: 'repo-2' })
-    source.insert('monitoring_rules_repo', { repository_id: 'repo-2', enabled: 1, stale_threshold_days: 200, grace_period_days: 30, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, auto_delete_enabled: 0, notify_target: 'self' })
+    source.insert('monitoring_rules_repo', { repository_id: 'repo-2', enabled: 1, stale_threshold_days: 200, grace_period_days: 30, stale_threshold_unit: 'days', grace_period_unit: 'days', fetch_enabled: 1, naming_enabled: 1, email_policy: 'summary', notification_enabled: 1, notify_target: 'self' })
 
     const target = path.join(workDir, 'multi.json')
     port.exportToFile(target, {})
@@ -144,7 +144,7 @@ describe('config import', () => {
     expect(bundle.sections.collections.monitoring_rules_repo).toHaveLength(2)
 
     const fresh = await openStorage('multi-target.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.2.0')
     freshPort.importFromFile(target)
     expect(fresh.all('SELECT id FROM repositories')).toHaveLength(2)
     const freshRuleIds = fresh.all<Record<string, unknown>>('SELECT id FROM branch_naming_rules').map((r) => String(r.id))
@@ -161,7 +161,7 @@ describe('config import', () => {
     port.exportToFile(target, {})
 
     const fresh = await openStorage('fresh-credentials.db')
-    const freshPort = new ConfigPortService(fresh, () => '0.1.3')
+    const freshPort = new ConfigPortService(fresh, () => '0.2.0')
     const summary = freshPort.importFromFile(target)
     const text = summary.warnings.join(' ')
     expect(text).toContain('API Token')
@@ -177,7 +177,7 @@ describe('config import', () => {
 
     const local = await openStorage('orphan.db')
     local.insert('branches', { id: 'b1', key: 'old-repo|remote|feature/x', repository_id: 'old-repo', name: 'feature/x', type: 'remote', data_json: '{}' })
-    const localPort = new ConfigPortService(local, () => '0.1.3')
+    const localPort = new ConfigPortService(local, () => '0.2.0')
     const summary = localPort.importFromFile(target)
     expect(local.all('SELECT * FROM branches')).toHaveLength(0)
     expect(summary.warnings.join(' ')).toContain('branches')

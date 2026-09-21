@@ -34,7 +34,6 @@ export default function Audit(): JSX.Element {
 
   const actionLabel = (action: string): string => {
     const zhLabels: Record<string, string> = {
-      branch_delete: '删除分支',
       branch_notified: '发送分支提醒',
       repository_added: '添加仓库',
       repository_removed: '移除仓库',

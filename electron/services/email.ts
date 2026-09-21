@@ -514,7 +514,7 @@ function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: Cre
     scenario === 'naming'
       ? escapeHtml(row.namingReason || '-')
       : row.whitelisted
-        ? (zh ? '白名单分支，仅提醒不删除' : 'Whitelisted; reminder only')
+        ? (zh ? '白名单分支，仅检查' : 'Whitelisted; inspection only')
         : (zh ? '保护 / 默认分支' : 'Protected / default branch')
   ])
   return emailTable(headers, tableRows)
@@ -529,7 +529,7 @@ function repositoryContext(rows: EmailIssueRow[], lang: EmailLang): string {
   return zh ? `（仓库：${list}）` : ` (repositories: ${names.map((name) => escapeHtml(name)).join(', ')})`
 }
 
-function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScenario, lang: EmailLang, thresholdHint?: string): { subject: string; html: string } {
+export function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScenario, lang: EmailLang, thresholdHint?: string): { subject: string; html: string } {
   const zh = lang === 'zh'
   const count = rows.length
   const repoContext = repositoryContext(rows, lang)
@@ -553,7 +553,7 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
       ? `【BranchPulse】${count} 个分支宽限期已过，请尽快处理`
       : `BranchPulse: ${count} branch${count === 1 ? '' : 'es'} past the grace period`
     const body = zh
-      ? `<p>以下 ${count} 个分支宽限期已过${repoContext}。如需保留，请尽快 push 新提交或回复保留说明；如无需保留，请及时清理。</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
+      ? `<p>以下 ${count} 个分支宽限期已过${repoContext}。如需保留，请尽快 push 新提交或回复保留说明；如无需保留，请回复说明以便后续跟进。</p>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(rows, lang, scenario)}`
       : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} ${count === 1 ? 'has' : 'have'} passed the grace period. Push a new commit if it should be retained.</p>${scenarioRowsTable(rows, lang, scenario)}`
     return { subject, html: htmlEmailShell(subject, body, lang) }
   }
@@ -563,8 +563,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
       ? `【BranchPulse】${count} 个分支长时间无提交，请确认去留`
       : `BranchPulse: Confirm ${count} inactive branch${count === 1 ? '' : 'es'}`
     const body = zh
-      ? `<p>以下 ${count} 个分支长时间没有 commit 记录${repoContext}：</p><ul><li>如还需要保留：请回复说明保留理由，并尽快 push 一次新提交或归档。</li><li>如无需保留：请删除该分支，避免被自动回收。</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
-      : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} have been inactive for a long time:</p><ul><li>To retain: reply with the reason and push a new commit.</li><li>To retire: delete the branch.</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
+      ? `<p>以下 ${count} 个分支长时间没有 commit 记录${repoContext}：</p><ul><li>如还需要保留：请回复说明保留理由，并尽快 push 一次新提交或归档。</li><li>如无需保留：请回复说明，以便后续跟进处理。</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
+      : `<p>The following ${count} branch${count === 1 ? '' : 'es'}${repoContext} have been inactive for a long time:</p><ul><li>To retain: reply with the reason and push a new commit.</li><li>If it should no longer be kept: reply with a note for follow-up.</li></ul>${scenarioRowsTable(rows, lang, scenario)}`
     return { subject, html: htmlEmailShell(subject, body, lang) }
   }
 

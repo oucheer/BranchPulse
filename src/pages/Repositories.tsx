@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, ShieldBan, Trash2 } from 'lucide-react'
+import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, EmptyState, Toggle } from '../components/ui'
+import { Badge, Card, EmptyState } from '../components/ui'
 import { timeAgo } from '../lib/format'
 import type { GitLabConnectionConfig, GitLabProject } from '@shared/types'
 
@@ -52,16 +52,6 @@ export default function Repositories(): JSX.Element {
     }
   }
 
-  const toggleDeletionDisabled = async (disabled: boolean): Promise<void> => {
-    try {
-      await window.branchpulse.saveSettings({ ...settings, deletionDisabled: disabled })
-      toast(tr('saved'), 'success')
-      void refresh()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error')
-    }
-  }
-
   const addGitlabProject = async (projectId: number): Promise<void> => {
     setGitlabBusy(true)
     try {
@@ -104,8 +94,7 @@ export default function Repositories(): JSX.Element {
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(300px,1fr)]">
-          <div>
+        <div>
             <label className="label mb-1.5" htmlFor="active-repository">当前仓库</label>
             <select
               id="active-repository"
@@ -118,19 +107,6 @@ export default function Repositories(): JSX.Element {
                 <option key={repo.id} value={repo.id}>{repo.name}</option>
               ))}
             </select>
-          </div>
-          <div className="flex items-center justify-between rounded-md border border-line bg-surface px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className={`flex h-9 w-9 items-center justify-center rounded-md ${settings.deletionDisabled ? 'bg-danger/10 text-danger' : 'bg-line/20 text-muted'}`}>
-                <ShieldBan size={17} />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-canvas-fg">全局禁止删除分支</div>
-                <div className="text-xs text-muted">开启后，应用内所有删除功能将被禁用。</div>
-              </div>
-            </div>
-            <Toggle checked={settings.deletionDisabled} onChange={(v) => void toggleDeletionDisabled(v)} />
-          </div>
         </div>
       </Card>
 

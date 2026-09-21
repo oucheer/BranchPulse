@@ -93,8 +93,6 @@ export class MonitoringService {
     const fetchEnabled = options.fetch ?? (monitoringRow?.fetch_enabled ?? 1) === 1
     const policy: EmailPolicy = options.emailPolicy ?? ((monitoringRow?.email_policy as EmailPolicy) ?? 'none')
     const notifyTarget: NotifyTarget = options.notifyTarget ?? ((monitoringRow?.notify_target as NotifyTarget) ?? 'self')
-    const globalDeletionDisabled = Number(this.storage.get<Record<string, unknown>>('SELECT deletion_disabled FROM app_settings WHERE id = 1')?.deletion_disabled ?? 0) === 1
-    const autoDeleteEnabled = globalDeletionDisabled ? false : (options.autoDelete ?? Number(monitoringRow?.auto_delete_enabled ?? 0) === 1)
     const notificationsEnabled = (monitoringRow?.notification_enabled ?? 1) === 1
 
     const allBranches: BranchSummary[] = []
@@ -137,25 +135,8 @@ export class MonitoringService {
       addActivity('Notifications are disabled.', 'warn')
     }
 
-    let deleted = 0
-    if (autoDeleteEnabled) {
-      deleted = await this.branchService.autoDeleteExpiredBranches(allBranches)
-      if (deleted > 0) {
-        addActivity(`Auto cleanup removed ${deleted} expired remote branch${deleted === 1 ? '' : 'es'}.`, 'success')
-      } else {
-        const graceExpiredCount = allBranches.filter((b) => b.graceExpired).length
-        const whitelistedExpiredCount = allBranches.filter((b) => b.graceExpired && b.protection.whitelisted).length
-        const gracePeriodCount = allBranches.filter((b) => b.state === 'grace_period').length
-        const reason = whitelistedExpiredCount > 0
-          ? `${whitelistedExpiredCount} grace-expired branch${whitelistedExpiredCount === 1 ? ' is' : 'es are'} protected by the whitelist`
-          : graceExpiredCount === 0
-            ? `no branches have passed the threshold plus grace period${gracePeriodCount > 0 ? ` (${gracePeriodCount} in grace period)` : ''}`
-            : 'eligible branches are not available on the remote repository'
-        addActivity(`Auto cleanup checked, but no branches were eligible: ${reason}.`, 'warn')
-      }
-    } else {
-      addActivity('Auto cleanup is disabled; this was an inspection-only check.')
-    }
+    // Checks are inspection-only: nothing in this app deletes a remote branch.
+    addActivity('This was an inspection-only check; BranchPulse never deletes branches.')
 
     let emailsSent = 0
     const delivery: Array<'summary' | 'creators'> = []
@@ -239,7 +220,6 @@ export class MonitoringService {
       merged: summary.merged,
       namingInvalid: summary.namingInvalid,
       cleanupCandidates: summary.cleanupCandidates,
-      deleted,
       notifications: notifications.length,
       emailsSent,
       error: null,
@@ -263,7 +243,6 @@ export class MonitoringService {
       merged: run.merged,
       naming_invalid: run.namingInvalid,
       cleanup_candidates: run.cleanupCandidates,
-      deleted: run.deleted,
       notifications: run.notifications,
       emails_sent: run.emailsSent,
       error: null,
@@ -279,7 +258,6 @@ export class MonitoringService {
       stale: run.stale,
       namingInvalid: run.namingInvalid,
       merged: run.merged,
-      deleted: run.deleted,
       notifications: run.notifications,
       emailsSent: run.emailsSent
     })

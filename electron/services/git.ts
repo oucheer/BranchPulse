@@ -249,14 +249,6 @@ export class GitService {
     return { merged: ahead === 0, ahead, behind }
   }
 
-  async deleteLocalBranch(repoPath: string, branch: string): Promise<void> {
-    await this.exec(['branch', '-D', branch], repoPath)
-  }
-
-  async deleteRemoteBranch(repoPath: string, remote: string, branch: string): Promise<void> {
-    await this.exec(['push', remote, '--delete', branch], repoPath, 120000)
-  }
-
   async branchPresence(repoPath: string, name: string, remote?: string): Promise<GitPresence> {
     const existsLocally = await this.refExists(repoPath, `refs/heads/${name}`)
     let existsRemotely = false

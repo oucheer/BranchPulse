@@ -28,7 +28,6 @@ function rowToJob(row: Record<string, unknown>): SchedulerJob {
     endDate: (row.end_date as string | null) ?? null,
     emailPolicy: ((row.email_policy as SchedulerJob['emailPolicy']) ?? 'none'),
     fetchEnabled: Number(row.fetch_enabled ?? 1) === 1,
-    autoDeleteEnabled: Number(row.auto_delete_enabled ?? 0) === 1,
     notifyTarget: ((row.notify_target as SchedulerJob['notifyTarget']) ?? 'self'),
     lastRunAt: (row.last_run_at as string | null) ?? null,
     nextRunAt: (row.next_run_at as string | null) ?? null,
@@ -91,7 +90,6 @@ export class SchedulerService {
       endDate: job.endDate !== undefined ? job.endDate : existing?.endDate ?? null,
       emailPolicy: job.emailPolicy ?? existing?.emailPolicy ?? 'none',
       fetchEnabled: job.fetchEnabled ?? existing?.fetchEnabled ?? true,
-      autoDeleteEnabled: job.autoDeleteEnabled ?? existing?.autoDeleteEnabled ?? false,
       notifyTarget: job.notifyTarget ?? existing?.notifyTarget ?? 'self',
       lastRunAt: existing?.lastRunAt ?? null,
       nextRunAt: existing?.nextRunAt ?? null,
@@ -116,7 +114,6 @@ export class SchedulerService {
           email_policy: merged.emailPolicy,
           fetch_enabled: merged.fetchEnabled ? 1 : 0,
           repository_id: merged.repositoryId ?? null,
-          auto_delete_enabled: merged.autoDeleteEnabled ? 1 : 0,
           notify_target: merged.notifyTarget,
           last_run_at: merged.lastRunAt,
           next_run_at: merged.nextRunAt
@@ -139,7 +136,6 @@ export class SchedulerService {
         end_date: merged.endDate,
         email_policy: merged.emailPolicy,
         fetch_enabled: merged.fetchEnabled ? 1 : 0,
-        auto_delete_enabled: merged.autoDeleteEnabled ? 1 : 0,
         notify_target: merged.notifyTarget,
         last_run_at: merged.lastRunAt,
         next_run_at: merged.nextRunAt,
@@ -196,7 +192,6 @@ export class SchedulerService {
       fetch: job.fetchEnabled,
       emailPolicy: job.emailPolicy,
       notifyTarget: job.notifyTarget,
-      autoDelete: job.autoDeleteEnabled,
       ...(job.repositoryId ? { repositoryIds: [job.repositoryId] } : {})
     })
     this.storage.update(

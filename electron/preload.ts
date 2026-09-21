@@ -4,7 +4,6 @@ import type {
   BranchApi,
   BranchCriteria,
   BranchSummary,
-  DeleteRequest,
   GitLabConnectionConfig,
   EmailConfig,
   EmailGroup,
@@ -33,9 +32,6 @@ const api: BranchApi = {
   notifyBranch: (branch: BranchSummary) => ipcRenderer.invoke('branchpulse:notifyBranch', branch),
   notifyBranchesEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('branchpulse:notifyBranchesEmail', branches),
   notifySelfEmail: (branches: BranchSummary[]) => ipcRenderer.invoke('branchpulse:notifySelfEmail', branches),
-  beginDelete: (criteria: BranchCriteria) => ipcRenderer.invoke('branchpulse:beginDelete', criteria),
-  deleteBranch: (request: DeleteRequest) => ipcRenderer.invoke('branchpulse:deleteBranch', request),
-  batchDelete: (requests: DeleteRequest[]) => ipcRenderer.invoke('branchpulse:batchDelete', requests),
 
   listNamingRules: (repositoryId?: string | null) => ipcRenderer.invoke('branchpulse:listNamingRules', repositoryId),
   saveNamingRule: (rule: Partial<NamingRule> & { id?: string }) => ipcRenderer.invoke('branchpulse:saveNamingRule', rule),
