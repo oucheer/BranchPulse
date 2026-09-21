@@ -386,6 +386,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
 
   ipcMain.handle('gitmanager:listReports', (): ReportRecord[] => report.listReports())
   ipcMain.handle('gitmanager:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
+  ipcMain.handle('gitmanager:sendAllRepositoriesReport', (_e, period: string, recipients?: string): Promise<EmailSendResult> => reportSchedules.sendAllRepositoriesReport(period, recipients))
   ipcMain.handle('gitmanager:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
   ipcMain.handle('gitmanager:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
   ipcMain.handle('gitmanager:openReportFolder', (): Promise<void> => report.openReportFolder())

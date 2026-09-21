@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Trash2 } from 'lucide-react'
+import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Send, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
@@ -39,6 +39,8 @@ export default function Reports(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
+  const [bulkRecipients, setBulkRecipients] = useState('self')
+  const [sendingAll, setSendingAll] = useState(false)
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
 
@@ -56,6 +58,25 @@ export default function Reports(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const sendAllRepositories = async (): Promise<void> => {
+    if (sendingAll) return
+    setSendingAll(true)
+    try {
+      const result = await window.gitmanager.sendAllRepositoriesReport('manual', bulkRecipients)
+      const recipientText = result.recipients?.length ? `：${result.recipients.join(', ')}` : ''
+      if (result.ok) {
+        toast(`全部仓库汇总已发送${recipientText}`, 'success')
+      } else {
+        toast(`${result.message}${result.technical ? `：${result.technical}` : ''}`, 'error')
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setSendingAll(false)
+      void refresh()
     }
   }
 
@@ -161,6 +182,33 @@ export default function Reports(): JSX.Element {
           </button>
           <div className="text-xs text-muted">立即生成的报告使用当前选中的仓库范围。</div>
         </div>
+      </Card>
+
+      <Card className="p-4">
+        <div className="mb-1 text-sm font-semibold text-canvas-fg">一键发送全部仓库汇总</div>
+        <div className="mb-3 text-xs text-muted">生成全部仓库的最新分支报告，并通过邮件一次发送，无需逐仓库重复操作。</div>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <RecipientPicker
+            value={bulkRecipients}
+            onChange={(value) => setBulkRecipients(value)}
+            groups={emailGroups}
+            selfEmail={emailConfig?.selfEmail ?? ''}
+            disabled={emailDisabled}
+            allowSelf
+            label="全仓库汇总收件人"
+            manualPlaceholder="不填写时默认发送到我的个人邮箱"
+            rows={3}
+          />
+          <button
+            className="btn btn-primary h-fit"
+            disabled={sendingAll || emailDisabled}
+            title={emailDisabled ? '邮件发送未启用' : undefined}
+            onClick={() => void sendAllRepositories()}
+          >
+            <Send size={14} /> {sendingAll ? '发送中...' : '一键发送全部仓库汇总'}
+          </button>
+        </div>
+        {emailDisabled ? <div className="mt-2 text-xs text-warn">邮件发送未启用，请先在设置中配置邮箱。</div> : null}
       </Card>
 
       <Card className="p-4">

@@ -73,6 +73,8 @@ const api: BranchApi = {
   listReports: () => ipcRenderer.invoke('gitmanager:listReports'),
   generateReport: (period: string, format?: string, repositoryId?: string | null) =>
     ipcRenderer.invoke('gitmanager:generateReport', period, format, repositoryId),
+  sendAllRepositoriesReport: (period: string, recipients?: string) =>
+    ipcRenderer.invoke('gitmanager:sendAllRepositoriesReport', period, recipients),
   exportReport: (id: string, format: string) => ipcRenderer.invoke('gitmanager:exportReport', id, format),
   deleteReport: (id: string) => ipcRenderer.invoke('gitmanager:deleteReport', id),
   openReportFolder: () => ipcRenderer.invoke('gitmanager:openReportFolder'),

@@ -470,6 +470,7 @@ export interface BranchApi {
 
   listReports(): Promise<ReportRecord[]>
   generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
+  sendAllRepositoriesReport(period: string, recipients?: string): Promise<EmailSendResult>
   exportReport(id: string, format: string): Promise<ReportRecord>
   deleteReport(id: string): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>

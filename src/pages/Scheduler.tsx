@@ -134,11 +134,14 @@ export default function Scheduler(): JSX.Element {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('scheduler')}</h1>
         <div className="flex items-center gap-2">
-          {jobs.length > 0 ? (
-            <button className="btn text-danger" onClick={() => setDeleteAllOpen(true)}>
-              <Trash2 size={14} /> 删除全部定时任务
-            </button>
-          ) : null}
+          <button
+            className="btn text-danger"
+            disabled={jobs.length === 0}
+            title={jobs.length === 0 ? '暂无可清除的定时任务' : undefined}
+            onClick={() => setDeleteAllOpen(true)}
+          >
+            <Trash2 size={14} /> 一键清除全部定时任务
+          </button>
           <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
             <Plus size={15} /> {tr('schedule')}
           </button>
@@ -371,13 +374,13 @@ export default function Scheduler(): JSX.Element {
 
       <Modal
         open={deleteAllOpen}
-        title="删除全部定时任务"
+        title="一键清除全部定时任务"
         onClose={() => setDeleteAllOpen(false)}
         footer={
           <div className="flex gap-2">
             <button className="btn" disabled={deletingAll} onClick={() => setDeleteAllOpen(false)}>{tr('cancel')}</button>
             <button className="btn text-danger" disabled={deletingAll} onClick={() => void removeAll()}>
-              {deletingAll ? '删除中...' : '确认删除'}
+              {deletingAll ? '清除中...' : '确认清除'}
             </button>
           </div>
         }
@@ -389,7 +392,7 @@ export default function Scheduler(): JSX.Element {
             删除后不会再有自动检查与定时邮件，且无法恢复。
           </div>
           <div className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-            再次点击“确认删除”后，全部定时任务将立即清除。
+            再次点击“确认清除”后，全部定时任务将立即清除。
           </div>
         </div>
       </Modal>

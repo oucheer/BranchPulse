@@ -40,6 +40,13 @@ function reportNamingLabel(status: string): string {
   return REPORT_NAMING_LABELS[status] ?? status
 }
 
+export function resolveReportRepositoryId(
+  requestedRepositoryId: string | null | undefined,
+  activeRepositoryId: string | null
+): string | null {
+  return requestedRepositoryId === undefined ? activeRepositoryId : requestedRepositoryId
+}
+
 export class ReportService {
   constructor(
     private readonly storage: StorageService,
@@ -142,13 +149,24 @@ export class ReportService {
   }
 
   async generateReport(period: string, format = 'html', repositoryId?: string | null): Promise<ReportRecord> {
-    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
+    const activeRepositoryId = (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
+    const resolvedRepositoryId = resolveReportRepositoryId(repositoryId, activeRepositoryId)
+    return this.generateReportForScope(period, format, resolvedRepositoryId)
+  }
+
+  async generateAllRepositoriesReport(period: string, format = 'html'): Promise<ReportRecord> {
+    return this.generateReportForScope(period, format, null)
+  }
+
+  private async generateReportForScope(period: string, format: string, resolvedRepositoryId: string | null): Promise<ReportRecord> {
     const repos = this.repositoryService.list().filter((repo) => !resolvedRepositoryId || repo.id === resolvedRepositoryId)
     const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
     const summary = this.buildSummary(branches, repos.length)
     const runs = this.recentRuns(resolvedRepositoryId)
     const notifications = this.notifications(resolvedRepositoryId)
-    const title = `Git Branch Health Report (${period})`
+    const title = resolvedRepositoryId
+      ? `Git Branch Health Report (${period})`
+      : `Git Branch Health Report - 全部仓库 (${period})`
     const generatedAt = new Date().toISOString()
     const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
@@ -183,6 +201,7 @@ export class ReportService {
   async exportReport(id: string, format: string): Promise<ReportRecord> {
     const report = this.listReports().find((r) => r.id === id)
     if (!report) throw new Error('Report not found.')
+    if (report.repositoryId === null) return this.generateAllRepositoriesReport(report.period, format)
     return this.generateReport(report.period, format, report.repositoryId)
   }
 

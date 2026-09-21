@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import type { ReportSchedule, ReportScheduleFrequency } from '@shared/types'
+import type { EmailConfig, EmailGroup, EmailSendResult, ReportSchedule, ReportScheduleFrequency } from '@shared/types'
 import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
@@ -23,6 +23,25 @@ function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
     nextRunAt: (row.next_run_at as string | null) ?? null,
     createdAt: String(row.created_at)
   }
+}
+
+export function resolveReportRecipients(
+  input: string | null | undefined,
+  config: Pick<EmailConfig, 'selfEmail' | 'testRecipient' | 'username'>,
+  groups: EmailGroup[] = []
+): string[] {
+  const parsed = parseNotifyTarget(input)
+  const selfAddress = (config.selfEmail || config.testRecipient || config.username || '').trim()
+  const targetRecipients: string[] = []
+  if (parsed.self && selfAddress) targetRecipients.push(selfAddress)
+  if (parsed.recipients) targetRecipients.push(...resolveRecipients(parsed.recipients, groups))
+
+  const resolved = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
+  if (resolved.length > 0) return resolved
+
+  // 一键发送默认使用本机配置的通知邮箱；显式选择 none 时不自动补发。
+  const normalized = String(input ?? '').trim()
+  return !normalized && selfAddress ? [selfAddress] : []
 }
 
 export function computeNextReportRunAt(schedule: ReportSchedule, from = new Date()): string | null {
@@ -115,6 +134,43 @@ export class ReportScheduleService {
     this.storage.delete('report_schedules', 'id = ?', [id])
     this.audit.record('report_schedule_deleted', { id })
     return this.list()
+  }
+
+  async sendAllRepositoriesReport(period = 'manual', recipients = 'self'): Promise<EmailSendResult> {
+    const emailConfig = this.emailService.getConfig()
+    if (!emailConfig.enabled) {
+      this.audit.record('report_all_repositories_sent', { reason: 'email_disabled' }, 'failure')
+      return { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
+    }
+
+    const resolvedRecipients = resolveReportRecipients(recipients, emailConfig, this.emailService.listGroups())
+    if (resolvedRecipients.length === 0) {
+      this.audit.record('report_all_repositories_sent', { reason: 'recipients_empty', input: recipients }, 'failure')
+      return { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
+    }
+
+    try {
+      const report = await this.reportService.generateAllRepositoriesReport(period, 'html')
+      const reportHtml = await fs.promises.readFile(report.path, 'utf8')
+      const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
+      const result = await this.emailService.sendReportEmail({
+        to: resolvedRecipients,
+        subject: `【分支健康汇总】全部仓库 ${month}`,
+        body: '',
+        html: reportHtml,
+        attachmentPath: report.path
+      })
+      this.audit.record(
+        'report_all_repositories_sent',
+        { report: report.id, recipients: result.recipients ?? resolvedRecipients, ok: result.ok },
+        result.ok ? 'success' : 'failure'
+      )
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.audit.record('report_all_repositories_sent', { recipients: resolvedRecipients, error: message }, 'failure')
+      return { ok: false, message: '全部仓库汇总发送失败。', technical: message, emailsSent: 0 }
+    }
   }
 
   start(): void {
