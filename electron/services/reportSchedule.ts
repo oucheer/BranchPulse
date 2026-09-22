@@ -387,7 +387,11 @@ export class ReportScheduleService {
             this.audit.record('report_schedule_email_skipped', {
               id: schedule.id,
               name: schedule.name,
-              reason: !selfAddress ? 'self_email_missing' : 'recipients_empty',
+              // 只勾了创始人却没有一个能送达的邮箱时，失败原因必须说清楚，
+              // 否则会被误读成「自己邮箱没配」。
+              reason: creatorsAsTo && creators.missing.length > 0
+                ? 'creators_without_email'
+                : !selfAddress ? 'self_email_missing' : 'recipients_empty',
               input: schedule.recipients
             }, 'failure')
           } else {
