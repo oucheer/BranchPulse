@@ -217,7 +217,7 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle checked={draft.notificationEnabled} disabled={emailDisabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
-            <button className="btn btn-primary w-full justify-center" disabled={saving || scanning} onClick={() => void save()}>
+            <button className="btn btn-primary w-full justify-center" disabled={saving || scanning || noSelection} onClick={() => void save()}>
               <Save size={14} /> 保存设置并生效
             </button>
           </div>
@@ -241,7 +241,7 @@ export default function Monitoring(): JSX.Element {
             <p className="text-xs text-muted">
               {emailDisabled || !draft.notificationEnabled ? tr('checkOnlyNoEmail') : tr('notifyTarget')}
             </p>
-            <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
+            <button className="btn btn-primary w-full justify-center" disabled={scanning || noSelection} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>
           </div>

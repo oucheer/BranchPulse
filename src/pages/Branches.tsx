@@ -455,7 +455,8 @@ export default function Branches(): JSX.Element {
         </div>
         <button
           onClick={() => void handleRefreshAll()}
-          disabled={refreshingAll}
+          disabled={refreshingAll || noSelection}
+          title={noSelection ? (zh ? '未选择仓库：请先勾选仓库' : 'No repository selected') : undefined}
           className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-primary/40 hover:text-canvas-fg disabled:opacity-40"
         >
           <RefreshCw size={12} className={refreshingAll ? 'animate-spin' : ''} />
