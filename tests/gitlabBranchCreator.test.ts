@@ -120,6 +120,7 @@ describe('GitLabService.listBranchCreators', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
       calls.push(url)
+      if (url.includes('/users')) return jsonResponse([])
       if (url.includes('/projects/') && !url.includes('/events')) {
         return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
       }
@@ -173,6 +174,127 @@ describe('GitLabService.listBranchCreators', () => {
 
     const eventsCall = calls.find((c) => c.includes('/events'))
     expect(eventsCall).toContain('action=pushed')
+  })
+
+  it('recovers a missing creator address from the forge profile', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/users')) {
+        return jsonResponse([{ username: 'zhangsan', name: '张三', public_email: 'zhangsan@example.com' }])
+      }
+      if (url.includes('/events')) {
+        return jsonResponse([
+          {
+            action_name: 'pushed new',
+            author_username: 'zhangsan',
+            author: { name: '张三', public_email: '' },
+            created_at: '2026-03-01T10:00:00.000Z',
+            push_data: { action: 'created', ref_type: 'branch', ref: 'feature/no-commits', commit_count: 0 }
+          }
+        ])
+      }
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+
+    expect(creators.get('feature/no-commits')?.email).toBe('zhangsan@example.com')
+    // The profile is the only place GitLab exposes the account: the lookup must
+    // target the event author, not the project.
+    const usersCall = calls.find((c) => c.includes('/users'))
+    expect(usersCall).toContain('/api/v4/users?username=zhangsan')
+    // A creator that already has an address must not cost a lookup at all.
+    expect(calls.filter((c) => c.includes('/users'))).toHaveLength(1)
+  })
+
+  it('accepts the account email field when public_email is hidden', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users')) return jsonResponse([{ username: 'zhangsan', email: 'private@example.com' }])
+      if (url.includes('/events')) {
+        return jsonResponse([
+          {
+            action_name: 'pushed new',
+            author_username: 'zhangsan',
+            author: { name: '张三', public_email: '' },
+            created_at: '2026-03-01T10:00:00.000Z',
+            push_data: { action: 'created', ref_type: 'branch', ref: 'feature/no-commits', commit_count: 0 }
+          }
+        ])
+      }
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/no-commits')?.email).toBe('private@example.com')
+  })
+
+  it('keeps the creator when the profile lookup fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users')) return new Response('nope', { status: 500 })
+      if (url.includes('/events')) {
+        return jsonResponse([
+          {
+            action_name: 'pushed new',
+            author_username: 'zhangsan',
+            author: { name: '张三', public_email: '' },
+            created_at: '2026-03-01T10:00:00.000Z',
+            push_data: { action: 'created', ref_type: 'branch', ref: 'feature/no-commits', commit_count: 0 }
+          }
+        ])
+      }
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/no-commits')?.name).toBe('张三')
+    expect(creators.get('feature/no-commits')?.email).toBe('')
+  })
+
+  it('caches profile lookups per username within the process', async () => {
+    let userCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users')) {
+        userCalls += 1
+        return jsonResponse([{ username: 'zhangsan', public_email: 'zhangsan@example.com' }])
+      }
+      if (url.includes('/events')) {
+        return jsonResponse([
+          {
+            action_name: 'pushed new',
+            author_username: 'zhangsan',
+            author: { name: '张三', public_email: '' },
+            created_at: '2026-03-01T10:00:00.000Z',
+            push_data: { action: 'created', ref_type: 'branch', ref: 'feature/no-commits', commit_count: 0 }
+          },
+          {
+            action_name: 'pushed new',
+            author_username: 'zhangsan',
+            author: { name: '张三', public_email: '' },
+            created_at: '2026-03-02T10:00:00.000Z',
+            push_data: { action: 'created', ref_type: 'branch', ref: 'feature/other', commit_count: 0 }
+          }
+        ])
+      }
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const svc = service(GL_URL)
+    const first = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(first.get('feature/no-commits')?.email).toBe('zhangsan@example.com')
+    expect(first.get('feature/other')?.email).toBe('zhangsan@example.com')
+    expect(userCalls).toBe(1)
+
+    const second = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(second.get('feature/no-commits')?.email).toBe('zhangsan@example.com')
+    expect(userCalls).toBe(1)
   })
 
   it('returns an empty map for GitHub, which has no branch-creation events', async () => {

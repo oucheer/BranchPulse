@@ -275,8 +275,9 @@ export class BranchService {
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    // v4: creator attribution changed, so cached v3 summaries must be rebuilt.
-    const cacheContentKey = `v4|${latestCommit?.id ?? ''}|${fp}`
+    // v5: the creator email is now looked up from the forge profile, so cached
+    // v4 summaries have to be rebuilt to pick up the resolved address.
+    const cacheContentKey = `v5|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -386,7 +387,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `v3|${ref.sha}|${fp}`
+    const cacheContentKey = `v5|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
