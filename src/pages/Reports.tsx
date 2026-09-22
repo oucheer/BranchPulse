@@ -226,11 +226,9 @@ export default function Reports(): JSX.Element {
             onChange={(value) => setBulkRecipients(value)}
             groups={emailGroups}
             selfEmail={emailConfig?.selfEmail ?? ''}
-            leaderEmail={emailConfig?.leaderEmail ?? ''}
             disabled={emailDisabled}
             allowSelf
             allowCreator
-            allowLeader
             creatorHint="勾选后把范围内需要处理分支的创始人加入同一封汇总邮件的密送，不会逐人逐封发送"
             label="勾选仓库汇总收件人"
             manualPlaceholder="不填写时默认发送到我的个人邮箱"
@@ -283,11 +281,9 @@ export default function Reports(): JSX.Element {
               onChange={(value) => setDraft({ ...draft, recipients: value })}
               groups={emailGroups}
               selfEmail={emailConfig?.selfEmail ?? ''}
-              leaderEmail={emailConfig?.leaderEmail ?? ''}
               disabled={emailDisabled}
               allowSelf
               allowCreator
-              allowLeader
               creatorHint="定时报告同样只发一封：创始人加入密送，不会逐人逐封发送"
               manualPlaceholder="多个邮箱或分组用逗号、分号或换行分隔"
               rows={5}
@@ -376,7 +372,7 @@ export default function Reports(): JSX.Element {
                       {`范围：${repositoryNames(schedule.repositoryIds)}`}
                       {schedule.nextRunAt ? ` · 下次：${new Date(schedule.nextRunAt).toLocaleString('zh-CN')}` : ' · 已完成或未启用'}
                       {schedule.recipients
-                        ? ` · 发送到 ${resolveRecipientDisplay(schedule.recipients, emailGroups, emailConfig?.selfEmail, emailConfig?.leaderEmail).join(', ') || schedule.recipients}`
+                        ? ` · 发送到 ${resolveRecipientDisplay(schedule.recipients, emailGroups, emailConfig?.selfEmail).join(', ') || schedule.recipients}`
                         : ' · 不发送邮件'}
                     </div>
                   </div>

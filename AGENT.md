@@ -21,7 +21,7 @@
 - 用户可见文案中禁止混用 `过期`、`到期`、`陈旧` 作为状态名，以及 `已合并`、`合并`。底层 `merged` 字段可以保留用于数据兼容，但不能作为用户筛选或状态展示。
 - 分支筛选统一为问题维度：`所有分支`、`已停更`、`命名不规范`。不要恢复独立的“所有状态/所有问题”双下拉，不要显示 `已合并`。
 - 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选停更时禁用命名不规范创始人通知。
-- 分支列表在勾选多个仓库时**必须**先按仓库分区展示：列表上方给出「全部勾选仓库（N）」+ 每个仓库一个标签页，点击即切换该仓库的分支，不能把多个仓库的分支混在同一个列表里（同名分支会互相覆盖）。标签栏集中在 `src/pages/Branches.tsx` 的仓库标签区，勾选范围变化后要回落到「全部勾选仓库」，否则单仓筛选会指向已取消勾选的仓库导致列表空白。
+- 分支列表在勾选多个仓库时**必须**先按仓库分区展示：`src/pages/Branches.tsx` 工具栏左侧有一个仓库多选下拉（`.input` 样式按钮 + 浮层复选框，不用原生 `<select multiple>`），勾选哪几个仓库就只显示哪几个仓库的分支；列表主体按仓库渲染独立分区标题（仓库名 + 分支数），**同名分支各自落在自己的分区**，绝不混排或合并计数。筛选状态 `repoFilterIds: string[] | null` 中 `null` = 全部勾选仓库、空数组 = 明确不显示任何仓库（此时显示「未选择查看的仓库」空状态，不能回退成全部）；勾选范围变化后必须把已取消勾选的仓库从 `repoFilterIds` 里摘掉，否则会出现空白分区。
 - 分支列表的批量通知范围与展示范围不同：**勾选过分支时以勾选为准（可跨仓库）**，没有勾选时才用当前显示范围（`notifyTargets = selectedIds.size > 0 ? selectedBranches : filtered`）。按钮禁用条件必须带 `notifyTargets.length === 0`，提示文案要说清是「已勾选的 N 个分支」还是「当前显示的 N 个分支」。
 - 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
 - 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不进清理候选、不进"需要关注"列表。豁免必须落在 `electron/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
@@ -31,8 +31,8 @@
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
 - 报告只汇总勾选的仓库，主体按仓库分区（每个仓库独立的汇总、分支明细和指标），末尾再给「所选仓库总汇总」。没有「发送全部仓库」入口，也没有「当前仓库」入口；未勾选任何仓库时生成/发送/导出按钮禁用并给出明确提示。
 - 报告历史只显示范围**完全属于**当前勾选的记录；包含未勾选仓库的报告不出现在列表里，也不能导出/删除/打开。
-- 报告与告警通知的语义不同，绝不能互相「统一」：监控页的「通知分支创始人」是**逐人逐封**（`EmailService.sendCreatorEmails`）；报告里的 `creator` token 是**把范围内需要处理分支的创始人去重后放进同一封汇总邮件**。多仓库只有一封邮件，因此报告收件人必须支持三种对象同时出现——通知自己（To）、通知领导（To，`email_config.leader_email`）、通知分支创始人（BCC），再加仓库范围本身。
-- 领导邮箱是**应用级配置**（`email_config.leader_email`），不是仓库级；报告里勾选 `leader` 时取该字段。没有兜底地址：未配置时该收件人直接跳过，绝不静默改发到 `selfEmail`。
+- 报告与告警通知的语义不同，绝不能互相「统一」：监控页的「通知分支创始人」是**逐人逐封**（`EmailService.sendCreatorEmails`）；报告里的 `creator` token 是**把范围内需要处理分支的创始人去重后放进同一封汇总邮件**（收件人里直接列出，不是逐封）。多仓库只有一封邮件，因此报告收件人必须支持通知自己（To）与通知分支创始人（同一封邮件的收件人）同时出现，再加仓库范围本身。
+- **不要恢复「通知领导」开关**：领导的收件地址由用户在邮箱分组里自建一个「领导邮箱组」表达，报告/调度收件人勾选该分组即可。邮箱分组是**多选**的（`RecipientPicker` 的 `邮箱分组（可多选）` 区块），勾选多个分组合并进同一封邮件；`RecipientPicker` 不得再出现 `allowLeader` / `leaderEmail` props，`resolveReportRecipients` 只认 `self` / `creator` / 分组名 / 手填地址。`electron/services/storage.ts` 里的 `ensureColumn('email_config','leader_email','TEXT')` 保留仅为避免旧库 DROP COLUMN，不再有任何读写。
 - 报告唯一发送入口是 `sendSelectedRepositoriesReport(period, recipients, repositoryIds)`。收件人解析走 `resolveReportRecipients(input, config, groups)`（同时被 `tick()` 定时报告复用）；只勾了创始人时 `resolvedRecipients` 为空，此时创始人**升为 To**（Outlook 至少需要一个 To 收件人），其余情况创始人走 BCC 保护隐私。范围内创始人全都缺邮箱时返回失败文案「范围内的分支创始人都没有有效邮箱」，并记 `creators_without_email` 审计，不能静默发出空收件人邮件。
 - 创始人通知说明区块通过 `creatorNotificationSection()` 渲染、`appendCreatorSection()` 插入邮件正文（插在页脚分隔线之前，磁盘上的报告文件保持原样）。读语言失败必须 `try/catch` 兜底返回原文，绝不能因为附加区块让整封邮件发不出去。
 - 设置页必须保留「配置导入 / 导出」（`electron/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
@@ -127,6 +127,13 @@
 - GitLab 事件的三个已知限制，不要当成 bug：① `author.public_email` 经常为空（实测 8 个创建者里 7 个为空）；② 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；③ 一次扫描只请求一次，不要按分支循环调 events。
 - 归因语义变更时必须同时 bump 分支缓存 key（`v3` → `v4`，`electron/services/branch.ts` 的 `cacheContentKey`），否则库里旧快照会继续返回错误创始人。
 
+## 内网与子路径远程仓库扫描
+
+- 内网 GitLab 常挂在反向代理的子路径下（`http://git.corp.com/gitlab`），也常要求直填完整 API 根（`http://git.corp.com/gitlab/api/v4`）。`electron/services/gitlab.ts` 的 `apiBaseUrl(url, provider, projectPath?)` 必须同时支持三种输入：根路径、子路径实例、完整 API 地址；`isApiBaseUrl(url)` 用于识别第三种。新增 provider 时不要退回「只认 origin」的老实现。
+- GitLab 的 `CLOUD_ROOTS`（`gitlab.com`、`www.gitlab.com`）不附加路径前缀；其它主机的单段路径会被当实例前缀（`segments.length === 1 && !CLOUD_ROOTS.has(hostname)`）。`projectSegments()` / `isNamedProjectUrl()` 负责剪掉已经属于项目路径的段，避免把 `group/project` 又拼一次前缀。
+- GitLab 的 project ref 必须用**数字 id**（`projectRef()` 返回 `String(projectId)`）。把 `group/project` 做 `encodeURIComponent` 后当 ref 用，会被内网反代直接 500；GitHub/Gitee 才走 `projectPath()`。
+- 「地址加进去了、分支是 0」必须有明确反馈：`request()` 失败时的错误信息要带 HTTP 状态与上游 `message`（`apiErrorDetail()`），`monitoring.ts` 收集每仓失败原因写进 `scan_runs.error`（`A: 原因 | B: 原因`），部分失败时状态是 `completed`、全失败才是 `failed`；前端用 `describeScanRun()` 与检查页 toast 展示。**不要**让失败静默变成「0 个分支」。
+
 ## Git 工作流
 
 - **提交前先确认当前分支**：`git rev-parse --abbrev-ref HEAD`。本项目多次出现 HEAD 被切到 `pantum` 而非 `main`，导致 commit 落在错误分支上。发现错位后用 `git checkout main` + `git merge --ff-only <branch>` 归位（提交已在远程 `pantum` 上时也能快进），不要用 rebase 改写已推送历史。
@@ -137,7 +144,7 @@
 
 ## 仓库范围与隔离（V0.2 起）
 
-- **唯一的范围来源是全局仓库勾选**：`app_settings.selected_repository_ids_json`，前端从 `appStore.selectedRepositoryIds` 派生。仓库页复选框、顶栏「已选 N 个仓库」面板、全选/清空都写同一个字段。
+- **唯一的范围来源是全局仓库勾选**：`app_settings.selected_repository_ids_json`，前端从 `appStore.selectedRepositoryIds` 派生。仓库页每行**最左侧**的复选框（不再有右侧 toggle 按钮）、顶栏「已选 N 个仓库」面板、全选/清空都写同一个字段。
 - **空数组 = 没有仓库**，不是「全部仓库」。`StorageService.selectedRepositoryIds()` 只过滤掉已删除的仓库，绝不上溯成全部。空勾选时所有页面显示空数据并禁用操作。
 - 每个仓库的数据严格隔离：分支、监控、命名规则、白名单、保护规则、通知、报告、调度、审计、备份都按仓库过滤；同名分支（如两仓都有 `feature/x`）不得合并展示或统计。分支缓存 key、通知 `dedup_key`（`${repositoryId}|${branch.name}|${type}|${state}`）、`scan_run_repositories` 都带仓库维度。
 - 监控、命名规则、白名单、保护规则**没有全局回退**：运行时只读 `repository_id = ?` 的行。仓库创建时由 `ensureRepositoryConfiguration()` 从库内 NULL 模板复制一份独立配置；NULL 行只是迁移期的模板残留，不再被读取。

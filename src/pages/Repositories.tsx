@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState } from '../components/ui'
-import { timeAgo } from '../lib/format'
+import { describeScanRun, timeAgo } from '../lib/format'
 import type { GitLabConnectionConfig, GitLabProject } from '@shared/types'
 
 export default function Repositories(): JSX.Element {
@@ -59,7 +59,8 @@ export default function Repositories(): JSX.Element {
     try {
       const repo = await window.gitmanager.addGitLabRepository(projectId, gitlabConfig())
       const run = await window.gitmanager.scanRepository(repo.id, true)
-      toast(`${repo.name} 已添加，扫描到 ${run.branches} 个分支`, 'success')
+      const described = describeScanRun(run, 'zh')
+      toast(`${repo.name} 已添加，${described.message}`, described.level)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -72,7 +73,8 @@ export default function Repositories(): JSX.Element {
     setScanning(true)
     try {
       const run = await window.gitmanager.scanRepository(id, true)
-      toast(`Scan complete: ${run.branches} branches`, 'success')
+      const described = describeScanRun(run, 'zh')
+      toast(described.message, described.level)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -138,6 +140,13 @@ export default function Repositories(): JSX.Element {
             return (
               <Card key={repo.id} className="p-4">
                 <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="no-specular h-4 w-4 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
+                    checked={selectedRepositoryIds.includes(repo.id)}
+                    title={selectedRepositoryIds.includes(repo.id) ? '取消勾选该仓库' : '勾选该仓库'}
+                    onChange={() => void toggleRepositorySelection(repo.id)}
+                  />
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
                     <FolderGit2 size={18} />
                   </div>
@@ -163,13 +172,6 @@ export default function Repositories(): JSX.Element {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      className={`btn px-2 ${selectedRepositoryIds.includes(repo.id) ? 'border-primary/60 text-primary' : ''}`}
-                      onClick={() => void toggleRepositorySelection(repo.id)}
-                      title={selectedRepositoryIds.includes(repo.id) ? '取消勾选该仓库' : '勾选该仓库'}
-                    >
-                      <FolderGit2 size={15} />
-                    </button>
                     <button
                       className="btn px-2"
                       onClick={() => void scan(repo.id)}
@@ -200,7 +202,7 @@ export default function Repositories(): JSX.Element {
               className="input"
               value={gitlabUrl}
               onChange={(e) => setGitlabUrl(e.target.value)}
-              placeholder="https://gitlab.com 或 https://github.com/owner/repo"
+              placeholder="https://gitlab.com、https://github.com/owner/repo 或 http://内网地址[:端口]"
             />
           </div>
           <div>
@@ -234,6 +236,12 @@ export default function Repositories(): JSX.Element {
           <div className="min-h-5 text-xs text-muted">{gitlabMessage}</div>
           <span className="text-xs text-muted">支持 GitLab / GitHub / Gitee，自动识别平台</span>
         </div>
+        <p className="mt-1 text-xs text-muted">
+          自建 GitLab 为根路径时填 <span className="font-mono">http://内网地址[:端口]</span>；
+          挂在子路径下时填子路径根（如 <span className="font-mono">http://内网地址/gitlab</span>）；
+          也可以填项目完整地址。若自动推导失败，直接把完整 API 地址（如
+          <span className="font-mono"> http://内网地址[:端口]/api/v4</span>）填进去。
+        </p>
         {gitlabProjects.length > 0 ? (
           <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1">
             {gitlabProjects.map((project) => {

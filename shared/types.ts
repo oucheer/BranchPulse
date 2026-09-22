@@ -229,8 +229,6 @@ export interface EmailConfig {
   tls: boolean
   testRecipient: string
   selfEmail: string
-  /** 领导邮箱：报告邮件在同一封里抄送，避免多仓库各发一封。 */
-  leaderEmail: string
   enabled: boolean
 }
 

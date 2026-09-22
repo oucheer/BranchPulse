@@ -110,7 +110,11 @@ export default function Monitoring(): JSX.Element {
         trigger: 'manual',
         repositoryIds: selectedRepositoryIds
       })
-      toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
+      if (run.error) {
+        toast(`检查未完全成功：${run.error}`, run.branches > 0 ? 'warn' : 'error')
+      } else {
+        toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -265,6 +269,7 @@ export default function Monitoring(): JSX.Element {
                   <div>
                     <div className="text-canvas-fg">{new Date(run.startedAt).toLocaleString()}</div>
                     <div className="text-xs text-muted">{run.branches} 个分支 · {run.stale} 个已停更 · {run.namingInvalid} 个命名不规范</div>
+                    {run.error ? <div className="mt-0.5 text-xs text-danger">{run.error}</div> : null}
                   </div>
                   <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>
                     {run.status === 'completed' ? '已完成' : run.status === 'failed' ? '失败' : '进行中'}

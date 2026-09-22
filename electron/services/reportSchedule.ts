@@ -41,16 +41,13 @@ function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
 
 export function resolveReportRecipients(
   input: string | null | undefined,
-  config: Pick<EmailConfig, 'selfEmail' | 'testRecipient' | 'username'> & { leaderEmail?: string },
+  config: Pick<EmailConfig, 'selfEmail' | 'testRecipient' | 'username'>,
   groups: EmailGroup[] = []
 ): string[] {
   const parsed = parseNotifyTarget(input)
   const selfAddress = (config.selfEmail || config.testRecipient || config.username || '').trim()
-  const leaderAddress = String(config.leaderEmail ?? '').trim()
   const targetRecipients: string[] = []
   if (parsed.self && selfAddress) targetRecipients.push(selfAddress)
-  // 领导邮箱没有兜底地址：未配置时不静默改发到别处。
-  if (parsed.leader && leaderAddress) targetRecipients.push(leaderAddress)
   if (parsed.recipients) targetRecipients.push(...resolveRecipients(parsed.recipients, groups))
 
   const resolved = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]

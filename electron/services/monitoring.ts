@@ -95,6 +95,7 @@ export class MonitoringService {
 
     const allBranches: BranchSummary[] = []
     const scannedRepositoryIds: string[] = []
+    const failures: string[] = []
     for (const repo of targets) {
       scannedRepositoryIds.push(repo.id)
       addActivity(`Scanning ${repo.name}...`)
@@ -111,16 +112,29 @@ export class MonitoringService {
         addActivity(`${repo.name}: ${branches.length} branches analyzed.`, 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        addActivity(`${repo.name}: ${message}`, 'error')
+        const failure = `${repo.name}: ${message}`
+        failures.push(failure)
+        addActivity(failure, 'error')
       }
       this.emitProgress(runId, activity)
     }
 
     const summary = this.summarize(allBranches, targets.length)
+    // A check that reached no repository at all is a failure, not a clean run
+    // with zero branches: reporting "completed" hid the reason from the UI.
+    const status: ScanRun['status'] = failures.length > 0 && failures.length === targets.length
+      ? 'failed'
+      : 'completed'
     addActivity(
       `Check complete: ${summary.branches} branches, ${summary.stale} stale, ${summary.namingInvalid} naming violations.`,
       'success'
     )
+    if (failures.length > 0) {
+      addActivity(
+        `${failures.length} of ${targets.length} repositories could not be scanned.`,
+        status === 'failed' ? 'error' : 'warn'
+      )
+    }
 
     const notifications: NotificationRecord[] = []
     if (notificationsEnabled) {
@@ -202,7 +216,7 @@ export class MonitoringService {
       id: runId,
       startedAt,
       finishedAt,
-      status: 'completed',
+      status,
       trigger: options.trigger ?? 'manual',
       healthAvg: summary.healthAvg,
       healthBest: summary.healthBest,
@@ -216,7 +230,7 @@ export class MonitoringService {
       cleanupCandidates: summary.cleanupCandidates,
       notifications: notifications.length,
       emailsSent,
-      error: null,
+      error: failures.length > 0 ? failures.join(' | ') : null,
       activity
     }
     this.storage.insert('scan_runs', {
@@ -237,7 +251,7 @@ export class MonitoringService {
       cleanup_candidates: run.cleanupCandidates,
       notifications: run.notifications,
       emails_sent: run.emailsSent,
-      error: null,
+      error: run.error,
       activity_json: JSON.stringify(activity)
     })
     for (const repositoryId of scannedRepositoryIds) {
@@ -255,7 +269,7 @@ export class MonitoringService {
       emailsSent: run.emailsSent
     })
     this.emitProgress(runId, activity, {
-      status: 'completed',
+      status: run.status,
       branches: run.branches,
       stale: run.stale,
       merged: run.merged,

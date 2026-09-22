@@ -92,7 +92,6 @@ export function resolveRecipients(input: string, groups: EmailGroup[] = []): str
 export interface ParsedNotifyTarget {
   self: boolean
   creator: boolean
-  leader: boolean
   recipients: string
 }
 
@@ -100,16 +99,14 @@ export function parseNotifyTarget(target: string | null | undefined): ParsedNoti
   const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
   let self = false
   let creator = false
-  let leader = false
   const rest: string[] = []
   for (const token of tokens) {
     if (token === 'self') self = true
     else if (token === 'creator') creator = true
-    else if (token === 'leader') leader = true
     else if (token === 'both') { self = true; creator = true }
     else if (token !== 'none') rest.push(token)
   }
-  return { self, creator, leader, recipients: rest.join(', ') }
+  return { self, creator, recipients: rest.join(', ') }
 }
 
 function escapeHtml(value: unknown): string {
@@ -692,7 +689,6 @@ export class EmailService {
       tls: Number(row?.tls ?? 0) === 1,
       testRecipient: String(row?.test_recipient ?? row?.username ?? ''),
       selfEmail: String(row?.self_email ?? ''),
-      leaderEmail: String(row?.leader_email ?? ''),
       enabled: Number(row?.enabled ?? 0) === 1
     }
   }
@@ -717,7 +713,6 @@ export class EmailService {
         tls: config.tls ? 1 : 0,
         test_recipient: config.testRecipient || config.selfEmail || config.username,
         self_email: config.selfEmail || '',
-        leader_email: config.leaderEmail || '',
         enabled: config.enabled ? 1 : 0
       },
       'id = 1'

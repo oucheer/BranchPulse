@@ -11,7 +11,7 @@ import { ReportScheduleService, resolveReportRecipients } from '../electron/serv
 
 /**
  * 报告只发一封邮件：勾选仓库里的多个仓库、多个分支必须在同一封邮件里完成通知，
- * 创始人进密送，自己与领导进收件人，绝不按仓库各发一封。
+ * 创始人进密送，自己与邮箱分组（例如领导组）进收件人，绝不按仓库各发一封。
  */
 
 const tempDirs: string[] = []
@@ -53,7 +53,7 @@ function writeReportFile(): string {
 function service(options: {
   branches?: EmailIssueRow[]
   emailEnabled?: boolean
-  leaderEmail?: string
+  groups?: Array<{ id: string; name: string; recipients: string }>
   selfEmail?: string
 } = {}): {
   service: ReportScheduleService
@@ -90,11 +90,10 @@ function service(options: {
       getConfig: () => ({
         enabled: options.emailEnabled ?? true,
         selfEmail: options.selfEmail ?? 'self@example.com',
-        leaderEmail: options.leaderEmail ?? 'leader@example.com',
         testRecipient: '',
         username: ''
       }),
-      listGroups: () => [],
+      listGroups: () => (options.groups ?? []).map((group) => ({ createdAt: '', ...group })),
       sendReportEmail
     } as unknown as EmailService,
     { record: auditRecord } as unknown as AuditService
@@ -122,18 +121,21 @@ describe('collectCreatorAddresses', () => {
 describe('resolveReportRecipients', () => {
   const config = {
     selfEmail: 'self@example.com',
-    leaderEmail: 'leader@example.com',
     testRecipient: '',
     username: ''
   }
 
-  it('puts the leader address in the same recipient list as self', () => {
-    expect(resolveReportRecipients('self, leader', config)).toEqual(['self@example.com', 'leader@example.com'])
-    expect(resolveReportRecipients('leader', config)).toEqual(['leader@example.com'])
-  })
-
-  it('never invents a leader address when the setting is empty', () => {
-    expect(resolveReportRecipients('leader', { ...config, leaderEmail: '' })).toEqual([])
+  it('merges several mail groups into one recipient list', () => {
+    const groups = [
+      { id: 'g1', name: 'leaders', recipients: 'boss@example.com, cto@example.com', createdAt: '' },
+      { id: 'g2', name: 'qa', recipients: 'qa@example.com', createdAt: '' }
+    ]
+    expect(resolveReportRecipients('self, leaders, qa', config, groups)).toEqual([
+      'self@example.com',
+      'boss@example.com',
+      'cto@example.com',
+      'qa@example.com'
+    ])
   })
 
   it('does not fall back to self when only the creator token is selected', () => {
@@ -141,9 +143,10 @@ describe('resolveReportRecipients', () => {
   })
 })
 
-describe('sendSelectedRepositoriesReport with creators and leader', () => {
-  it('sends one email: creators in bcc, self and leader in to', async () => {
+describe('sendSelectedRepositoriesReport with creators and mail groups', () => {
+  it('sends one email: creators in bcc, self and the leader group in to', async () => {
     const { service: reports, sendReportEmail, auditRecord } = service({
+      groups: [{ id: 'g1', name: 'leaders', recipients: 'leaders@example.com' }],
       branches: [
         issueRow({ repository: 'alpha', creatorEmail: 'zhang@example.com' }),
         issueRow({ repository: 'beta', branch: 'feature/b', creatorEmail: 'li@example.com', namingStatus: 'invalid' }),
@@ -153,12 +156,12 @@ describe('sendSelectedRepositoriesReport with creators and leader', () => {
       ]
     })
 
-    const result = await reports.sendSelectedRepositoriesReport('manual', 'self, leader, creator', ['repo-1', 'repo-2'])
+    const result = await reports.sendSelectedRepositoriesReport('manual', 'self, leaders, creator', ['repo-1', 'repo-2'])
 
     expect(sendReportEmail).toHaveBeenCalledTimes(1)
     expect(sendReportEmail).toHaveBeenCalledWith(
       expect.objectContaining({
-        to: ['self@example.com', 'leader@example.com'],
+        to: ['self@example.com', 'leaders@example.com'],
         bcc: ['zhang@example.com', 'li@example.com']
       })
     )

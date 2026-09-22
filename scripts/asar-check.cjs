@@ -31,7 +31,6 @@ const needles = [
   '导入配置',
   'gitmanager:exportConfig',
   'gitmanager:importConfig',
-  'leader_email',
   '分支创始人通知范围'
 ]
 
@@ -73,8 +72,9 @@ for (const needle of [
   '一键清除勾选范围内的定时任务',
   '再次点击“确认清除”',
   '发送勾选仓库汇总',
-  '通知领导',
-  '按仓库查看：'
+  '邮箱分组（可多选）',
+  '勾选要查看的仓库',
+  '每个仓库单独分区展示'
 ]) {
   const count = countOf(renderer, needle)
   const ok = count > 0

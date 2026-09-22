@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AlertTriangle, Bell, CheckCircle2, ChevronDown, Copy, Eye, GitBranch,
-  Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, X, XCircle
+  FolderGit2, Mail, Maximize2, Minus, Plus, RefreshCw, Search, Shield, X, XCircle
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { matchPattern } from '../lib/protection'
@@ -292,7 +292,10 @@ export default function Branches(): JSX.Element {
   const zh = language === 'zh'
 
   const [search, setSearch] = useState('')
-  const [repoFilter, setRepoFilter] = useState('')
+  // null = 查看全部勾选仓库；数组 = 只查看显式勾选的仓库（可多选，可为空）。
+  const [repoFilterIds, setRepoFilterIds] = useState<string[] | null>(null)
+  const [repoMenuOpen, setRepoMenuOpen] = useState(false)
+  const repoMenuRef = useRef<HTMLDivElement | null>(null)
   const [issueFilter, setIssueFilter] = useState<IssueFilter>('')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -305,26 +308,72 @@ export default function Branches(): JSX.Element {
     () => repositories.filter((repository) => selectedRepositoryIds.includes(repository.id)),
     [repositories, selectedRepositoryIds]
   )
-  // 勾选范围变化后原来的单仓筛选可能已不在范围内，必须回落到「全部勾选仓库」。
+  // 勾选范围变化后，原来查看的仓库可能已不在范围内，必须摘掉，避免出现空白分区。
   useEffect(() => {
-    if (repoFilter && !selectedRepositoryIds.includes(repoFilter)) setRepoFilter('')
-  }, [repoFilter, selectedRepositoryIds])
+    setRepoFilterIds((prev) => {
+      if (prev === null) return prev
+      const next = prev.filter((id) => selectedRepositoryIds.includes(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [selectedRepositoryIds])
+
+  // 点击浮层外部关闭仓库多选面板。
+  useEffect(() => {
+    if (!repoMenuOpen) return
+    const onClick = (event: MouseEvent): void => {
+      if (repoMenuRef.current && !repoMenuRef.current.contains(event.target as Node)) setRepoMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [repoMenuOpen])
 
   const branchesInScope = useMemo(
     () => (noSelection ? [] : branches.filter((branch) => selectedRepositoryIds.includes(branch.repositoryId))),
     [branches, selectedRepositoryIds, noSelection]
   )
-  const effectiveRepo = repoFilter
-  const filtered = useMemo(() => {
+  // 先应用关键词与问题筛选（用于统计每个仓库的命中数量），再按仓库多选裁剪。
+  const searchFiltered = useMemo(() => {
     let list = branchesInScope
-    if (effectiveRepo) list = list.filter((b) => b.repositoryId === effectiveRepo)
     if (search) {
       const q = search.toLowerCase()
       list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
     }
     if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [branchesInScope, search, effectiveRepo, issueFilter])
+  }, [branchesInScope, search, issueFilter])
+
+  const filtered = useMemo(
+    () => (repoFilterIds === null ? searchFiltered : searchFiltered.filter((b) => repoFilterIds.includes(b.repositoryId))),
+    [searchFiltered, repoFilterIds]
+  )
+
+  /**
+   * 多仓库时按仓库分区渲染：每个仓库有独立标题与分支列表，同名分支（两个仓库都有
+   * `feature/x`）各自落在自己的分区里，绝不混排或合并计数。
+   */
+  const visibleRepositories = useMemo(
+    () => (repoFilterIds === null
+      ? scopedRepositories
+      : scopedRepositories.filter((repository) => repoFilterIds.includes(repository.id))),
+    [scopedRepositories, repoFilterIds]
+  )
+  const sections = useMemo(
+    () => visibleRepositories.map((repository) => ({
+      repository,
+      branches: filtered.filter((branch) => branch.repositoryId === repository.id)
+    })),
+    [visibleRepositories, filtered]
+  )
+
+  const toggleRepoFilter = (id: string): void => {
+    setRepoFilterIds((prev) => {
+      const base = prev === null ? scopedRepositories.map((repository) => repository.id) : prev
+      const next = base.includes(id) ? base.filter((entry) => entry !== id) : [...base, id]
+      // 勾满全部仓库时回落成「全部勾选仓库」，保持默认态唯一。
+      if (next.length === scopedRepositories.length) return null
+      return next
+    })
+  }
 
   const attention = useMemo(() =>
     filtered
@@ -474,50 +523,68 @@ export default function Branches(): JSX.Element {
         </button>
       </div>
 
-      {/* Repository tabs：多仓库时按仓库切换查看，分支不再混在一个列表里 */}
-      {scopedRepositories.length > 1 ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted">{zh ? '按仓库查看：' : 'Repository:'}</span>
-          <button
-            className={`no-specular rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              repoFilter === ''
-                ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-line bg-surface text-muted hover:border-primary/40 hover:text-canvas-fg'
-            }`}
-            onClick={() => setRepoFilter('')}
-          >
-            {zh ? `全部勾选仓库（${scopedRepositories.length}）` : `All selected (${scopedRepositories.length})`}
-          </button>
-          {scopedRepositories.map((repository) => {
-            const count = branchesInScope.filter((b) => b.repositoryId === repository.id).length
-            return (
-              <button
-                key={repository.id}
-                className={`no-specular max-w-[14rem] truncate rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                  repoFilter === repository.id
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-line bg-surface text-muted hover:border-primary/40 hover:text-canvas-fg'
-                }`}
-                title={repository.name}
-                onClick={() => setRepoFilter(repository.id)}
-              >
-                {repository.name}（{count}）
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <select
-          value={effectiveRepo}
-          onChange={(e) => setRepoFilter(e.target.value)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '全部勾选仓库' : 'All selected repositories'}</option>
-          {scopedRepositories.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
+        {/* 按仓库查看：多选下拉，勾选哪几个仓库就只显示哪几个仓库的分支 */}
+        <div ref={repoMenuRef} className="relative shrink-0">
+          <button
+            type="button"
+            className="flex max-w-[18rem] items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg transition-colors hover:border-primary/40 disabled:opacity-40"
+            disabled={scopedRepositories.length === 0}
+            onClick={() => setRepoMenuOpen((value) => !value)}
+            title={zh ? '勾选要查看分支的仓库' : 'Pick the repositories to display'}
+          >
+            <FolderGit2 size={13} className="shrink-0 text-muted" />
+            <span className="truncate">
+              {repoFilterIds === null
+                ? (zh ? `全部勾选仓库（${scopedRepositories.length}）` : `All selected (${scopedRepositories.length})`)
+                : repoFilterIds.length === 0
+                  ? (zh ? '未选择查看的仓库' : 'No repository picked')
+                  : (zh ? `已选 ${repoFilterIds.length} 个仓库` : `${repoFilterIds.length} repositories`)}
+            </span>
+            <ChevronDown size={13} className="shrink-0 text-muted" />
+          </button>
+          {repoMenuOpen ? (
+            <div className="absolute left-0 top-[calc(100%+0.375rem)] z-30 w-80 rounded-card border border-line bg-surface p-2 shadow-panel">
+              <div className="flex items-center justify-between px-1 pb-2">
+                <span className="text-xs font-medium text-muted">{zh ? '勾选要查看的仓库' : 'Repositories to display'}</span>
+                <div className="flex gap-1">
+                  <button className="btn px-2 py-0.5 text-[11px]" onClick={() => setRepoFilterIds(null)}>
+                    {zh ? '全选' : 'All'}
+                  </button>
+                  <button className="btn px-2 py-0.5 text-[11px]" onClick={() => setRepoFilterIds([])}>
+                    {zh ? '清空' : 'Clear'}
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-72 space-y-0.5 overflow-y-auto">
+                {scopedRepositories.map((repository) => {
+                  const checked = repoFilterIds === null || repoFilterIds.includes(repository.id)
+                  return (
+                    <label
+                      key={repository.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-canvas-fg transition-colors hover:bg-line/30"
+                    >
+                      <input
+                        type="checkbox"
+                        className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
+                        checked={checked}
+                        onChange={() => toggleRepoFilter(repository.id)}
+                      />
+                      <span className="truncate" title={repository.name}>{repository.name}</span>
+                      <span className="ml-auto shrink-0 tabular-nums text-[11px] text-muted">
+                        {branchesInScope.filter((branch) => branch.repositoryId === repository.id).length}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="mt-2 border-t border-line px-1 pt-2 text-[11px] text-muted">
+                {zh ? '每个仓库单独分区展示，同名分支互不覆盖。' : 'Each repository gets its own section.'}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <div className="relative flex-1 min-w-40" style={{ maxWidth: 280 }}>
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <input
@@ -628,29 +695,64 @@ export default function Branches(): JSX.Element {
             </div>
             {filtered.length === 0 ? (
               <div className="py-10 text-center">
-                <div className="text-sm text-muted">{zh ? '没有找到分支' : 'No branches found'}</div>
-                <div className="mt-1 text-xs text-muted opacity-60">{zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters'}</div>
+                <div className="text-sm text-muted">
+                  {repoFilterIds !== null && repoFilterIds.length === 0
+                    ? (zh ? '未选择查看的仓库' : 'No repository picked')
+                    : (zh ? '没有找到分支' : 'No branches found')}
+                </div>
+                <div className="mt-1 text-xs text-muted opacity-60">
+                  {repoFilterIds !== null && repoFilterIds.length === 0
+                    ? (zh ? '请在上方下拉框中勾选要查看分支的仓库' : 'Pick repositories in the dropdown above')
+                    : (zh ? '当前过滤条件下没有匹配的分支' : 'Try adjusting filters')}
+                </div>
                 <button
-                  onClick={() => { setSearch(''); setIssueFilter('') }}
+                  onClick={() => {
+                    if (repoFilterIds !== null && repoFilterIds.length === 0) setRepoFilterIds(null)
+                    else { setSearch(''); setIssueFilter('') }
+                  }}
                   className="mt-3 text-xs font-medium text-primary hover:underline"
                 >
-                  {zh ? '清除筛选' : 'Clear Filters'}
+                  {repoFilterIds !== null && repoFilterIds.length === 0
+                    ? (zh ? '显示全部勾选仓库' : 'Show all selected repositories')
+                    : (zh ? '清除筛选' : 'Clear Filters')}
                 </button>
               </div>
             ) : (
-              filtered.slice(0, 200).map((b) => (
-                <ExplorerRow
-                  key={`${b.id}-${b.type}`}
-                  b={b}
-                  selected={selectedBranch?.id === b.id}
-                  checked={selectedIds.has(b.id + '-' + b.type)}
-                  onToggle={() => toggleSelect(b)}
-                  onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
-                  onHover={(v) => setHoveredBranch(v ? b : null)}
-                  onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
-                  onNotify={() => void handleNotify(b)}
-                  protected_={isProtected(b)}
-                />
+              sections.map(({ repository, branches: sectionBranches }) => (
+                <div key={repository.id}>
+                  {/* 每个仓库独立分区：同名分支各自归属，绝不混排或合并计数 */}
+                  {scopedRepositories.length > 1 ? (
+                    <div className="flex items-center gap-2 border-b border-line bg-line/20 px-3 py-1.5">
+                      <FolderGit2 size={12} className="shrink-0 text-primary" />
+                      <span className="truncate text-xs font-semibold text-canvas-fg" title={repository.name}>{repository.name}</span>
+                      {selectedRepositoryIds.includes(repository.id) ? null : (
+                        <span className="shrink-0 rounded-full bg-warn/10 px-1.5 text-[10px] text-warn">
+                          {zh ? '未勾选' : 'Not selected'}
+                        </span>
+                      )}
+                      <span className="shrink-0 tabular-nums text-[10px] text-muted">{sectionBranches.length}</span>
+                    </div>
+                  ) : null}
+                  {sectionBranches.slice(0, 200).map((b) => (
+                    <ExplorerRow
+                      key={`${b.id}-${b.type}`}
+                      b={b}
+                      selected={selectedBranch?.id === b.id}
+                      checked={selectedIds.has(b.id + '-' + b.type)}
+                      onToggle={() => toggleSelect(b)}
+                      onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                      onHover={(v) => setHoveredBranch(v ? b : null)}
+                      onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                      onNotify={() => void handleNotify(b)}
+                      protected_={isProtected(b)}
+                    />
+                  ))}
+                  {sectionBranches.length === 0 ? (
+                    <div className="px-3 py-4 text-xs text-muted">
+                      {zh ? '该仓库在当前筛选下没有分支' : 'No branches in this repository for the current filters'}
+                    </div>
+                  ) : null}
+                </div>
               ))
             )}
           </div>

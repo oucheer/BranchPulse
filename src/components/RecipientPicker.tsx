@@ -1,4 +1,4 @@
-import { Crown, Mail, UserRound } from 'lucide-react'
+import { Mail, UserRound } from 'lucide-react'
 import { Toggle } from './ui'
 import type { EmailGroup, NotifyTarget } from '@shared/types'
 import { applyRecipientDraft, resolveRecipientDisplay, splitRecipientTokens } from '../lib/recipients'
@@ -8,11 +8,9 @@ interface RecipientPickerProps {
   onChange: (value: NotifyTarget) => void
   groups: EmailGroup[]
   selfEmail?: string
-  leaderEmail?: string
   disabled?: boolean
   allowSelf?: boolean
   allowCreator?: boolean
-  allowLeader?: boolean
   creatorHint?: string
   label?: string
   manualPlaceholder?: string
@@ -24,11 +22,9 @@ export default function RecipientPicker({
   onChange,
   groups,
   selfEmail = '',
-  leaderEmail = '',
   disabled = false,
   allowSelf = false,
   allowCreator = false,
-  allowLeader = false,
   creatorHint = '勾选后已停更的分支将邮件通知对应创始人',
   label = '收件邮箱 / 邮箱分组',
   manualPlaceholder = 'you@example.com, team@example.com',
@@ -37,33 +33,40 @@ export default function RecipientPicker({
   const tokens = splitRecipientTokens(value)
   const self = tokens.some((token) => ['self', 'both'].includes(token.toLowerCase()))
   const creator = tokens.some((token) => ['creator', 'both'].includes(token.toLowerCase()))
-  const leader = tokens.some((token) => token.toLowerCase() === 'leader')
   const groupNames = new Set(groups.map((group) => group.name.trim().toLowerCase()))
-  const selectedGroup = tokens.find((token) => groupNames.has(token.toLowerCase())) ?? ''
+  // Several groups can be combined, so every matching token is kept and the new
+  // engineering mail group (for example "leaders") is just another entry.
+  const selectedGroups = tokens.filter((token) => groupNames.has(token.toLowerCase()))
   const manualRecipients = tokens.filter((token) => {
     const lower = token.toLowerCase()
-    return !['self', 'creator', 'leader', 'both', 'none'].includes(lower) && !groupNames.has(lower)
+    return !['self', 'creator', 'both', 'none'].includes(lower) && !groupNames.has(lower)
   })
 
   const apply = (next: {
     self?: boolean
     creator?: boolean
-    leader?: boolean
     manualRecipients?: string[]
     groupTokens?: string[]
   }): void => {
     onChange(applyRecipientDraft({
       self: next.self ?? self,
       creator: next.creator ?? creator,
-      leader: next.leader ?? leader,
       manualRecipients: next.manualRecipients ?? manualRecipients,
-      groupTokens: next.groupTokens ?? (selectedGroup ? [selectedGroup] : [])
+      groupTokens: next.groupTokens ?? selectedGroups
     }))
   }
 
-  const readOnly = Boolean(selectedGroup)
-  const displayRecipients = selectedGroup
-    ? resolveRecipientDisplay(value, groups, self ? selfEmail : '', leader ? leaderEmail : '')
+  const toggleGroup = (name: string, checked: boolean): void => {
+    const lower = name.trim().toLowerCase()
+    const next = checked
+      ? [...selectedGroups.filter((token) => token.toLowerCase() !== lower), name]
+      : selectedGroups.filter((token) => token.toLowerCase() !== lower)
+    apply({ groupTokens: next })
+  }
+
+  const readOnly = selectedGroups.length > 0
+  const displayRecipients = readOnly
+    ? resolveRecipientDisplay(value, groups, self ? selfEmail : '')
     : manualRecipients
 
   return (
@@ -83,34 +86,35 @@ export default function RecipientPicker({
           apply({ manualRecipients: nextManual, groupTokens: [] })
         }}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          className="input max-w-[12rem]"
-          value={selectedGroup}
-          onChange={(event) => {
-            const group = event.target.value
-            if (!group) {
-              apply({ groupTokens: [] })
-              return
-            }
-            apply({ groupTokens: [group] })
-          }}
-        >
-          <option value="">选择邮箱分组</option>
-          {groups.map((group) => (
-            <option key={group.id} value={group.name}>{group.name}</option>
-          ))}
-        </select>
-        {readOnly ? (
-          <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>
-            清除分组
-          </button>
-        ) : null}
-      </div>
+      {groups.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-line px-3 py-2">
+          <span className="text-xs text-muted">邮箱分组（可多选）</span>
+          {groups.map((group) => {
+            const lower = group.name.trim().toLowerCase()
+            const checked = selectedGroups.some((token) => token.toLowerCase() === lower)
+            return (
+              <label key={group.id} className="flex cursor-pointer items-center gap-1.5 text-sm text-canvas-fg">
+                <input
+                  type="checkbox"
+                  className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
+                  checked={checked}
+                  onChange={(event) => toggleGroup(group.name, event.target.checked)}
+                />
+                {group.name}
+              </label>
+            )
+          })}
+          {readOnly ? (
+            <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>
+              清除分组
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {readOnly ? (
-        <p className="text-xs text-muted">已按分组显示收件人，分组收件人不可直接编辑。</p>
+        <p className="text-xs text-muted">已按分组显示收件人，分组收件人不可直接编辑；勾选多个分组会合并到同一封邮件。</p>
       ) : (
-        <p className="text-xs text-muted">可填写邮箱；选择分组后按分组配置只读展示并运行时解析收件人。</p>
+        <p className="text-xs text-muted">可填写邮箱；勾选邮箱分组后按分组配置只读展示并运行时解析收件人。</p>
       )}
 
       {allowSelf ? (
@@ -136,20 +140,6 @@ export default function RecipientPicker({
         </div>
       ) : null}
 
-      {allowLeader ? (
-        <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-          <div className="flex items-center gap-1.5">
-            <Crown size={13} className="text-secondary" />
-            <div>
-              <div className="text-sm text-canvas-fg">通知领导</div>
-              <div className="text-xs text-muted">
-                {leaderEmail ? leaderEmail : '请先在设置中填写领导邮箱。'}
-              </div>
-            </div>
-          </div>
-          <Toggle checked={leader} onChange={(next) => apply({ leader: next })} />
-        </div>
-      ) : null}
     </div>
   )
 }
