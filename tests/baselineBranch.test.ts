@@ -13,9 +13,11 @@ function fakeStorage(rows: Array<Record<string, unknown>>): unknown {
   return {
     all: (query: string) => (query.includes('FROM branches') ? rows : []),
     get: (query: string) => {
-      if (query.includes('monitoring_rules')) return { stale_threshold_days: 180 }
+      // 监控阈值按仓库隔离存储，运行时不再读取全局 monitoring_rules。
+      if (query.includes('monitoring_rules_repo')) return { stale_threshold_days: 180 }
       return undefined
-    }
+    },
+    selectedRepositoryIds: () => [REPO_ID]
   }
 }
 
@@ -61,7 +63,10 @@ function branchService(rows: Array<Record<string, unknown>>): BranchService {
   return new BranchService(
     storage as never,
     {} as never,
-    { list: () => [{ id: REPO_ID, name: 'demo' }] } as never,
+    {
+      list: () => [{ id: REPO_ID, name: 'demo' }],
+      get: (id: string) => (id === REPO_ID ? { id: REPO_ID, name: 'demo' } : undefined)
+    } as never,
     {} as never,
     new NamingService(storage as never),
     new ProtectionService(storage as never),

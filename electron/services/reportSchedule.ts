@@ -5,13 +5,20 @@ import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
 import { parseNotifyTarget, resolveRecipients } from './email'
+import { parseStringArray, uniqueIds } from './storage'
 import { newId } from '../utils/ids'
+
+function scheduleRepositoryIds(row: Record<string, unknown>): string[] {
+  if (row.repository_ids_json != null) return parseStringArray(row.repository_ids_json)
+  const legacy = String(row.repository_id ?? '').trim()
+  return legacy ? [legacy] : []
+}
 
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
   return {
     id: String(row.id),
     name: String(row.name ?? 'GitManager Report'),
-    repositoryId: (row.repository_id as string | null) ?? null,
+    repositoryIds: scheduleRepositoryIds(row),
     frequency: ((row.frequency as ReportScheduleFrequency) ?? 'daily'),
     time: String(row.time ?? '09:00'),
     weekday: Number(row.weekday ?? 1),
@@ -42,6 +49,11 @@ export function resolveReportRecipients(
   // 一键发送默认使用本机配置的通知邮箱；显式选择 none 时不自动补发。
   const normalized = String(input ?? '').trim()
   return !normalized && selfAddress ? [selfAddress] : []
+}
+
+function coversRepositoryIds(scope: string[], requested: string[]): boolean {
+  const allowed = new Set(scope)
+  return requested.every((id) => allowed.has(id))
 }
 
 export function computeNextReportRunAt(schedule: ReportSchedule, from = new Date()): string | null {
@@ -83,19 +95,28 @@ export class ReportScheduleService {
     private readonly audit: AuditService
   ) {}
 
-  list(): ReportSchedule[] {
-    return this.storage
+  list(repositoryIds?: string[]): ReportSchedule[] {
+    const schedules = this.storage
       .all<Record<string, unknown>>('SELECT * FROM report_schedules ORDER BY created_at ASC')
       .map(scheduleFromRow)
+    if (repositoryIds === undefined) return schedules
+    if (repositoryIds.length === 0) return []
+    const selected = new Set(uniqueIds(repositoryIds))
+    return schedules.filter((schedule) => schedule.repositoryIds.some((id) => selected.has(id)))
   }
 
-  save(input: Partial<ReportSchedule> & { id?: string }): ReportSchedule[] {
+  save(input: Partial<ReportSchedule> & { id?: string }, repositoryIds?: string[]): ReportSchedule[] {
     const now = new Date().toISOString()
     const existing = input.id ? this.list().find((s) => s.id === input.id) : undefined
+    if (repositoryIds !== undefined && existing && !coversRepositoryIds(repositoryIds, existing.repositoryIds)) {
+      throw new Error('该定时报告包含未勾选仓库，当前范围为只读。')
+    }
     const merged: ReportSchedule = {
       id: existing?.id ?? newId(),
       name: input.name?.trim() || existing?.name || '定时报告',
-      repositoryId: input.repositoryId !== undefined ? input.repositoryId : existing?.repositoryId ?? null,
+      repositoryIds: input.repositoryIds !== undefined
+        ? uniqueIds(input.repositoryIds)
+        : uniqueIds(existing?.repositoryIds ?? []),
       frequency: input.frequency ?? existing?.frequency ?? 'daily',
       time: input.time ?? existing?.time ?? '09:00',
       weekday: input.weekday ?? existing?.weekday ?? 1,
@@ -107,12 +128,16 @@ export class ReportScheduleService {
       nextRunAt: null,
       createdAt: existing?.createdAt ?? now
     }
+    if (repositoryIds !== undefined && !coversRepositoryIds(repositoryIds, merged.repositoryIds)) {
+      throw new Error('定时报告范围只能选择当前已勾选的仓库。')
+    }
     merged.nextRunAt = merged.enabled ? computeNextReportRunAt(merged) : null
 
     const row = {
       id: merged.id,
       name: merged.name,
-      repository_id: merged.repositoryId,
+      repository_id: merged.repositoryIds[0] ?? null,
+      repository_ids_json: JSON.stringify(merged.repositoryIds),
       frequency: merged.frequency,
       time: merged.time,
       weekday: merged.weekday,
@@ -127,49 +152,79 @@ export class ReportScheduleService {
     if (existing) this.storage.update('report_schedules', row, 'id = ?', [merged.id])
     else this.storage.insert('report_schedules', row)
     this.audit.record('report_schedule_saved', { id: merged.id, name: merged.name, frequency: merged.frequency })
-    return this.list()
+    return this.list(repositoryIds)
   }
 
-  delete(id: string): ReportSchedule[] {
+  delete(id: string, repositoryIds?: string[]): ReportSchedule[] {
+    const schedule = this.list().find((s) => s.id === id)
+    if (repositoryIds !== undefined && schedule && !coversRepositoryIds(repositoryIds, schedule.repositoryIds)) {
+      throw new Error('该定时报告包含未勾选仓库，当前范围为只读。')
+    }
     this.storage.delete('report_schedules', 'id = ?', [id])
     this.audit.record('report_schedule_deleted', { id })
-    return this.list()
+    return this.list(repositoryIds)
   }
 
-  async sendAllRepositoriesReport(period = 'manual', recipients = 'self'): Promise<EmailSendResult> {
+  /**
+   * 汇总发送：范围完全来自当前勾选的仓库集合。没有勾选任何仓库时直接失败，
+   * 绝不回退成「全部仓库」。
+   */
+  async sendSelectedRepositoriesReport(
+    period = 'manual',
+    recipients = 'self',
+    repositoryIds?: string[]
+  ): Promise<EmailSendResult> {
+    const scope = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (scope.length === 0) {
+      this.audit.record('report_selected_repositories_sent', { reason: 'no_repository_selected' }, 'failure')
+      return { ok: false, message: '未选择仓库：请先在仓库页勾选要汇总的仓库。', emailsSent: 0 }
+    }
     const emailConfig = this.emailService.getConfig()
     if (!emailConfig.enabled) {
-      this.audit.record('report_all_repositories_sent', { reason: 'email_disabled' }, 'failure')
+      this.audit.record('report_selected_repositories_sent', { reason: 'email_disabled', repositoryIds: scope }, 'failure')
       return { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
     }
 
     const resolvedRecipients = resolveReportRecipients(recipients, emailConfig, this.emailService.listGroups())
     if (resolvedRecipients.length === 0) {
-      this.audit.record('report_all_repositories_sent', { reason: 'recipients_empty', input: recipients }, 'failure')
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { reason: 'recipients_empty', input: recipients, repositoryIds: scope },
+        'failure'
+      )
       return { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
     }
 
     try {
-      const report = await this.reportService.generateAllRepositoriesReport(period, 'html')
+      const report = await this.reportService.generateReport(period, 'html', scope)
       const reportHtml = await fs.promises.readFile(report.path, 'utf8')
       const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
       const result = await this.emailService.sendReportEmail({
         to: resolvedRecipients,
-        subject: `【分支健康汇总】全部仓库 ${month}`,
+        subject: `【分支健康汇总】勾选仓库（${scope.length} 个） ${month}`,
         body: '',
         html: reportHtml,
         attachmentPath: report.path
       })
       this.audit.record(
-        'report_all_repositories_sent',
-        { report: report.id, recipients: result.recipients ?? resolvedRecipients, ok: result.ok },
+        'report_selected_repositories_sent',
+        {
+          report: report.id,
+          repositoryIds: scope,
+          recipients: result.recipients ?? resolvedRecipients,
+          ok: result.ok
+        },
         result.ok ? 'success' : 'failure'
       )
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      this.audit.record('report_all_repositories_sent', { recipients: resolvedRecipients, error: message }, 'failure')
-      return { ok: false, message: '全部仓库汇总发送失败。', technical: message, emailsSent: 0 }
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { recipients: resolvedRecipients, repositoryIds: scope, error: message },
+        'failure'
+      )
+      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
     }
   }
 
@@ -192,7 +247,15 @@ export class ReportScheduleService {
       const due = this.list().filter((s) => s.enabled && s.nextRunAt && new Date(s.nextRunAt) <= now)
       for (const schedule of due) {
         try {
-          const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryId)
+          if (schedule.repositoryIds.length === 0) {
+            this.audit.record('report_schedule_skipped', {
+              id: schedule.id,
+              name: schedule.name,
+              reason: 'no_repository_selected'
+            }, 'failure')
+            continue
+          }
+          const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryIds)
           const emailConfig = this.emailService.getConfig()
           const parsedNotify = parseNotifyTarget(schedule.recipients)
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username

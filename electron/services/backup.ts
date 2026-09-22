@@ -2,12 +2,13 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { BackupRecord } from '@shared/types'
+import type { BackupOptions, BackupRecord } from '@shared/types'
 import type { StorageService } from './storage'
 import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
-import { dataDir, ensureDir } from '../utils/paths'
+import { ensureDir } from '../utils/paths'
 import { newId, nowIso } from '../utils/ids'
+import { uniqueIds } from './storage'
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
@@ -21,26 +22,75 @@ export class BackupService {
     private readonly defaultBackupDirectory: () => string = () => ensureDir('backups')
   ) {}
 
-  list(): BackupRecord[] {
+  list(repositoryIds?: string[]): BackupRecord[] {
+    const scope = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (scope.length === 0) return []
+    const selected = new Set(uniqueIds(scope))
     return this.storage
       .all<Record<string, unknown>>('SELECT * FROM backup_records ORDER BY created_at DESC')
       .map((row) => this.toRecord(row))
+      .filter((record) => selected.has(record.repositoryId))
   }
 
-  async start(options: { repositoryId?: string | null; folderPath?: string }): Promise<BackupRecord> {
-    const activeId = this.storage.get<{ active_repository_id: string }>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id
-    const repository = this.repositoryService.get(String(options.repositoryId ?? activeId ?? ''))
+  /**
+   * 逐仓备份：按顺序处理全部勾选仓库，单个仓库失败不影响后续仓库。
+   */
+  async startBackups(options: BackupOptions = {}): Promise<BackupRecord[]> {
+    const scope = uniqueIds(options.repositoryIds ?? this.storage.selectedRepositoryIds())
+    if (scope.length === 0) return []
+    const targetDirectory = options.folderPath?.trim() || this.defaultBackupDirectory()
+    ensureDir(targetDirectory)
+
+    const records: BackupRecord[] = []
+    for (const repositoryId of scope) {
+      const repository = this.repositoryService.get(repositoryId)
+      if (!repository) {
+        this.audit.record('backup_failed', { repositoryId, error: 'repository_missing' }, 'failure')
+        continue
+      }
+      // 单个仓库失败（例如没有 remote URL 或 clone 报错）不得阻断后续仓库。
+      try {
+        records.push(await this.startOne(repositoryId, targetDirectory))
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err)
+        records.push(this.recordFailure(repositoryId, targetDirectory, error))
+      }
+    }
+    return records
+  }
+
+  /** 写入一条失败记录，保证逐仓备份的结果一一对应。 */
+  private recordFailure(repositoryId: string, targetDirectory: string, error: string): BackupRecord {
+    const repository = this.repositoryService.get(repositoryId)
+    const id = newId()
+    const finishedAt = nowIso()
+    this.storage.insert('backup_records', {
+      id,
+      repository_id: repositoryId,
+      repository_name: repository?.name ?? repositoryId,
+      path: '',
+      target_directory: targetDirectory,
+      remote_url: '',
+      status: 'failed',
+      size_bytes: 0,
+      error,
+      created_at: finishedAt,
+      finished_at: finishedAt
+    })
+    this.audit.record('backup_failed', { repository: repository?.name ?? repositoryId, error }, 'failure')
+    return this.get(id)!
+  }
+
+  private async startOne(repositoryId: string, targetDirectory: string): Promise<BackupRecord> {
+    const repository = this.repositoryService.get(repositoryId)
     if (!repository) throw new Error('Select a repository to back up.')
 
     const remoteUrl = await this.remoteUrl(repository.id)
     if (!remoteUrl) throw new Error('The selected repository has no remote URL to clone.')
 
-    const targetDirectory = options.folderPath?.trim() || this.defaultBackupDirectory()
-    ensureDir(targetDirectory)
     const destination = path.join(targetDirectory, `${safeName(repository.name)}_${timestamp()}.git`)
     const id = newId()
     const startedAt = nowIso()
-    const finishedAt = nowIso()
 
     this.storage.insert('backup_records', {
       id,
@@ -52,7 +102,8 @@ export class BackupService {
       status: 'running',
       size_bytes: 0,
       error: null,
-      created_at: startedAt
+      created_at: startedAt,
+      finished_at: null
     })
 
     try {
@@ -68,7 +119,8 @@ export class BackupService {
       this.storage.update('backup_records', {
         status: 'success',
         size_bytes: directorySize(destination),
-        error: null
+        error: null,
+        finished_at: nowIso()
       }, 'id = ?', [id])
       this.audit.record('backup_created', { repository: repository.name, path: destination })
       return this.get(id)!
@@ -76,7 +128,7 @@ export class BackupService {
       const error = err instanceof Error ? err.message : String(err)
       const finishedAt = nowIso()
       await fs.promises.rm(destination, { recursive: true, force: true }).catch(() => undefined)
-      this.storage.update('backup_records', { status: 'failed', error, updated_at: finishedAt }, 'id = ?', [id])
+      this.storage.update('backup_records', { status: 'failed', error, finished_at: finishedAt }, 'id = ?', [id])
       this.audit.record('backup_failed', { repository: repository.name, error }, 'failure')
       return this.get(id)!
     }
@@ -132,7 +184,7 @@ export class BackupService {
       path: String(row.path),
       status: row.status === 'success' || row.status === 'failed' ? row.status : 'running',
       startedAt: String(row.created_at),
-      finishedAt: row.status === 'running' ? null : String(row.updated_at ?? row.created_at),
+      finishedAt: row.status === 'running' ? null : String(row.finished_at ?? row.created_at),
       error: (row.error as string | null) ?? null
     }
   }

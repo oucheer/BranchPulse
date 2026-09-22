@@ -5,6 +5,7 @@ import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
 import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
+import { repositoryScopeLabel } from '../lib/scope'
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 type IntervalUnit = 'weeks' | 'days' | 'hours' | 'minutes'
@@ -36,8 +37,8 @@ function notifyLabel(target: string): string {
   return `通知 ${target}`
 }
 
-const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
-  repositoryId,
+const emptyJob = (repositoryIds: string[]): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
+  repositoryIds: [...repositoryIds],
   name: '',
   kind: 'interval',
   enabled: true,
@@ -57,7 +58,7 @@ export default function Scheduler(): JSX.Element {
   const calendarRuns = useAppStore((s) => s.calendarRuns)
   const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const toast = useAppStore((s) => s.toast)
@@ -68,23 +69,32 @@ export default function Scheduler(): JSX.Element {
   const [deleteAllOpen, setDeleteAllOpen] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
 
-  // Every job is listed regardless of the active repository. The scheduler
-  // executes all enabled jobs, so hiding the ones bound to another repository
-  // made it impossible to notice or stop a schedule that kept firing.
+  const selectedSet = new Set(selectedRepositoryIds)
+  const noSelection = selectedRepositoryIds.length === 0
+
+  /** 任务与当前范围有交集即显示；完全被覆盖时才允许编辑。 */
   const visibleJobs = [...jobs].sort((a, b) => {
-    const aMine = a.repositoryId === null || a.repositoryId === activeRepositoryId ? 0 : 1
-    const bMine = b.repositoryId === null || b.repositoryId === activeRepositoryId ? 0 : 1
-    return aMine - bMine || a.createdAt.localeCompare(b.createdAt)
+    const aOwned = a.repositoryIds.every((id) => selectedSet.has(id)) ? 0 : 1
+    const bOwned = b.repositoryIds.every((id) => selectedSet.has(id)) ? 0 : 1
+    return aOwned - bOwned || a.createdAt.localeCompare(b.createdAt)
   })
 
-  const repositoryLabel = (repositoryId?: string | null): string =>
-    repositoryId ? repositories.find((repo) => repo.id === repositoryId)?.name ?? '未知仓库（已删除）' : '全部仓库'
+  const isEditable = (job: SchedulerJob): boolean =>
+    job.repositoryIds.length > 0 && job.repositoryIds.every((id) => selectedSet.has(id))
 
-  const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns
+  const repositoryLabel = (repositoryIds: string[]): string =>
+    repositoryScopeLabel(repositoryIds, repositories)
+
+  const visibleRuns = scanRuns.filter((run) => {
+    const ids = run.repositoryIds ?? []
+    return ids.length > 0 && ids.every((id) => selectedSet.has(id))
+  })
+
+  const removableCount = jobs.filter((job) => isEditable(job)).length
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {
-      await window.gitmanager.saveJob(job)
+      await window.gitmanager.saveJob(job, selectedRepositoryIds)
       toast(tr('saved'), 'success')
       setEditJob(null)
       void refresh()
@@ -95,7 +105,7 @@ export default function Scheduler(): JSX.Element {
 
   const remove = async (id: string): Promise<void> => {
     try {
-      await window.gitmanager.deleteJob(id)
+      await window.gitmanager.deleteJob(id, selectedRepositoryIds)
       toast('已删除定时任务', 'success')
       void refresh()
     } catch (err) {
@@ -107,10 +117,11 @@ export default function Scheduler(): JSX.Element {
     if (deletingAll) return
     setDeletingAll(true)
     try {
-      const removed = jobs.length
-      await window.gitmanager.deleteAllJobs()
+      const before = jobs.length
+      const remaining = await window.gitmanager.deleteAllJobs(selectedRepositoryIds)
       setDeleteAllOpen(false)
-      toast(`已删除全部 ${removed} 个定时任务`, 'success')
+      const removed = Math.max(0, before - remaining.length)
+      toast(removed > 0 ? `已清除 ${removed} 个定时任务` : '没有完全落在勾选范围内的定时任务', removed > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -121,7 +132,7 @@ export default function Scheduler(): JSX.Element {
 
   const run = async (id: string): Promise<void> => {
     try {
-      const runResult = await window.gitmanager.runSchedulerJob(id)
+      const runResult = await window.gitmanager.runSchedulerJob(id, selectedRepositoryIds)
       toast(`检查完成：${runResult.branches} 个分支`, 'success')
       void refresh()
     } catch (err) {
@@ -136,16 +147,33 @@ export default function Scheduler(): JSX.Element {
         <div className="flex items-center gap-2">
           <button
             className="btn text-danger"
-            disabled={jobs.length === 0}
-            title={jobs.length === 0 ? '暂无可清除的定时任务' : undefined}
+            disabled={removableCount === 0}
+            title={
+              noSelection
+                ? '未选择仓库：请先勾选仓库'
+                : removableCount === 0
+                  ? '没有完全落在勾选范围内的定时任务'
+                  : undefined
+            }
             onClick={() => setDeleteAllOpen(true)}
           >
-            <Trash2 size={14} /> 一键清除全部定时任务
+            <Trash2 size={14} /> 一键清除勾选范围内的定时任务
           </button>
-          <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
+          <button
+            className="btn btn-primary"
+            disabled={noSelection}
+            title={noSelection ? '未选择仓库：请先勾选仓库' : undefined}
+            onClick={() => setEditJob({ ...emptyJob(selectedRepositoryIds) })}
+          >
             <Plus size={15} /> {tr('schedule')}
           </button>
         </div>
+      </div>
+
+      <div className={`rounded-md border px-4 py-2 text-xs ${noSelection ? 'border-warn/40 bg-warn/10 text-warn' : 'border-line bg-surface/60 text-muted'}`}>
+        {noSelection
+          ? '未选择仓库：请先在仓库页勾选仓库，定时调度只作用于勾选范围内的任务。'
+          : `当前勾选 ${selectedRepositoryIds.length} 个仓库：仅显示与勾选范围有交集的任务；范围包含未勾选仓库的任务为只读。`}
       </div>
 
       <div className="flex gap-1 rounded-card border border-line bg-surface p-1">
@@ -174,7 +202,12 @@ export default function Scheduler(): JSX.Element {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-canvas-fg">{job.name}</span>
                     <Badge tone={job.kind === 'interval' ? 'secondary' : 'info'}>{job.kind}</Badge>
-                    <Toggle checked={job.enabled} onChange={async (v) => { await save({ ...job, enabled: v }) }} />
+                    {isEditable(job) ? null : <Badge tone="warn">部分选中（只读）</Badge>}
+                    <Toggle
+                      checked={job.enabled}
+                      disabled={!isEditable(job)}
+                      onChange={async (v) => { await save({ ...job, enabled: v }) }}
+                    />
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
                     {job.kind === 'interval' ? (
@@ -182,8 +215,8 @@ export default function Scheduler(): JSX.Element {
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
-                    <span className={job.repositoryId && job.repositoryId !== activeRepositoryId ? 'font-medium text-warn' : undefined}>
-                      · {repositoryLabel(job.repositoryId)}
+                    <span className={isEditable(job) ? undefined : 'font-medium text-warn'}>
+                      · 范围：{repositoryLabel(job.repositoryIds)}
                     </span>
                     {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {tr('inspectionOnly')}</span>
@@ -193,12 +226,28 @@ export default function Scheduler(): JSX.Element {
                 <div className="flex items-center gap-1">
                   <button
                     className="btn px-2"
-                    disabled={emailDisabled && job.notifyTarget !== 'none'}
-                    title={emailDisabled && job.notifyTarget !== 'none' ? '邮件发送未启用' : '立即执行'}
+                    disabled={!isEditable(job) || (emailDisabled && job.notifyTarget !== 'none')}
+                    title={
+                      !isEditable(job)
+                        ? '该任务包含未勾选仓库，当前范围为只读'
+                        : emailDisabled && job.notifyTarget !== 'none'
+                          ? '邮件发送未启用'
+                          : '立即执行'
+                    }
                     onClick={() => void run(job.id)}
                   ><Play size={13} /></button>
-                  <button className="btn px-2" onClick={() => setEditJob({ ...job })}>编辑</button>
-                  <button className="btn px-2" onClick={() => void remove(job.id)}><Trash2 size={13} className="text-danger" /></button>
+                  <button
+                    className="btn px-2"
+                    disabled={!isEditable(job)}
+                    title={!isEditable(job) ? '该任务包含未勾选仓库，当前范围为只读' : undefined}
+                    onClick={() => setEditJob({ ...job })}
+                  >编辑</button>
+                  <button
+                    className="btn px-2"
+                    disabled={!isEditable(job)}
+                    title={!isEditable(job) ? '该任务包含未勾选仓库，当前范围为只读' : undefined}
+                    onClick={() => void remove(job.id)}
+                  ><Trash2 size={13} className="text-danger" /></button>
                 </div>
               </Card>
             ))}
@@ -270,17 +319,45 @@ export default function Scheduler(): JSX.Element {
       >
         <div className="space-y-4">
           <div>
-            <div className="label mb-1">仓库范围</div>
-            <select
-              className="input"
-              value={editJob?.repositoryId ?? ''}
-              onChange={(e) => setEditJob({ ...editJob, repositoryId: e.target.value || null })}
-            >
-              <option value="">全部仓库</option>
-              {repositories.map((repo) => (
-                <option key={repo.id} value={repo.id}>{repo.name}</option>
-              ))}
-            </select>
+            <div className="label mb-1">仓库范围（可多选）</div>
+            {repositories.length === 0 ? (
+              <div className="text-xs text-muted">暂无仓库，请先在仓库页添加仓库。</div>
+            ) : (
+              <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-line p-2">
+                {repositories.map((repo) => {
+                  const current = editJob?.repositoryIds ?? []
+                  const checked = current.includes(repo.id)
+                  const locked = (editJob?.id ?? null) !== null && !selectedSet.has(repo.id)
+                  return (
+                    <label
+                      key={repo.id}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${locked ? 'cursor-not-allowed text-muted' : 'cursor-pointer text-canvas-fg hover:bg-line/30'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={checked}
+                        disabled={locked}
+                        onChange={() =>
+                          setEditJob({
+                            ...editJob,
+                            repositoryIds: checked
+                              ? current.filter((id) => id !== repo.id)
+                              : [...current, repo.id]
+                          })
+                        }
+                      />
+                      <span className="truncate">{repo.name}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            <div className="mt-1 text-xs text-muted">
+              {(editJob?.repositoryIds ?? []).length === 0
+                ? '未选择仓库：该任务不会扫描任何仓库。'
+                : `将扫描：${repositoryLabel(editJob?.repositoryIds ?? [])}`}
+            </div>
           </div>
           <div>
             <div className="label mb-1">{tr('name')}</div>
@@ -374,7 +451,7 @@ export default function Scheduler(): JSX.Element {
 
       <Modal
         open={deleteAllOpen}
-        title="一键清除全部定时任务"
+        title="一键清除勾选范围内的定时任务"
         onClose={() => setDeleteAllOpen(false)}
         footer={
           <div className="flex gap-2">
@@ -387,12 +464,13 @@ export default function Scheduler(): JSX.Element {
       >
         <div className="space-y-4">
           <div className="text-sm text-muted">
-            将删除全部 <span className="font-semibold text-canvas-fg">{jobs.length}</span> 个定时任务，包含
-            <span className="font-semibold text-canvas-fg">其他仓库</span>以及「全部仓库」范围的任务。
+            将删除 <span className="font-semibold text-canvas-fg">{removableCount}</span> 个定时任务，
+            这些任务的仓库范围完全落在当前勾选的 <span className="font-semibold text-canvas-fg">{selectedRepositoryIds.length}</span> 个仓库内。
+            范围包含未勾选仓库的任务会被保留。
             删除后不会再有自动检查与定时邮件，且无法恢复。
           </div>
           <div className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-            再次点击“确认清除”后，全部定时任务将立即清除。
+            再次点击“确认清除”后，勾选范围内的定时任务将立即清除。
           </div>
         </div>
       </Modal>

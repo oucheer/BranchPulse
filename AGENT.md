@@ -27,10 +27,13 @@
 - 监控页不要单独出现“发送邮件通知”开关。是否通知由“通知自己”“通知分支创始人”等对象开关决定。立即检查必须使用当前表单配置，结束后不能用数据库旧配置回灌表单。
 - Git API Token、设置项和仓库配置必须持久化。重启、重进页面或连接成功后应回填已保存值；Token 默认掩码展示，可手动切换可见性。
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
+- 报告只汇总勾选的仓库，主体按仓库分区（每个仓库独立的汇总、分支明细和指标），末尾再给「所选仓库总汇总」。没有「发送全部仓库」入口，也没有「当前仓库」入口；未勾选任何仓库时生成/发送/导出按钮禁用并给出明确提示。
+- 报告历史只显示范围**完全属于**当前勾选的记录；包含未勾选仓库的报告不出现在列表里，也不能导出/删除/打开。
 - 设置页必须保留「配置导入 / 导出」（`electron/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
+- 配置包格式版本为 `CONFIG_BUNDLE_VERSION = 2`：仓库范围写数组字段（`selected_repository_ids_json`、`repository_ids_json`）。导入仍接受版本 1，把旧的单值 `active_repository_id` / `repository_id` 转成数组，重复执行升级不得产生重复规则。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
 - 换机导入后必须显式提示哪些凭据没跟过来：远程仓库 `remote_api_key` 为空和全局 `gitlab_api_key` 为空时，`importFromFile` 会把仓库名清单和全局提示写进中文 warnings。否则用户会以为导入失败或仓库连不上。
-- 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的 `branches`/`scheduler_jobs`/`report_schedules`/`monitoring_rules_repo` 记录，并在 `active_repository_id` 失效时回落到第一个仓库。用户可见提示走中文 warnings。
+- 导入是「覆盖式」操作：必须先弹覆盖确认框，再执行 `pruneOrphans()` 清理指向未导入仓库的散落记录，以及 `scheduler_jobs` / `report_schedules` / `reports` 的 `repository_ids_json` 里已不存在的仓库 ID。`selected_repository_ids_json` 同样剪除不存在的仓库。**空勾选永远是「没有仓库」，绝不能回退成「全部仓库」**，扫不到旧仓库时只清空勾选并提示用户重新勾选。用户可见提示走中文 warnings。
 - 邮件正文和 HTML 报告结构保持与参考项目 `oucheer/git-management` 一致，但品牌与状态术语使用 GitManager 的统一文案。
 - 命名规则说明必须完整覆盖前缀、小写、无空格、无连续斜杠、不以 `/` 或 `-` 开头、前缀后描述、`main`/`develop` 豁免，以及中文分支需要 regex/unicode 规则的场景。
 - 定时调度周期支持 `周`、`天`、`小时`、`分钟`；内部存储保持分钟字段兼容。
@@ -124,11 +127,24 @@
 - 用户要求「推送到远程 + tag 最新 commit」时，先 `git log --oneline <tag>..HEAD` 确认 tag 是否落后，再 `git tag -f V0.1.x <sha>` 并 `git push origin main --follow-tags`（或 `git push -f origin V0.1.x`）。
 - **绝不要按进程名批量杀 `GitManager.exe` / `electron.exe`**。用户可能同时开着自己的实例，`Get-CimInstance ... | Stop-Process` 会连带杀掉它。只终止自己能识别的目标：核对 `CommandLine` 里的 `--user-data-dir` 是否指向 `.tmp-*` 冒烟目录，或直接用 `scripts\run-smoke.ps1` 打印的 PID 加 `taskkill /PID <pid> /T`。
 - `npm run package` 前必须先确认没有实例占用 `release\win-unpacked\`：`Get-CimInstance Win32_Process -Filter "Name='GitManager.exe'"` 看 `CommandLine`，指向 `release\win-unpacked` 的才是需要退出的，`.tmp-*\userdata` 的是冒烟实例。
-- 工作区长期存在几个无关未跟踪文件（`GitManager-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
+- 工作区长期存在几个无关未跟踪文件（`BranchPulse-使用手册.docx`、`~$anchPulse-使用手册.docx`、`docshots/`），提交时不要 `git add -A`，按路径显式添加。
+
+## 仓库范围与隔离（V0.2 起）
+
+- **唯一的范围来源是全局仓库勾选**：`app_settings.selected_repository_ids_json`，前端从 `appStore.selectedRepositoryIds` 派生。仓库页复选框、顶栏「已选 N 个仓库」面板、全选/清空都写同一个字段。
+- **空数组 = 没有仓库**，不是「全部仓库」。`StorageService.selectedRepositoryIds()` 只过滤掉已删除的仓库，绝不上溯成全部。空勾选时所有页面显示空数据并禁用操作。
+- 每个仓库的数据严格隔离：分支、监控、命名规则、白名单、保护规则、通知、报告、调度、审计、备份都按仓库过滤；同名分支（如两仓都有 `feature/x`）不得合并展示或统计。分支缓存 key、通知 `dedup_key`（`${repositoryId}|${branch.name}|${type}|${state}`）、`scan_run_repositories` 都带仓库维度。
+- 监控、命名规则、白名单、保护规则**没有全局回退**：运行时只读 `repository_id = ?` 的行。仓库创建时由 `ensureRepositoryConfiguration()` 从库内 NULL 模板复制一份独立配置；NULL 行只是迁移期的模板残留，不再被读取。
+- 后端统一接收仓库 ID 集合：`listBranches(repositoryIds)`、`getBranch(criteria, repositoryIds)`、`listNotifications/clearNotifications(repositoryIds)`、`listReports/generateReport(period, format, repositoryIds)`、`listJobs(repositoryIds)`、`list(repositoryIds)`（备份与审计）。传空数组一律返回空结果。
+- 改范围相关接口时，前端与后端要同时改：只改页面过滤会留下缓存、邮件、报告、调度四条漏网路径。
+- 删除仓库走 `StorageService.removeRepositoryReferences(id)`：清分支、分支快照、通知、监控/命名/白名单/保护配置、`repository_config_initialized`、`scan_runs` + `scan_run_repositories`、备份记录与备份目录；含该仓库的历史报告连文件一起删；`scheduler_jobs`/`report_schedules` 的数组字段移除该 ID（只剩它时整条删除）；最后从全局勾选里摘掉。新增带 `repository_id` 的表必须同步进这个清理清单。
+- 报告生成时读的是**所选范围内的仓库**；`sendSelectedRepositoriesReport(period, recipients)` 是唯一发送入口，空范围返回 `{ ok: false }` 并以 `report_selected_repositories_sent` 记一条失败审计，不调用报告生成和邮件发送。
+- 一键备份走 `startBackups({ repositoryIds, folderPath })`：顺序处理全部勾选仓库，逐仓返回成功或失败记录（`recordFailure()` 写 `backup_records` + `backup_failed` 审计）。**任一仓库失败不得中断后续仓库**，异常必须在循环内被捕获，否则一个坏仓库会让整批备份静默停止。
 
 ## 定时调度
 
-- `scheduler_jobs` 是**全局表**，`listJobs()` 不带仓库过滤，`tick()` 每 30s 让所有 `enabled` 任务运行。因此调度页**不能**按 `activeRepositoryId` 过滤显示，否则会出现「任务在别处轮询发邮件但 UI 完全看不到」。当前实现：显示全部任务、按「本仓库优先」排序、非当前仓库的任务用 `text-warn` 高亮仓库名。
-- 托盘「暂停监控」必须作用于全部任务（`setAllEnabled()`），只改第一个 enabled 任务会让其余任务继续发信。
-- 「删除全部定时任务」走 `deleteAllJobs()`：`DELETE FROM scheduler_jobs WHERE 1 = 1` + 审计 `scheduler_jobs_deleted_all`。每次点击入口都必须弹出二次确认框，用户再次点击「确认删除」后才执行清空；确认按钮立即可用，请求进行中禁用按钮防止重复提交。
-- 配置导入会整表带入别的机器的 `scheduler_jobs`（`configPort.ts`），`pruneOrphans()` 只在仓库不存在时清理，所以跨机导入后残留任务需要用户手动一键删除——这是该功能存在的理由。
+- `scheduler_jobs` 用 `repository_ids_json` 保存**创建时的仓库 ID 快照**。`tick()` 每 30s 让所有 `enabled` 任务运行，但每个任务只扫描自己快照里的仓库；以后改全局勾选不会改变既有任务的范围。
+- 调度页展示与勾选范围**有交集**的任务。范围被勾选仓库完全覆盖时可启用/暂停/编辑/立即执行/删除；含未勾选仓库的任务只读并在 UI 标记「该任务包含未勾选仓库，当前范围为只读」（后端 `saveJob`/`deleteJob` 也会抛同样的错误，不要只靠前端禁用）。
+- 托盘「暂停监控」走 `setAllEnabled(enabled, scope)`，只作用于完全被当前勾选覆盖的任务；`scope` 为空时直接返回，不做任何修改。
+- 「一键清除定时任务」走 `deleteAllJobs(repositoryIds)`：只删除**至少命中一个勾选仓库且完全被覆盖**的任务（空范围任务不在批量操作内），审计 `scheduler_jobs_deleted_all`。每次点击入口都必须弹出二次确认框，用户再次点击「确认清除」后才执行；确认按钮立即可用，请求进行中禁用按钮防止重复提交。
+- 配置导入会整表带入别的机器的 `scheduler_jobs`（`configPort.ts`），`pruneOrphans()` 只清理指向不存在仓库的 ID，所以跨机导入后残留任务需要用户手动一键删除——这是该功能存在的理由。

@@ -51,11 +51,8 @@ export class MonitoringService {
   }
 
   private readMonitoringRow(repositoryId?: string | null): Record<string, unknown> | null {
-    if (repositoryId) {
-      const row = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId]) ?? null
-      if (row) return row
-    }
-    return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1') ?? null
+    if (!repositoryId) return null
+    return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId]) ?? null
   }
 
   private thresholdHint(row?: Record<string, unknown> | null): string {
@@ -76,14 +73,18 @@ export class MonitoringService {
     this.emitProgress(runId, activity)
 
     const repos = this.repositoryService.list()
-    const targets = options.repositoryIds?.length
-      ? repos.filter((r) => options.repositoryIds?.includes(r.id))
-      : repos
+    // An explicit empty array means "no repository selected" and must never
+    // fall back to scanning every repository.
+    const requestedIds = options.repositoryIds ?? this.storage.selectedRepositoryIds()
+    const targets = repos.filter((r) => requestedIds.includes(r.id))
     if (targets.length === 0) {
-      addActivity('No repositories configured. Add a repository to begin.', 'warn')
+      addActivity('未选择仓库：请先在仓库页勾选要检查的仓库。', 'warn')
     }
 
-    const monitoringRow = this.readMonitoringRow(options.repositoryIds?.length ? options.repositoryIds[0] : null)
+    // Each repository is inspected with its own monitoring configuration. The
+    // gate values below come from the first target purely to decide whether the
+    // check may start at all; per-repository behaviour is resolved inside the loop.
+    const monitoringRow = this.readMonitoringRow(targets[0]?.id ?? null)
     if (!options.bypassEnabledCheck && Number(monitoringRow?.enabled ?? 1) !== 1) {
       throw new Error('Monitoring is disabled. Turn monitoring on to run a check.')
     }
@@ -244,6 +245,7 @@ export class MonitoringService {
     }
     this.audit.record('monitoring_check', {
       trigger: run.trigger,
+      repositoryIds: scannedRepositoryIds,
       repositories: run.repositories,
       branches: run.branches,
       stale: run.stale,
@@ -378,9 +380,12 @@ export class MonitoringService {
     return { sent: result.emailsSent ?? 0, message: result.message }
   }
 
-  listNotifications(): NotificationRecord[] {
+  listNotifications(repositoryIds?: string[]): NotificationRecord[] {
+    const scope = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (scope.length === 0) return []
+    const selected = new Set(scope)
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 500')
-    return rows.map((r) => {
+    return rows.filter((r) => selected.has(String(r.repository_id ?? ''))).map((r) => {
       const rawType = String(r.type ?? '')
       const type: NotificationRecord['type'] = rawType === 'naming_violation' || rawType === 'cleanup_candidate'
         ? rawType
@@ -401,12 +406,19 @@ export class MonitoringService {
     })
   }
 
-  markNotificationRead(id: string): NotificationRecord[] {
+  markNotificationRead(id: string, repositoryIds?: string[]): NotificationRecord[] {
+    const visible = this.listNotifications(repositoryIds)
+    if (!visible.some((record) => record.id === id)) {
+      throw new Error('该通知不属于当前勾选的仓库。')
+    }
     this.storage.update('notification_history', { read: 1 }, 'id = ?', [id])
-    return this.listNotifications()
+    return this.listNotifications(repositoryIds)
   }
 
-  clearNotifications(): void {
-    this.storage.delete('notification_history', '1 = 1')
+  clearNotifications(repositoryIds?: string[]): void {
+    const scope = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (scope.length === 0) return
+    const placeholders = scope.map(() => '?').join(', ')
+    this.storage.delete('notification_history', `repository_id IN (${placeholders})`, scope)
   }
 }

@@ -21,12 +21,11 @@ export class ProtectionService {
   }
 
   private load(table: string, repositoryId?: string | null): ProtectionEntry[] {
-    const scoped = repositoryId !== undefined
     const rows = this.storage.all<Record<string, unknown>>(
-      scoped && repositoryId
-        ? `SELECT * FROM ${table} WHERE repository_id = ? OR repository_id IS NULL ORDER BY created_at ASC`
-        : `SELECT * FROM ${table} ORDER BY created_at ASC`,
-      scoped && repositoryId ? [repositoryId] : []
+      repositoryId
+        ? `SELECT * FROM ${table} WHERE repository_id = ? ORDER BY created_at ASC`
+        : `SELECT * FROM ${table} WHERE repository_id IS NULL ORDER BY created_at ASC`,
+      repositoryId ? [repositoryId] : []
     )
     return rows.map((r) => ({
       id: String(r.id),

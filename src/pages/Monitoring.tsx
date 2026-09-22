@@ -21,25 +21,55 @@ export default function Monitoring(): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const scanning = useAppStore((s) => s.scanning)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const repositories = useAppStore((s) => s.repositories)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [saving, setSaving] = useState(false)
   const suppressDraftSync = useRef(false)
+  // 监控配置按仓库独立保存：这里只允许在勾选范围内切换目标仓库。
+  const scopedRepositories = repositories.filter((repository) => selectedRepositoryIds.includes(repository.id))
+  const [activeRepositoryId, setActiveRepositoryId] = useState<string | null>(scopedRepositories[0]?.id ?? null)
+  const effectiveRepositoryId = scopedRepositories.some((repository) => repository.id === activeRepositoryId)
+    ? activeRepositoryId
+    : scopedRepositories[0]?.id ?? null
+
+  useEffect(() => {
+    if (effectiveRepositoryId === activeRepositoryId) return
+    setActiveRepositoryId(effectiveRepositoryId)
+  }, [effectiveRepositoryId, activeRepositoryId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!effectiveRepositoryId) {
+      setDraft(monitoring)
+      return
+    }
+    void window.gitmanager.getMonitoring(effectiveRepositoryId).then((config) => {
+      if (!cancelled) setDraft(config)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveRepositoryId])
 
   useEffect(() => {
     if (suppressDraftSync.current) return
-    setDraft(monitoring)
-  }, [monitoring])
+    if (!effectiveRepositoryId) setDraft(monitoring)
+  }, [monitoring, effectiveRepositoryId])
 
   const emailDisabled = !emailConfig?.enabled
+  const noSelection = selectedRepositoryIds.length === 0
 
   const save = async (): Promise<void> => {
+    if (!effectiveRepositoryId) {
+      toast('未选择仓库：请先勾选仓库', 'warn')
+      return
+    }
     setSaving(true)
     try {
-      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
+      await window.gitmanager.saveMonitoring(draft, effectiveRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -50,8 +80,12 @@ export default function Monitoring(): JSX.Element {
   }
 
   const toggleMonitoring = async (enabled: boolean): Promise<void> => {
+    if (!effectiveRepositoryId) {
+      toast('未选择仓库：请先勾选仓库', 'warn')
+      return
+    }
     try {
-      await window.gitmanager.saveMonitoring({ ...monitoring, enabled }, activeRepositoryId)
+      await window.gitmanager.saveMonitoring({ ...monitoring, enabled }, effectiveRepositoryId)
       toast(enabled ? '监控已开启' : '监控已关闭', 'success')
       void refresh()
     } catch (err) {
@@ -61,16 +95,20 @@ export default function Monitoring(): JSX.Element {
   }
 
   const runCheck = async (): Promise<void> => {
+    if (noSelection) {
+      toast('未选择仓库：请先勾选仓库', 'warn')
+      return
+    }
     setScanning(true)
     suppressDraftSync.current = true
     try {
-      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
+      if (effectiveRepositoryId) await window.gitmanager.saveMonitoring(draft, effectiveRepositoryId)
       const run = await window.gitmanager.runCheckNow({
         bypassEnabledCheck: true,
         notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
         trigger: 'manual',
-        ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {})
+        repositoryIds: selectedRepositoryIds
       })
       toast(`Check complete: ${run.branches} branches, ${run.notifications} notifications`, 'success')
     } catch (err) {
@@ -85,30 +123,55 @@ export default function Monitoring(): JSX.Element {
     }
   }
 
-  const activeRepository = repositories.find((r) => r.id === activeRepositoryId)
-  const isRemoteOnly = activeRepository ? activeRepository.source !== 'local' : repositories.length > 0 && repositories.every((r) => r.source !== 'local')
-  const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns).slice(0, 5)
+  const activeRepository = scopedRepositories.find((r) => r.id === effectiveRepositoryId)
+  const isRemoteOnly = activeRepository ? activeRepository.source !== 'local' : scopedRepositories.length > 0 && scopedRepositories.every((r) => r.source !== 'local')
+  const selectedSet = new Set(selectedRepositoryIds)
+  const lastRuns = (noSelection ? [] : scanRuns.filter((run) => (run.repositoryIds ?? []).some((id) => selectedSet.has(id)))).slice(0, 5)
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="flex items-center gap-3 text-lg font-bold text-canvas-fg">
           {tr('monitoring')}
-          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库配置</span> : <span className="ml-2 text-sm font-medium text-muted">全局默认配置</span>}
+          {effectiveRepositoryId ? (
+            <span className="ml-2 text-sm font-medium text-muted">
+              仓库独立配置：{activeRepository?.name ?? '已删除仓库'}
+            </span>
+          ) : (
+            <span className="ml-2 text-sm font-medium text-muted">未选择仓库</span>
+          )}
           <Badge tone={monitoring.enabled ? 'ok' : 'warn'}>
             {monitoring.enabled ? '已开启' : '已关闭'}
           </Badge>
         </h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted">{monitoring.enabled ? '监控开启中' : '监控已关闭'}</span>
-          <Toggle checked={monitoring.enabled} label="监控开关" disabled={saving} onChange={(v) => void toggleMonitoring(v)} />
+          <Toggle checked={monitoring.enabled} label="监控开关" disabled={saving || !effectiveRepositoryId} onChange={(v) => void toggleMonitoring(v)} />
         </div>
       </div>
+
+      {noSelection ? (
+        <div className="rounded-md border border-warn/40 bg-warn/10 px-4 py-2 text-xs text-warn">
+          未选择仓库：请先在仓库页或顶栏勾选仓库。监控、命名规则、白名单与保护规则都按仓库隔离，未选择时无法编辑。
+        </div>
+      ) : scopedRepositories.length > 1 ? (
+        <div className="rounded-md border border-line bg-surface/60 px-4 py-2 text-xs text-muted">
+          <div className="mb-2">监控检查会按每个仓库自己的配置逐仓执行；下面的设置只作用于当前选中的仓库。</div>
+          <select
+            className="input w-72"
+            value={effectiveRepositoryId ?? ''}
+            onChange={(e) => setActiveRepositoryId(e.target.value)}
+          >
+            {scopedRepositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}
+          </select>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
             <Timer size={15} className="text-warn" /> 巡查规则
+            {activeRepository ? <span className="text-xs font-normal text-muted">· {activeRepository.name}</span> : null}
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">

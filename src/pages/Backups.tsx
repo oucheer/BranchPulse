@@ -11,18 +11,33 @@ const statusTone = (status: BackupRecord['status']): 'ok' | 'warn' | 'danger' =>
 export default function Backups(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const backups = useAppStore((s) => s.backups)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
-  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [folderPath, setFolderPath] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const noSelection = selectedRepositoryIds.length === 0
+
   const startBackup = async (): Promise<void> => {
+    if (noSelection) return
     setBusy(true)
     try {
-      const record = await window.gitmanager.startBackup({ repositoryId: activeRepositoryId, folderPath })
-      toast(record.status === 'success' ? '备份完成' : record.status === 'failed' ? record.error ?? '备份失败' : '备份进行中', record.status === 'failed' ? 'error' : 'success')
+      const records = await window.gitmanager.startBackups({
+        repositoryIds: selectedRepositoryIds,
+        folderPath: folderPath || undefined
+      })
+      if (records.length === 0) {
+        toast('未选择仓库：请先勾选仓库', 'warn')
+        return
+      }
+      const succeeded = records.filter((record) => record.status === 'success')
+      const failed = records.filter((record) => record.status !== 'success')
+      const summary = `备份完成：成功 ${succeeded.length} 个，失败 ${failed.length} 个（共 ${records.length} 个仓库）`
+      toast(
+        failed.length === 0 ? summary : `${summary}\n失败仓库：${failed.map((r) => `${r.repositoryName}（${r.error ?? '未知错误'}）`).join('；')}`,
+        failed.length === 0 ? 'success' : failed.length === records.length ? 'error' : 'warn'
+      )
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -71,13 +86,12 @@ export default function Backups(): JSX.Element {
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
           <HardDrive size={15} className="text-primary" /> 一键备份
         </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(180px,240px)_1fr_auto] md:items-end">
-          <div>
-            <div className="label mb-1.5">仓库</div>
-            <select className="input" value={activeRepositoryId ?? ''} onChange={(e) => void setActiveRepositoryId(e.target.value || null)}>
-              {repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}
-            </select>
-          </div>
+        <div className={`mb-3 rounded-md border px-3 py-2 text-xs ${noSelection ? 'border-warn/40 bg-warn/10 text-warn' : 'border-line bg-surface/60 text-muted'}`}>
+          {noSelection
+            ? '未选择仓库：请先在仓库页勾选仓库，一键备份只处理勾选范围内的仓库。'
+            : `备份范围：已勾选 ${selectedRepositoryIds.length} 个仓库（可在仓库页或顶栏调整），将按顺序逐个备份。`}
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
           <div>
             <div className="label mb-1.5">备份目录</div>
             <div className="flex items-center gap-2">
@@ -87,8 +101,13 @@ export default function Backups(): JSX.Element {
               </button>
             </div>
           </div>
-          <button className="btn btn-primary" disabled={busy || repositories.length === 0} onClick={() => void startBackup()}>
-            <FolderDown size={14} /> 开始备份
+          <button
+            className="btn btn-primary"
+            disabled={busy || noSelection || repositories.length === 0}
+            title={noSelection ? '未选择仓库：请先勾选仓库' : undefined}
+            onClick={() => void startBackup()}
+          >
+            <FolderDown size={14} /> {busy ? '备份中...' : `备份勾选的 ${selectedRepositoryIds.length} 个仓库`}
           </button>
         </div>
       </Card>

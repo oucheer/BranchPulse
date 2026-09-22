@@ -8,15 +8,19 @@ export default function Notifications(): JSX.Element {
   const notifications = useAppStore((s) => s.notifications)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const [clearing, setClearing] = useState(false)
 
-  const scoped = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
+  const noSelection = selectedRepositoryIds.length === 0
+  const selectedSet = new Set(selectedRepositoryIds)
+  // 后端已按勾选范围过滤，这里再按仓库 ID 精确兜底，避免不同仓库的通知混入。
+  const scoped = notifications.filter((n) => selectedSet.has(n.repositoryId))
   const list = (filter === 'unread' ? scoped.filter((n) => !n.read) : scoped).filter((n) => n.type !== 'merged')
 
   const markRead = async (id: string): Promise<void> => {
     try {
-      await window.gitmanager.markNotificationRead(id)
+      await window.gitmanager.markNotificationRead(id, selectedRepositoryIds)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -24,12 +28,16 @@ export default function Notifications(): JSX.Element {
   }
 
   const clearAll = async (): Promise<void> => {
+    if (noSelection || clearing) return
+    setClearing(true)
     try {
-      await window.gitmanager.clearNotifications()
-      toast(tr('clearAll'), 'success')
+      await window.gitmanager.clearNotifications(selectedRepositoryIds)
+      toast(`已清空勾选 ${selectedRepositoryIds.length} 个仓库的通知`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -66,14 +74,21 @@ export default function Notifications(): JSX.Element {
             >{tr('unread')}</button>
           </div>
           {scoped.length > 0 ? (
-            <button className="btn" onClick={() => void clearAll()}>
+            <button
+              className="btn"
+              disabled={noSelection || clearing}
+              title={noSelection ? '未选择仓库：请先勾选仓库' : undefined}
+              onClick={() => void clearAll()}
+            >
               <Trash2 size={14} /> {tr('clearAll')}
             </button>
           ) : null}
         </div>
       </div>
 
-      {list.length === 0 ? (
+      {noSelection ? (
+        <EmptyState title="未选择仓库" description="请先在仓库页或顶栏勾选仓库，通知列表只显示勾选范围内仓库的通知。" />
+      ) : list.length === 0 ? (
         <EmptyState title={tr('noNotifications')} />
       ) : (
         <div className="space-y-2">

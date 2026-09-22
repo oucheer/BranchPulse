@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { StorageService } from './storage'
+import { parseStringArray, uniqueIds, type StorageService } from './storage'
 
 /**
  * Config portability: export / import every user-configurable part of the app
@@ -17,7 +17,7 @@ import type { StorageService } from './storage'
 const SENSITIVE_COLUMNS = new Set(['gitlab_api_key', 'remote_api_key', 'password_encrypted'])
 
 export const CONFIG_BUNDLE_KIND = 'gitmanager-config'
-export const CONFIG_BUNDLE_VERSION = 1
+export const CONFIG_BUNDLE_VERSION = 2
 
 /** Brand and kind written by the pre-rename build, still accepted on import. */
 const LEGACY_BRANDS = new Set(['BranchPulse'])
@@ -118,11 +118,14 @@ export class ConfigPortService {
     if (typeof bundle.version !== 'number' || bundle.version > CONFIG_BUNDLE_VERSION) {
       throw new Error(`配置文件版本不受支持：${String(bundle.version)}`)
     }
-    const sections = bundle.sections
-    if (!sections || typeof sections !== 'object') throw new Error('配置文件缺少配置内容。')
+    if (!bundle.sections || typeof bundle.sections !== 'object') throw new Error('配置文件缺少配置内容。')
 
     const applied: string[] = []
     const warnings: string[] = []
+    const sections: ConfigBundle['sections'] = upgradeSections(bundle.sections)
+    if (bundle.version < CONFIG_BUNDLE_VERSION) {
+      warnings.push(`配置文件为版本 ${bundle.version}，已按当前版本升级导入。`)
+    }
 
     this.storage.transaction(() => {
       for (const table of SINGLETON_TABLES) {
@@ -138,6 +141,7 @@ export class ConfigPortService {
         applied.push(table)
       }
       warnings.push(...this.pruneOrphans())
+      this.storage.reconcileRepositoryConfigurations()
     })
 
     for (const row of this.storage.all<Record<string, unknown>>('SELECT name, path, source FROM repositories')) {
@@ -187,14 +191,43 @@ export class ConfigPortService {
       this.storage.delete(table, `repository_id IS NOT NULL AND repository_id <> '' AND repository_id NOT IN (SELECT id FROM repositories)`)
       warnings.push(`已清理 ${table} 中指向不存在仓库的旧记录，请在仓库页重新扫描。`)
     }
-    const active = this.storage.all<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')[0]?.active_repository_id
-    if (active) {
-      const exists = this.storage.all<Record<string, unknown>>('SELECT id FROM repositories WHERE id = ?', [active])[0]
-      if (!exists) {
-        const fallback = this.storage.all<Record<string, unknown>>('SELECT id FROM repositories ORDER BY created_at ASC')[0]
-        this.storage.update('app_settings', { active_repository_id: fallback ? String(fallback.id) : null }, 'id = 1')
-        warnings.push('原当前仓库在本机不存在，已切换到第一个可用仓库。')
+
+    // Repository-scoped arrays (scheduler jobs, report schedules, report
+    // history, backups) can reference repositories that do not exist on this
+    // machine. Drop the dangling references instead of rendering blank rows.
+    const existing = new Set(this.storage.repositoryIds())
+    const dangling = new Set<string>()
+    for (const table of ['scheduler_jobs', 'report_schedules', 'reports'] as const) {
+      for (const row of this.storage.all<Record<string, unknown>>(`SELECT repository_ids_json FROM ${table}`)) {
+        for (const id of parseStringArray(row.repository_ids_json)) {
+          if (!existing.has(id)) dangling.add(id)
+        }
       }
+    }
+    for (const row of this.storage.all<Record<string, unknown>>('SELECT repository_id FROM backup_records')) {
+      const id = String(row.repository_id ?? '')
+      if (id && !existing.has(id)) dangling.add(id)
+    }
+    for (const id of dangling) this.storage.removeRepositoryReferences(id)
+    if (dangling.size > 0) {
+      warnings.push(`已清理指向不存在仓库的任务、报告与备份记录（${dangling.size} 个仓库）。`)
+    }
+
+    // A cleaned-up selection may become empty. Empty means "no repository" and
+    // must never be expanded back into every repository.
+    const app = this.storage.all<Record<string, unknown>>(
+      'SELECT selected_repository_ids_json FROM app_settings WHERE id = 1'
+    )[0]
+    const selected = parseStringArray(app?.selected_repository_ids_json)
+    const kept = selected.filter((id) => existing.has(id))
+    if (kept.length !== selected.length) {
+      this.storage.update('app_settings', {
+        selected_repository_ids_json: JSON.stringify(kept),
+        active_repository_id: kept[0] ?? null
+      }, 'id = 1')
+      warnings.push(kept.length === 0
+        ? '原先勾选的仓库在本机不存在，已清空勾选；请重新勾选要使用的仓库。'
+        : '已从勾选中移除本机不存在的仓库。')
     }
     return warnings
   }
@@ -275,6 +308,44 @@ function pick(row: Record<string, unknown>, columns: string[]): Record<string, u
     if (Object.prototype.hasOwnProperty.call(row, column)) result[column] = row[column]
   }
   return result
+}
+
+/**
+ * Version 1 bundles store a single nullable `repository_id` per row, where
+ * null meant "every repository". Version 2 stores explicit id arrays, where an
+ * empty array means "no repository". Upgrading therefore has to expand the old
+ * null into a snapshot of the repositories that exist in the file.
+ */
+function upgradeSections(input: ConfigBundle['sections']): ConfigBundle['sections'] {
+  const singletons: Record<string, Record<string, unknown> | null> = { ...(input.singletons ?? {}) }
+  const collections: Record<string, Array<Record<string, unknown>>> = { ...(input.collections ?? {}) }
+
+  const repositoryIdsFromFile = Array.isArray(collections.repositories)
+    ? uniqueIds(collections.repositories.map((row) => String(row?.id ?? '')).filter(Boolean))
+    : []
+
+  const app = singletons.app_settings
+  if (app && app.selected_repository_ids_json == null) {
+    const legacy = String(app.active_repository_id ?? '')
+    const selected = legacy ? [legacy] : repositoryIdsFromFile
+    singletons.app_settings = {
+      ...app,
+      selected_repository_ids_json: JSON.stringify(uniqueIds(selected))
+    }
+  }
+
+  for (const table of ['scheduler_jobs', 'report_schedules', 'reports'] as const) {
+    const rows = collections[table]
+    if (!Array.isArray(rows)) continue
+    collections[table] = rows.map((row) => {
+      if (!row || typeof row !== 'object' || row.repository_ids_json != null) return row
+      const legacy = String(row.repository_id ?? '')
+      const ids = uniqueIds(legacy ? [legacy] : repositoryIdsFromFile)
+      return { ...row, repository_ids_json: JSON.stringify(ids) }
+    })
+  }
+
+  return { ...input, singletons, collections }
 }
 
 const EFFECT_BOOLEAN_KEYS = [

@@ -10,10 +10,11 @@ function csvCell(value: unknown): string {
 export async function exportAuditLogs(
   audit: AuditService,
   directory: string,
-  format: 'csv' | 'json' | 'txt'
+  format: 'csv' | 'json' | 'txt',
+  repositoryIds?: string[]
 ): Promise<AuditExportResult> {
   try {
-    const entries = audit.listAll()
+    const entries = audit.list(repositoryIds)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const outputPath = path.join(directory, `gitmanager-audit-${stamp}.${format}`)
     fs.mkdirSync(directory, { recursive: true })

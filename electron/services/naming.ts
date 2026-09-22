@@ -84,10 +84,9 @@ export class NamingService {
   constructor(private readonly storage: StorageService) {}
 
   listRules(repositoryId?: string | null): NamingRule[] {
-    const scoped = repositoryId !== undefined
-    const rows = scoped && repositoryId
-      ? this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE repository_id = ? OR repository_id IS NULL ORDER BY priority ASC', [repositoryId])
-      : this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules ORDER BY priority ASC')
+    const rows = repositoryId
+      ? this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE repository_id = ? ORDER BY priority ASC', [repositoryId])
+      : this.storage.all<Record<string, unknown>>('SELECT * FROM branch_naming_rules WHERE repository_id IS NULL ORDER BY priority ASC')
     return rows.map((r) => ({
       id: String(r.id),
       repositoryId: (r.repository_id as string | null) ?? null,

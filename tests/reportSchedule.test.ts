@@ -6,7 +6,7 @@ function schedule(overrides: Partial<ReportSchedule> = {}): ReportSchedule {
   return {
     id: 'schedule-1',
     name: 'Daily report',
-    repositoryId: null,
+    repositoryIds: ['repo-1'],
     frequency: 'daily',
     time: '09:00',
     weekday: 1,

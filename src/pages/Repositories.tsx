@@ -13,8 +13,10 @@ export default function Repositories(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
-  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const toggleRepositorySelection = useAppStore((s) => s.toggleRepositorySelection)
+  const selectAllRepositories = useAppStore((s) => s.selectAllRepositories)
+  const clearRepositorySelection = useAppStore((s) => s.clearRepositorySelection)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [gitlabUrl, setGitlabUrl] = useState(settings.gitlabUrl)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
@@ -94,19 +96,21 @@ export default function Repositories(): JSX.Element {
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <div>
-            <label className="label mb-1.5" htmlFor="active-repository">当前仓库</label>
-            <select
-              id="active-repository"
-              className="input"
-              value={activeRepositoryId ?? ''}
-              onChange={(e) => void setActiveRepositoryId(e.target.value || null)}
-            >
-              <option value="">全部仓库</option>
-              {repositories.map((repo) => (
-                <option key={repo.id} value={repo.id}>{repo.name}</option>
-              ))}
-            </select>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-canvas-fg">勾选仓库范围</div>
+            <div className="mt-1 text-xs text-muted">
+              {repositories.length === 0
+                ? '暂无可勾选的仓库。'
+                : selectedRepositoryIds.length === 0
+                  ? '当前未选择仓库：所有功能页显示空数据并禁用操作。'
+                  : `已勾选 ${selectedRepositoryIds.length} / ${repositories.length} 个仓库，所有功能页仅显示这些仓库的分支与统计。`}
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button className="btn" disabled={repositories.length === 0} onClick={() => void selectAllRepositories()}>全选</button>
+            <button className="btn" disabled={selectedRepositoryIds.length === 0} onClick={() => void clearRepositorySelection()}>清空</button>
+          </div>
         </div>
       </Card>
 
@@ -160,14 +164,14 @@ export default function Repositories(): JSX.Element {
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button
-                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
-                      onClick={() => void setActiveRepositoryId(activeRepositoryId === repo.id ? null : repo.id)}
-                      title={activeRepositoryId === repo.id ? '切换到全部仓库' : '设为当前仓库'}
+                      className={`btn px-2 ${selectedRepositoryIds.includes(repo.id) ? 'border-primary/60 text-primary' : ''}`}
+                      onClick={() => void toggleRepositorySelection(repo.id)}
+                      title={selectedRepositoryIds.includes(repo.id) ? '取消勾选该仓库' : '勾选该仓库'}
                     >
                       <FolderGit2 size={15} />
                     </button>
                     <button
-                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
+                      className="btn px-2"
                       onClick={() => void scan(repo.id)}
                       disabled={scanning}
                       title={tr('scanAll')}

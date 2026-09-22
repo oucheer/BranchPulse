@@ -8,6 +8,7 @@ import type { StorageService } from '../electron/services/storage'
 function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
   return {
     id: 'job-1',
+    repositoryIds: ['repo-1'],
     name: 'Nightly check',
     kind: 'interval',
     enabled: true,
@@ -29,6 +30,8 @@ function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
 function jobRow(job: SchedulerJob): Record<string, unknown> {
   return {
     id: job.id,
+    repository_id: job.repositoryIds[0] ?? null,
+    repository_ids_json: JSON.stringify(job.repositoryIds),
     name: job.name,
     kind: job.kind,
     enabled: job.enabled ? 1 : 0,
@@ -92,7 +95,8 @@ describe('SchedulerService never deletes branches', () => {
       trigger: 'scheduler',
       fetch: true,
       emailPolicy: 'none',
-      notifyTarget: 'self'
+      notifyTarget: 'self',
+      repositoryIds: ['repo-1']
     })
     expect(storage.delete).not.toHaveBeenCalled()
     expect(storage.update).toHaveBeenCalledTimes(1)
@@ -124,7 +128,7 @@ describe('SchedulerService never deletes branches', () => {
     const audit = { record: vi.fn() } as unknown as AuditService
 
     const service = new SchedulerService(storage, monitoring, audit)
-    await expect(service.runSchedulerJob('job-1')).rejects.toThrow('Monitoring is disabled.')
+    await expect(service.runSchedulerJob('job-1')).rejects.toThrow('所选仓库均已关闭监控。')
     expect(monitoring.runCheckNow).not.toHaveBeenCalled()
     expect(storage.update).not.toHaveBeenCalled()
   })
@@ -133,73 +137,107 @@ describe('SchedulerService never deletes branches', () => {
 describe('SchedulerService bulk job management', () => {
   function makeStorage(rows: SchedulerJob[]) {
     const state = [...rows]
+    const matching = (where: string, params: unknown[]): SchedulerJob[] =>
+      where === 'id = ?' ? state.filter((job) => job.id === String(params[0])) : [...state]
     return {
       state,
-      all: vi.fn(() => state.map((job) => jobRow({ ...job, repositoryId: job.repositoryId ?? null }))),
+      all: vi.fn(() => state.map((job) => jobRow(job))),
       get: vi.fn().mockReturnValue(undefined),
       update: vi.fn(),
       insert: vi.fn(),
-      delete: vi.fn()
+      delete: vi.fn((_table: string, where: string, params: unknown[] = []) => {
+        for (const job of matching(where, params)) {
+          const index = state.indexOf(job)
+          if (index >= 0) state.splice(index, 1)
+        }
+      })
     }
   }
 
-  it('deletes every job regardless of which repository it targets', () => {
+  it('deletes only the jobs fully covered by the selected repositories', () => {
     const storage = makeStorage([
-      sampleJob({ id: 'job-1', repositoryId: 'repo-a' }),
-      sampleJob({ id: 'job-2', repositoryId: 'repo-b' }),
-      sampleJob({ id: 'job-3', repositoryId: null })
+      sampleJob({ id: 'job-1', repositoryIds: ['repo-a'] }),
+      sampleJob({ id: 'job-2', repositoryIds: ['repo-a', 'repo-b'] }),
+      sampleJob({ id: 'job-3', repositoryIds: ['repo-c'] }),
+      sampleJob({ id: 'job-4', repositoryIds: [] })
     ])
     const audit = { record: vi.fn() } as unknown as AuditService
     const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, audit)
 
-    service.deleteAllJobs()
+    const remaining = service.deleteAllJobs(['repo-a'])
 
-    expect(storage.delete).toHaveBeenCalledWith('scheduler_jobs', '1 = 1')
+    expect((storage.delete as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[2])).toEqual([['job-1']])
     expect(audit.record).toHaveBeenCalledWith(
       'scheduler_jobs_deleted_all',
-      expect.objectContaining({ count: 3, jobIds: ['job-1', 'job-2', 'job-3'] })
+      expect.objectContaining({ count: 1, repositoryIds: ['repo-a'], jobIds: ['job-1'] })
     )
+    // job-2 仍与勾选范围相交（含未勾选的 repo-b），因此保留且只读。
+    expect(remaining.map((job) => job.id)).toEqual(['job-2'])
   })
 
-  it('does not hide jobs that belong to a non-active repository', () => {
+  it('does nothing when no repository is selected', () => {
+    const storage = makeStorage([sampleJob({ id: 'job-1', repositoryIds: ['repo-a'] })])
+    const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, {
+      record: vi.fn()
+    } as unknown as AuditService)
+
+    expect(service.deleteAllJobs([])).toEqual([])
+    expect(storage.delete).not.toHaveBeenCalled()
+  })
+
+  it('returns every job when no scope is requested, and only the intersecting ones when scoped', () => {
     const jobs = [
-      sampleJob({ id: 'job-a', repositoryId: 'repo-active' }),
-      sampleJob({ id: 'job-b', repositoryId: 'repo-other' }),
-      sampleJob({ id: 'job-c', repositoryId: null })
+      sampleJob({ id: 'job-a', repositoryIds: ['repo-active'] }),
+      sampleJob({ id: 'job-b', repositoryIds: ['repo-other'] }),
+      sampleJob({ id: 'job-c', repositoryIds: [] })
     ]
     const storage = makeStorage(jobs)
     const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, {
       record: vi.fn()
     } as unknown as AuditService)
 
-    // listJobs() is the single source of truth for both the UI and the engine:
-    // it must never filter by repository, otherwise a schedule can keep firing
-    // while being invisible on the scheduler page.
     expect(service.listJobs().map((job) => job.id)).toEqual(['job-a', 'job-b', 'job-c'])
+    // 勾选 repo-active 时只显示与之相交的任务，空范围任务不属于任何仓库。
+    expect(service.listJobs(['repo-active']).map((job) => job.id)).toEqual(['job-a'])
+    // 空数组表示「没有勾选仓库」，绝不回退成全部任务。
+    expect(service.listJobs([])).toEqual([])
     const queries = (storage.all as ReturnType<typeof vi.fn>).mock.calls.map((call) => String(call[0]))
     expect(queries.every((sql) => !/repository_id\s*=/.test(sql))).toBe(true)
   })
 
-  it('pauses and resumes every job, not just the first match', () => {
+  it('pauses and resumes every fully covered job, not just the first match', () => {
     const jobs = [
-      sampleJob({ id: 'job-1', enabled: true }),
-      sampleJob({ id: 'job-2', enabled: true }),
-      sampleJob({ id: 'job-3', enabled: false })
+      sampleJob({ id: 'job-1', enabled: true, repositoryIds: ['repo-1'] }),
+      sampleJob({ id: 'job-2', enabled: true, repositoryIds: ['repo-1'] }),
+      sampleJob({ id: 'job-3', enabled: false, repositoryIds: ['repo-1'] }),
+      sampleJob({ id: 'job-4', enabled: true, repositoryIds: ['repo-1', 'repo-2'] }),
+      sampleJob({ id: 'job-5', enabled: true, repositoryIds: ['repo-9'] })
     ]
     const storage = makeStorage(jobs)
     const audit = { record: vi.fn() } as unknown as AuditService
     const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, audit)
 
-    service.setAllEnabled(false)
+    service.setAllEnabled(false, ['repo-1'])
+    // job-4 含未勾选的 repo-2，不在范围内；job-5 完全不在范围内。
     expect(storage.update).toHaveBeenCalledTimes(3)
     const paused = (storage.update as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[1])
     expect(paused.every((row) => row.enabled === 0)).toBe(true)
 
     ;(storage.update as ReturnType<typeof vi.fn>).mockClear()
-    service.setAllEnabled(true)
+    service.setAllEnabled(true, ['repo-1', 'repo-2', 'repo-9'])
     const resumed = (storage.update as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[1])
     expect(resumed.every((row) => row.enabled === 1)).toBe(true)
-    expect(resumed).toHaveLength(3)
+    expect(resumed).toHaveLength(5)
+  })
+
+  it('does not touch any job when the enabled scope is empty', () => {
+    const storage = makeStorage([sampleJob({ id: 'job-1', repositoryIds: ['repo-1'] })])
+    const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, {
+      record: vi.fn()
+    } as unknown as AuditService)
+
+    expect(service.setAllEnabled(false, [])).toEqual([])
+    expect(storage.update).not.toHaveBeenCalled()
   })
 })
 

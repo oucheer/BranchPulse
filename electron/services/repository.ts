@@ -96,6 +96,8 @@ export class RepositoryService {
       total_branches: 0,
       created_at: repo.createdAt
     })
+    this.storage.ensureRepositoryConfiguration(repo.id)
+    this.storage.addSelectedRepository(repo.id)
     this.audit.record('repository_added', { repository: repo.name, path: repo.path })
     return repo
   }
@@ -145,6 +147,8 @@ export class RepositoryService {
       total_branches: 0,
       created_at: repo.createdAt
     })
+    this.storage.ensureRepositoryConfiguration(repo.id)
+    this.storage.addSelectedRepository(repo.id)
     this.audit.record('repository_added', { repository: repo.name, gitlabProjectId: project.id })
     return repo
   }
@@ -158,9 +162,7 @@ export class RepositoryService {
     const repo = this.get(id)
     if (!repo) return this.list()
     this.storage.transaction(() => {
-      this.storage.delete('branches', 'repository_id = ?', [id])
-      this.storage.delete('branch_snapshots', 'key LIKE ?', [`${id}|%`])
-      this.storage.delete('repositories', 'id = ?', [id])
+      this.storage.removeRepositoryReferences(id)
     })
     this.audit.record('repository_removed', { repository: repo.name, path: repo.path })
     return this.list()

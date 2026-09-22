@@ -191,7 +191,9 @@ function buildTrayMenu(showWindow: () => void): Electron.Menu {
     {
       label: labels.report,
       click: () => {
-        void services?.report.generateReport('on-demand', 'html')
+        // 报告只汇总当前勾选的仓库；未勾选时生成动作会明确失败。
+        const scope = services?.storage.selectedRepositoryIds() ?? []
+        void services?.report.generateReport('on-demand', 'html', scope).catch(() => undefined)
         openRoute('/reports')
       }
     },

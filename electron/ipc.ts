@@ -6,6 +6,7 @@ import type {
   AuditEntry,
   AuditExportResult,
   BackupRecord,
+  BackupOptions,
   BranchCriteria,
   BranchSummary,
   DashboardSnapshot,
@@ -107,18 +108,16 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 export function registerIpc(services: AppServices, onSettingsSaved?: (settings: AppSettings) => void): void {
   const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
 
-  function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
-    const rows = repositoryId
-      ? storage.all<Record<string, unknown>>(
-        `SELECT sr.* FROM scan_runs sr
-         WHERE EXISTS (
-           SELECT 1 FROM scan_run_repositories srr
-           WHERE srr.run_id = sr.id AND srr.repository_id = ?
-         )
-         ORDER BY sr.started_at DESC LIMIT ?`,
-        [repositoryId, limit]
-      )
-      : storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?', [limit])
+  /**
+   * A scan run is only visible when every repository it touched is inside the
+   * current scope. Runs that also cover unselected repositories would leak
+   * their branch statistics into this repository's view.
+   */
+  function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {
+    const scope = repositoryIds ?? storage.selectedRepositoryIds()
+    if (scope.length === 0) return []
+    const selected = new Set(scope)
+    const rows = storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?', [limit])
     const runIds = rows.map((row) => String(row.id))
     const repositoryIdsByRun = new Map<string, string[]>()
     if (runIds.length > 0) {
@@ -134,10 +133,12 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
         repositoryIdsByRun.set(runId, current)
       }
     }
-    return rows.map((row) => {
-      const runId = String(row.id)
-      return scanRunFromRow(row, repositoryIdsByRun.get(runId) ?? [])
-    })
+    return rows
+      .filter((row) => {
+        const associated = repositoryIdsByRun.get(String(row.id)) ?? []
+        return associated.length > 0 && associated.every((id) => selected.has(id))
+      })
+      .map((row) => scanRunFromRow(row, repositoryIdsByRun.get(String(row.id)) ?? []))
   }
 
   services.monitoring.onProgress = (progress) => {
@@ -147,25 +148,23 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   }
 
   ipcMain.handle('gitmanager:init', async (): Promise<DashboardSnapshot> => {
-    const currentSettings = settings.get()
-    const activeRepositoryId = currentSettings.activeRepositoryId
-    const scanRuns = listScanRuns(activeRepositoryId, 50)
+    const selectedRepositoryIds = storage.selectedRepositoryIds()
+    const scanRuns = listScanRuns(selectedRepositoryIds, 50)
     return {
       repositories: repository.list(),
-      branches: branch.listBranches(),
+      branches: branch.listBranches(selectedRepositoryIds),
       scanRuns,
-      notifications: monitoring.listNotifications(),
+      notifications: monitoring.listNotifications(selectedRepositoryIds),
       settings: settings.get(),
-      monitoring: await getMonitoring(activeRepositoryId),
-      activeRepositoryId
+      monitoring: await getMonitoring(selectedRepositoryIds[0] ?? null),
+      selectedRepositoryIds
     }
   })
 
   async function getMonitoring(repositoryId?: string | null): Promise<MonitoringConfig> {
     const row = repositoryId
-      ? (storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
-        ?? storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
-      : storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+      ? storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+      : undefined
     return {
       enabled: Number(row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
@@ -196,8 +195,6 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       } else {
         storage.insert('monitoring_rules_repo', { repository_id: repositoryId, ...values })
       }
-    } else {
-      storage.update('monitoring_rules', values, 'id = 1')
     }
     audit.record('monitoring_rules_updated', {
       repositoryId: repositoryId ?? null,
@@ -245,8 +242,9 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       throw err
     }
   })
-  ipcMain.handle('gitmanager:listBranches', (): BranchSummary[] => branch.listBranches())
-  ipcMain.handle('gitmanager:getBranch', (_e, criteria: BranchCriteria): Promise<BranchSummary | null> => branch.getBranch(criteria))
+  ipcMain.handle('gitmanager:listBranches', (_e, repositoryIds?: string[]): BranchSummary[] => branch.listBranches(repositoryIds))
+  ipcMain.handle('gitmanager:getBranch', (_e, criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null> =>
+    branch.getBranch(criteria, repositoryIds))
   ipcMain.handle('gitmanager:notifyBranch', (_e, bs: BranchSummary): Promise<NotificationRecord[]> => monitoring.notifyBranch(bs))
   ipcMain.handle('gitmanager:notifyBranchesEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifyBranchesEmail(bs))
   ipcMain.handle('gitmanager:notifySelfEmail', (_e, bs: BranchSummary[]): Promise<{ sent: number; message: string }> => monitoring.notifySelfEmail(bs))
@@ -334,20 +332,23 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   ipcMain.handle('gitmanager:getMonitoring', (_e, repositoryId?: string | null) => getMonitoring(repositoryId))
   ipcMain.handle('gitmanager:saveMonitoring', async (_e, config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig> => saveMonitoring(config, repositoryId))
 
-  ipcMain.handle('gitmanager:listJobs', (): SchedulerJob[] => scheduler.listJobs())
-  ipcMain.handle('gitmanager:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] => scheduler.saveJob(job))
-  ipcMain.handle('gitmanager:deleteJob', (_e, id: string): SchedulerJob[] => scheduler.deleteJob(id))
-  ipcMain.handle('gitmanager:deleteAllJobs', (): SchedulerJob[] => scheduler.deleteAllJobs())
-  ipcMain.handle('gitmanager:runSchedulerJob', (_e, id: string): Promise<ScanRun> => scheduler.runSchedulerJob(id))
-  ipcMain.handle('gitmanager:listRuns', (): ScanRun[] => {
-    return listScanRuns(null, 100)
+  ipcMain.handle('gitmanager:listJobs', (_e, repositoryIds?: string[]): SchedulerJob[] => scheduler.listJobs(repositoryIds))
+  ipcMain.handle('gitmanager:saveJob', (_e, job: Partial<SchedulerJob> & { id?: string }, repositoryIds?: string[]): SchedulerJob[] =>
+    scheduler.saveJob(job, repositoryIds))
+  ipcMain.handle('gitmanager:deleteJob', (_e, id: string, repositoryIds?: string[]): SchedulerJob[] => scheduler.deleteJob(id, repositoryIds))
+  ipcMain.handle('gitmanager:deleteAllJobs', (_e, repositoryIds: string[] = []): SchedulerJob[] => scheduler.deleteAllJobs(repositoryIds))
+  ipcMain.handle('gitmanager:runSchedulerJob', (_e, id: string, repositoryIds?: string[]): Promise<ScanRun> =>
+    scheduler.runSchedulerJob(id, repositoryIds))
+  ipcMain.handle('gitmanager:listRuns', (_e, repositoryIds?: string[]): ScanRun[] => {
+    return listScanRuns(repositoryIds, 100)
   })
-  ipcMain.handle('gitmanager:calendarRuns', (): { date: string; status: ScanRun['status']; runs: number }[] => scheduler.calendarRuns())
+  ipcMain.handle('gitmanager:calendarRuns', (_e, repositoryIds?: string[]): { date: string; status: ScanRun['status']; runs: number }[] =>
+    scheduler.calendarRuns(repositoryIds))
 
-  ipcMain.handle('gitmanager:listNotifications', (): NotificationRecord[] => monitoring.listNotifications())
-  ipcMain.handle('gitmanager:markNotificationRead', (_e, id: string): NotificationRecord[] => {
+  ipcMain.handle('gitmanager:listNotifications', (_e, repositoryIds?: string[]): NotificationRecord[] => monitoring.listNotifications(repositoryIds))
+  ipcMain.handle('gitmanager:markNotificationRead', (_e, id: string, repositoryIds?: string[]): NotificationRecord[] => {
     try {
-      const notifications = monitoring.markNotificationRead(id)
+      const notifications = monitoring.markNotificationRead(id, repositoryIds)
       audit.record('notification_marked_read', { id })
       return notifications
     } catch (err) {
@@ -355,10 +356,10 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       throw err
     }
   })
-  ipcMain.handle('gitmanager:clearNotifications', (): void => {
+  ipcMain.handle('gitmanager:clearNotifications', (_e, repositoryIds?: string[]): void => {
     try {
-      monitoring.clearNotifications()
-      audit.record('notifications_cleared', { count: monitoring.listNotifications().length })
+      monitoring.clearNotifications(repositoryIds)
+      audit.record('notifications_cleared', { repositoryIds: repositoryIds ?? storage.selectedRepositoryIds() })
     } catch (err) {
       audit.record('notifications_clear_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
       throw err
@@ -384,22 +385,25 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   ipcMain.handle('gitmanager:testEmailConnection', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.testConnection(config))
   ipcMain.handle('gitmanager:sendTestEmail', (_e, config?: EmailConfig): Promise<EmailSendResult> => email.sendTestEmail(config))
 
-  ipcMain.handle('gitmanager:listReports', (): ReportRecord[] => report.listReports())
-  ipcMain.handle('gitmanager:generateReport', (_e, period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord> => report.generateReport(period, format, repositoryId))
-  ipcMain.handle('gitmanager:sendAllRepositoriesReport', (_e, period: string, recipients?: string): Promise<EmailSendResult> => reportSchedules.sendAllRepositoriesReport(period, recipients))
-  ipcMain.handle('gitmanager:exportReport', (_e, id: string, format: string): Promise<ReportRecord> => report.exportReport(id, format))
-  ipcMain.handle('gitmanager:deleteReport', (_e, id: string): ReportRecord[] => report.deleteReport(id))
+  ipcMain.handle('gitmanager:listReports', (_e, repositoryIds?: string[]): ReportRecord[] => report.listReports(repositoryIds))
+  ipcMain.handle('gitmanager:generateReport', (_e, period: string, format?: string, repositoryIds?: string[]): Promise<ReportRecord> =>
+    report.generateReport(period, format, repositoryIds))
+  ipcMain.handle('gitmanager:sendSelectedRepositoriesReport', (_e, period: string, recipients?: string, repositoryIds?: string[]): Promise<EmailSendResult> =>
+    reportSchedules.sendSelectedRepositoriesReport(period, recipients, repositoryIds))
+  ipcMain.handle('gitmanager:exportReport', (_e, id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord> =>
+    report.exportReport(id, format, repositoryIds))
+  ipcMain.handle('gitmanager:deleteReport', (_e, id: string, repositoryIds?: string[]): ReportRecord[] => report.deleteReport(id, repositoryIds))
   ipcMain.handle('gitmanager:openReportFolder', (): Promise<void> => report.openReportFolder())
-  ipcMain.handle('gitmanager:openReportFile', (_e, id: string): Promise<void> => report.openReportFile(id))
+  ipcMain.handle('gitmanager:openReportFile', (_e, id: string, repositoryIds?: string[]): Promise<void> => report.openReportFile(id, repositoryIds))
 
-  ipcMain.handle('gitmanager:listReportSchedules', async (): Promise<ReportSchedule[]> => reportSchedules.list())
-  ipcMain.handle('gitmanager:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]> => reportSchedules.save(schedule))
-  ipcMain.handle('gitmanager:deleteReportSchedule', async (_e, id: string): Promise<ReportSchedule[]> => reportSchedules.delete(id))
+  ipcMain.handle('gitmanager:listReportSchedules', async (_e, repositoryIds?: string[]): Promise<ReportSchedule[]> => reportSchedules.list(repositoryIds))
+  ipcMain.handle('gitmanager:saveReportSchedule', async (_e, schedule: Partial<ReportSchedule> & { id?: string }, repositoryIds?: string[]): Promise<ReportSchedule[]> =>
+    reportSchedules.save(schedule, repositoryIds))
+  ipcMain.handle('gitmanager:deleteReportSchedule', async (_e, id: string, repositoryIds?: string[]): Promise<ReportSchedule[]> =>
+    reportSchedules.delete(id, repositoryIds))
 
-  ipcMain.handle('gitmanager:listBackups', (): BackupRecord[] => backup.list())
-  ipcMain.handle('gitmanager:startBackup', (_e, options: { repositoryId?: string | null; folderPath?: string } = {}): Promise<BackupRecord> => {
-    return backup.start(options)
-  })
+  ipcMain.handle('gitmanager:listBackups', (_e, repositoryIds?: string[]): BackupRecord[] => backup.list(repositoryIds))
+  ipcMain.handle('gitmanager:startBackups', (_e, options: BackupOptions = {}): Promise<BackupRecord[]> => backup.startBackups(options))
   ipcMain.handle('gitmanager:deleteBackup', (_e, id: string): void => backup.delete(id))
   ipcMain.handle('gitmanager:selectBackupFolder', async (): Promise<string> => {
     const selected = await dialog.showOpenDialog({
@@ -414,8 +418,8 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
     return shell.openPath(target)
   })
 
-  ipcMain.handle('gitmanager:listAudit', (): AuditEntry[] => audit.list())
-  ipcMain.handle('gitmanager:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv'): Promise<AuditExportResult> => {
+  ipcMain.handle('gitmanager:listAudit', (_e, repositoryIds?: string[]): AuditEntry[] => audit.list(repositoryIds))
+  ipcMain.handle('gitmanager:exportAuditLogs', async (_e, format: 'csv' | 'json' | 'txt' = 'csv', repositoryIds?: string[]): Promise<AuditExportResult> => {
     try {
       const selected = await dialog.showOpenDialog({
         title: 'Select audit export folder',
@@ -425,7 +429,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
       if (selected.canceled || selected.filePaths.length === 0) {
         return { ok: false, path: '', count: 0 }
       }
-      const result = await exportAuditLogs(audit, selected.filePaths[0], format)
+      const result = await exportAuditLogs(audit, selected.filePaths[0], format, repositoryIds)
       if (result.ok) audit.record('audit_exported', { path: result.path, count: result.count, format })
       else audit.record('audit_export_failed', { error: result.error, format }, 'failure')
       return result
@@ -501,7 +505,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
         launchMinimized: saved.launchMinimized,
         startWithWindows: saved.startWithWindows,
         gitPath: saved.gitPath,
-        activeRepositoryId: saved.activeRepositoryId
+        selectedRepositoryIds: saved.selectedRepositoryIds
       })
       onSettingsSaved?.(saved)
       return saved

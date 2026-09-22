@@ -304,7 +304,15 @@ function stackedSvg(segments: Array<{ label: string; value: number; color: strin
   return `<svg viewBox="0 0 ${width} 42" role="img" aria-label="占比条形图">${rects}</svg>`
 }
 
-export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
+/**
+ * 单个仓库（或单次汇总）的正文内容。报告主体按仓库分区渲染，
+ * 每个分区都复用这里的指标卡、图表与明细表，仓库之间互不混合。
+ */
+function branchEmailBody(
+  data: EmailSummaryData,
+  lang: EmailLang,
+  kind: 'summary' | 'report' = 'summary'
+): { title: string; meta: string; body: string } {
   const t = lang === 'zh'
     ? {
         title: kind === 'report' ? '分支健康报告' : '分支治理汇总',
@@ -469,18 +477,74 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
     ${groupedTables(allIssues, lang, [t.branch, t.creator, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], ['24%', '11%', '17%', '10%', '10%', '8%', '10%', '10%'], allCells)}`)
 
+  return {
+    title: t.title,
+    meta: `${data.repositories} ${t.repositories} · ${t.generatedAt} ${formatDateTime(data.generatedAt, lang)}`,
+    body: sections.join('')
+  }
+}
+
+function emailDocument(title: string, metaHtml: string, body: string, lang: EmailLang): string {
   return `<!DOCTYPE html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
 <body style="font-family:'Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
   <div style="max-width:860px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
-    <h2 style="font-size:18px;margin:0 0 4px">${t.title}</h2>
-    <div style="color:#6b7280;font-size:12px">${data.repositories} ${t.repositories} · ${t.generatedAt} ${escapeHtml(formatDateTime(data.generatedAt, lang))}</div>
-    ${sections.join('')}
+    <h2 style="font-size:18px;margin:0 0 4px">${title}</h2>
+    <div style="color:#6b7280;font-size:12px">${metaHtml}</div>
+    ${body}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
     <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
+}
+
+export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
+  const { title, meta, body } = branchEmailBody(data, lang, kind)
+  return emailDocument(escapeHtml(title), escapeHtml(meta), body, lang)
+}
+
+export interface EmailReportPartition {
+  repositoryId: string
+  repositoryName: string
+  data: EmailSummaryData
+}
+
+/**
+ * 多仓库报告正文：先逐仓独立分区（各自的指标、图表与明细），
+ * 最后给出所选范围的总汇总。同名分支在分区内不会跨仓库合并。
+ */
+export function buildPartitionedReportHtml(
+  input: { title: string; generatedAt: string; partitions: EmailReportPartition[]; overall: EmailSummaryData },
+  lang: EmailLang
+): string {
+  const repositoryLabel = lang === 'zh' ? '仓库' : 'Repository'
+  const partitionHtml = input.partitions
+    .map((partition) => {
+      const built = branchEmailBody(partition.data, lang, 'report')
+      return `
+  <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:16px 18px">
+    <h2 style="font-size:16px;margin:0 0 4px">${escapeHtml(repositoryLabel)}：${escapeHtml(partition.repositoryName || partition.repositoryId)}</h2>
+    <div style="color:#6b7280;font-size:12px">${escapeHtml(built.meta)}</div>
+    ${built.body}
+  </section>`
+    })
+    .join('')
+  const overall = branchEmailBody(input.overall, lang, 'report')
+  const meta = input.partitions.length
+    ? `${escapeHtml(input.title)} · ${escapeHtml(formatDateTime(input.generatedAt, lang))}`
+    : escapeHtml(overall.meta)
+  return emailDocument(
+    escapeHtml(input.title),
+    meta,
+    `${partitionHtml}
+  <section style="margin-top:24px;border:1px solid #c7d2fe;border-radius:8px;padding:16px 18px;background:#f8faff">
+    <h2 style="font-size:16px;margin:0 0 4px">${lang === 'zh' ? '所选仓库总汇总' : 'Selected repositories summary'}</h2>
+    <div style="color:#6b7280;font-size:12px">${escapeHtml(overall.meta)}</div>
+    ${overall.body}
+  </section>`,
+    lang
+  )
 }
 
 type CreatorEmailScenario = 'stale' | 'naming'

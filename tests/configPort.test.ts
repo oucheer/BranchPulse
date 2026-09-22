@@ -168,7 +168,12 @@ describe('config import', () => {
     const freshRuleIds = fresh.all<Record<string, unknown>>('SELECT id FROM branch_naming_rules').map((r) => String(r.id))
     expect(freshRuleIds).toContain('rule-1')
     expect(freshRuleIds).toContain('rule-2')
-    expect(fresh.all('SELECT id FROM whitelist')).toHaveLength(2)
+    // 导入后会为每个仓库初始化独立配置：全局模板 wl-1 被复制成 repo-1 的独立记录，
+    // 因此 whitelist 为 wl-1（模板）+ wl-2（repo-2）+ repo-1 的副本。
+    const freshWhitelist = fresh.all<Record<string, unknown>>('SELECT id, repository_id FROM whitelist')
+    expect(freshWhitelist).toHaveLength(3)
+    expect(freshWhitelist.filter((row) => String(row.repository_id) === 'repo-1')).toHaveLength(1)
+    expect(freshWhitelist.filter((row) => String(row.repository_id) === 'repo-2')).toHaveLength(1)
     expect(fresh.all('SELECT repository_id FROM monitoring_rules_repo')).toHaveLength(2)
     fresh.close()
   })

@@ -1,5 +1,6 @@
 import type { AppSettings } from '@shared/types'
 import type { StorageService } from './storage'
+import { parseStringArray, uniqueIds } from './storage'
 import { decryptSecret, encryptSecret } from './gitlab'
 
 export class SettingsService {
@@ -7,6 +8,7 @@ export class SettingsService {
 
   get(): AppSettings {
     const row = this.storage.get<Record<string, unknown>>('SELECT * FROM app_settings WHERE id = 1')
+    const existing = new Set(this.storage.repositoryIds())
     return {
       theme: (row?.theme as AppSettings['theme']) ?? 'dark',
       colorTheme: ((row?.color_theme as AppSettings['colorTheme']) ?? 'default'),
@@ -21,7 +23,7 @@ export class SettingsService {
       gitlabUrl: String(row?.gitlab_url ?? ''),
       gitlabApiKey: decryptSecret(String(row?.gitlab_api_key ?? '')),
       hasGitlabApiKey: Number(row?.gitlab_has_key ?? 0) === 1,
-      activeRepositoryId: (row?.active_repository_id as string | null) ?? null
+      selectedRepositoryIds: parseStringArray(row?.selected_repository_ids_json).filter((id) => existing.has(id))
     }
   }
 
@@ -48,7 +50,10 @@ export class SettingsService {
         gitlab_api_key: encryptedKey,
         gitlab_has_key: encryptedKey ? 1 : 0,
         fetch_policy: settings.fetchPolicy,
-        active_repository_id: settings.activeRepositoryId ?? null
+        selected_repository_ids_json: JSON.stringify(
+          uniqueIds(settings.selectedRepositoryIds).filter((id) => this.storage.repositoryIds().includes(id))
+        ),
+        active_repository_id: uniqueIds(settings.selectedRepositoryIds)[0] ?? null
       },
       'id = 1'
     )

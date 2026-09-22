@@ -166,11 +166,14 @@ export class BranchService {
     private readonly settingsService: SettingsService
   ) {}
 
+  /**
+   * 监控配置按仓库严格隔离：只读取该仓库自己的 monitoring_rules_repo 记录，
+   * 不做任何全局回退（未配置时使用内置默认值）。
+   */
   private monitoring(repositoryId?: string | null): MonitoringConfig {
     const row = repositoryId
-      ? (this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
-        ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
-      : this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+      ? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
+      : null
     return {
       enabled: (row?.enabled ?? 1) === 1,
       staleThresholdDays: Number(row?.stale_threshold_days ?? 180),
@@ -246,6 +249,7 @@ export class BranchService {
       lastScanAt: new Date().toISOString()
     })
     this.audit.record('repository_scanned', {
+      repositoryId: repo.id,
       repository: repo.name,
       source: repo.source,
       branches: analyzed.length,
@@ -582,13 +586,22 @@ export class BranchService {
     }
   }
 
-  listBranches(): BranchSummary[] {
+  listBranches(repositoryIds?: string[]): BranchSummary[] {
+    const selected = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (!selected.length) return []
+    const scope = new Set(selected.filter((id) => this.repositoryService.get(id)))
+    if (!scope.size) return []
+    const placeholders = selected.map(() => '?').join(', ')
     const repos = new Map(this.repositoryService.list().map((r) => [r.id, r.name]))
-    const rows = this.storage.all<Record<string, unknown>>('SELECT data_json, repository_id FROM branches ORDER BY name ASC')
+    const rows = this.storage.all<Record<string, unknown>>(
+      `SELECT data_json, repository_id FROM branches WHERE repository_id IN (${placeholders}) ORDER BY name ASC`,
+      selected
+    )
     return rows.map((row) => {
       try {
         const repositoryId = String(row.repository_id ?? '')
         const parsed = JSON.parse(String(row.data_json)) as BranchSummary
+        if (!scope.has(repositoryId)) return null
         parsed.repositoryName = repos.get(repositoryId) ?? ''
         const monitoring = this.monitoring(repositoryId)
         return this.refreshComputed(parsed, monitoring, { name: parsed.name } as GitRefInfo, '')
@@ -598,7 +611,10 @@ export class BranchService {
     }).filter((b): b is BranchSummary => b !== null)
   }
 
-  async getBranch(criteria: BranchCriteria): Promise<BranchSummary | null> {
+  async getBranch(criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null> {
+    // 直接访问详情也必须落在当前勾选范围内，否则一律返回空状态。
+    const selected = repositoryIds ?? this.storage.selectedRepositoryIds()
+    if (!new Set(selected).has(criteria.repositoryId)) return null
     const key = `${criteria.repositoryId}|${criteria.type}|${criteria.name}`
     const row = this.storage.get<Record<string, unknown>>('SELECT data_json, repository_id FROM branches WHERE key = ?', [key])
     if (!row) return null

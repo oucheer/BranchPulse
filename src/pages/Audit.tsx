@@ -7,30 +7,16 @@ import { timeAgo } from '../lib/format'
 export default function Audit(): JSX.Element {
   const audit = useAppStore((s) => s.audit)
   const language = useAppStore((s) => s.language)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const repositories = useAppStore((s) => s.repositories)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [exporting, setExporting] = useState(false)
 
   const repoNames = new Map(repositories.map((r) => [r.id, r.name]))
-  // Global actions (report schedules, emails, settings) are not repository-scoped and must
-  // stay visible even when a repository filter is active.
-  const globalActions = new Set([
-    'report_schedule_saved', 'report_schedule_deleted', 'report_schedule_run',
-    'report_schedule_email_skipped', 'email_report_sent', 'email_sent', 'email_summary_sent',
-    'email_summary_skipped', 'email_creator_sent', 'email_test_sent', 'email_connection_test',
-    'email_config_updated', 'email_config_save_failed', 'settings_updated', 'settings_save_failed',
-    'scheduler_job_ran', 'scheduler_job_failed'
-  ])
-  const visibleAudit = activeRepositoryId
-    ? audit.filter((entry) => {
-        if (globalActions.has(entry.action)) return true
-        const detail = entry.detail as Record<string, unknown>
-        const repository = String(detail.repository ?? detail.repositoryName ?? '')
-        return repository === activeRepositoryId || repository === repoNames.get(activeRepositoryId)
-      })
-    : audit
+  const noSelection = selectedRepositoryIds.length === 0
+  // 后端已按勾选仓库过滤（不属于任何仓库的应用级操作保留展示）。
+  const visibleAudit = audit
 
   const actionLabel = (action: string): string => {
     const zhLabels: Record<string, string> = {

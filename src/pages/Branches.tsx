@@ -283,7 +283,7 @@ export default function Branches(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const whitelist = useAppStore((s) => s.whitelist)
   const protectedList = useAppStore((s) => s.protected)
@@ -300,9 +300,18 @@ export default function Branches(): JSX.Element {
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  const effectiveRepo = repoFilter || activeRepositoryId || ''
+  const noSelection = selectedRepositoryIds.length === 0
+  const scopedRepositories = useMemo(
+    () => repositories.filter((repository) => selectedRepositoryIds.includes(repository.id)),
+    [repositories, selectedRepositoryIds]
+  )
+  const branchesInScope = useMemo(
+    () => (noSelection ? [] : branches.filter((branch) => selectedRepositoryIds.includes(branch.repositoryId))),
+    [branches, selectedRepositoryIds, noSelection]
+  )
+  const effectiveRepo = repoFilter
   const filtered = useMemo(() => {
-    let list = branches
+    let list = branchesInScope
     if (effectiveRepo) list = list.filter((b) => b.repositoryId === effectiveRepo)
     if (search) {
       const q = search.toLowerCase()
@@ -310,7 +319,7 @@ export default function Branches(): JSX.Element {
     }
     if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [branches, search, effectiveRepo, issueFilter])
+  }, [branchesInScope, search, effectiveRepo, issueFilter])
 
   const attention = useMemo(() =>
     filtered
@@ -322,7 +331,7 @@ export default function Branches(): JSX.Element {
 
 
   const branchKey = (b: BranchSummary): string => b.id + '-' + b.type
-  const selectedBranches = branches.filter((b) => selectedIds.has(branchKey(b)))
+  const selectedBranches = branchesInScope.filter((b) => selectedIds.has(branchKey(b)))
 
   const toggleSelect = (b: BranchSummary): void => {
     setSelectedIds((prev) => {
@@ -393,7 +402,7 @@ export default function Branches(): JSX.Element {
         name: branch.name,
         type: branch.type,
         remote: branch.remote
-      })
+      }, selectedRepositoryIds)
       if (detail) {
         setSelectedBranch((prev) => (prev?.repositoryId === detail.repositoryId && prev?.name === detail.name ? detail : prev))
       }
@@ -405,12 +414,13 @@ export default function Branches(): JSX.Element {
   }
 
   const handleRefreshAll = async (): Promise<void> => {
+    if (noSelection) { toast(zh ? '未选择仓库：请先勾选仓库' : 'No repository selected', 'warn'); return }
     setRefreshingAll(true)
     try {
-      for (const repo of repositories) {
+      for (const repo of scopedRepositories) {
         await window.gitmanager.scanRepository(repo.id, true)
       }
-      toast(zh ? '已从远程仓库刷新所有分支' : 'All branches refreshed', 'success')
+      toast(zh ? `已刷新勾选的 ${scopedRepositories.length} 个仓库分支` : 'Selected repositories refreshed', 'success')
       await refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -460,8 +470,8 @@ export default function Branches(): JSX.Element {
           onChange={(e) => setRepoFilter(e.target.value)}
           className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
         >
-          <option value="">{zh ? '所有仓库' : 'All repositories'}</option>
-          {repositories.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          <option value="">{zh ? '全部勾选仓库' : 'All selected repositories'}</option>
+          {scopedRepositories.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         <div className="relative flex-1 min-w-40" style={{ maxWidth: 280 }}>
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
@@ -476,6 +486,14 @@ export default function Branches(): JSX.Element {
       ) : null}
         </div>
       </div>
+
+      {noSelection ? (
+        <div className="shrink-0 rounded-md border border-warn/40 bg-warn/10 px-4 py-2 text-xs text-warn">
+          {zh
+            ? '未选择仓库：请先在仓库页或顶栏勾选仓库，分支列表只显示勾选范围内的分支。'
+            : 'No repository selected: choose repositories to scope the branch list.'}
+        </div>
+      ) : null}
 
       {/* Batch Actions Bar */}
       <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">

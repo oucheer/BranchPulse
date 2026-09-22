@@ -68,9 +68,9 @@ for (const needle of [
   '分支创始人',
   '配置导入 / 导出',
   '敏感凭据不会写入配置文件',
-  '一键清除全部定时任务',
+  '一键清除勾选范围内的定时任务',
   '再次点击“确认清除”',
-  '一键发送全部仓库汇总'
+  '发送勾选仓库汇总'
 ]) {
   const count = countOf(renderer, needle)
   const ok = count > 0

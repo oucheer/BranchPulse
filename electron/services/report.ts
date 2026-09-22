@@ -6,8 +6,8 @@ import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
-import type { EmailSummaryData } from './email'
-import { buildBranchEmailHtml, toEmailIssueRow } from './email'
+import type { EmailReportPartition, EmailSummaryData } from './email'
+import { buildPartitionedReportHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
 
@@ -40,13 +40,6 @@ function reportNamingLabel(status: string): string {
   return REPORT_NAMING_LABELS[status] ?? status
 }
 
-export function resolveReportRepositoryId(
-  requestedRepositoryId: string | null | undefined,
-  activeRepositoryId: string | null
-): string | null {
-  return requestedRepositoryId === undefined ? activeRepositoryId : requestedRepositoryId
-}
-
 export class ReportService {
   constructor(
     private readonly storage: StorageService,
@@ -55,18 +48,25 @@ export class ReportService {
     private readonly audit: AuditService
   ) {}
 
-  listReports(): ReportRecord[] {
+  /**
+   * 报告历史只显示「完全属于当前勾选范围」的记录：只要报告里包含一个未勾选
+   * 的仓库，就不再展示，避免未勾选仓库的数据通过历史报告泄漏。
+   */
+  listReports(repositoryIds?: string[]): ReportRecord[] {
+    const scope = repositoryIds === undefined ? this.storage.selectedRepositoryIds() : [...new Set(repositoryIds)]
+    if (scope.length === 0) return []
+    const allowed = new Set(scope)
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM reports ORDER BY generated_at DESC LIMIT 200')
     return rows.map((r) => ({
       id: String(r.id),
       title: String(r.title ?? 'GitManager Report'),
-      repositoryId: (r.repository_id as string | null) ?? null,
+      repositoryIds: reportRepositoryIds(r),
       generatedAt: String(r.generated_at),
       period: String(r.period ?? ''),
       format: String(r.format ?? 'html'),
       path: String(r.path ?? ''),
       summary: safeJson<ReportSummary>(r.summary_json, emptySummary())
-    }))
+    })).filter((record) => record.repositoryIds.length > 0 && record.repositoryIds.every((id) => allowed.has(id)))
   }
 
   private buildSummary(branches: BranchSummary[], repositories: number): ReportSummary {
@@ -97,9 +97,16 @@ export class ReportService {
     }
   }
 
-  getSummaryEmailData(repositoryId?: string | null): EmailSummaryData {
-    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
-    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
+  /** 报告范围统一来自调用方传入的仓库集合；空集合永远表示「没有仓库」。 */
+  resolveScope(repositoryIds?: string[]): string[] {
+    const requested = repositoryIds ?? this.storage.selectedRepositoryIds()
+    const existing = new Set(this.repositoryService.list().map((repo) => repo.id))
+    return [...new Set(requested)].filter((id) => existing.has(id))
+  }
+
+  getSummaryEmailData(repositoryIds?: string[]): EmailSummaryData {
+    const scope = new Set(this.resolveScope(repositoryIds))
+    const branches = scope.size === 0 ? [] : this.branchService.listBranches([...scope])
     const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
     return {
       total: branches.length,
@@ -107,16 +114,17 @@ export class ReportService {
       namingInvalid: count((branch) => branch.naming.status === 'invalid'),
       merged: count((branch) => branch.merged),
       cleanupCandidates: count((branch) => branch.cleanupCandidate),
-      repositories: new Set(branches.map((branch) => branch.repositoryId)).size,
+      repositories: scope.size,
       generatedAt: new Date().toISOString(),
       branches: branches.map(toEmailIssueRow)
     }
   }
 
-  private recentRuns(repositoryId?: string | null): ScanRun[] {
-    void repositoryId
-    const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 30')
-    return rows.map((r) => ({
+  private recentRuns(scope: string[]): ScanRun[] {
+    if (scope.length === 0) return []
+    const allowed = new Set(scope)
+    const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 400')
+    const runs = rows.map((r) => ({
       id: String(r.id),
       startedAt: String(r.started_at),
       finishedAt: (r.finished_at as string | null) ?? null,
@@ -132,12 +140,31 @@ export class ReportService {
       notifications: Number(r.notifications ?? 0),
       emailsSent: Number(r.emails_sent ?? 0),
       error: (r.error as string | null) ?? null,
-      activity: safeJson<ScanRun['activity']>(r.activity_json, [])
+      activity: safeJson<ScanRun['activity']>(r.activity_json, []),
+      repositoryIds: [] as string[]
     }))
+    const runIds = runs.map((run) => run.id)
+    if (runIds.length === 0) return []
+    const associations = this.storage.all<Record<string, unknown>>(
+      `SELECT run_id, repository_id FROM scan_run_repositories WHERE run_id IN (${runIds.map(() => '?').join(',')})`,
+      runIds
+    )
+    const byRun = new Map(runs.map((run) => [run.id, run]))
+    for (const association of associations) {
+      byRun.get(String(association.run_id))?.repositoryIds?.push(String(association.repository_id))
+    }
+    return runs
+      .filter((run) => run.repositoryIds!.length > 0 && run.repositoryIds!.every((id) => allowed.has(id)))
+      .slice(0, 30)
   }
 
-  private notifications(repositoryId?: string | null): Array<Record<string, unknown>> {
-    const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 200')
+  private notifications(scope: string[]): Array<Record<string, unknown>> {
+    if (scope.length === 0) return []
+    const allowed = new Set(scope)
+    const rows = this.storage.all<Record<string, unknown>>(
+      `SELECT * FROM notification_history WHERE repository_id IN (${scope.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 200`,
+      scope
+    )
     return rows.map((r) => ({
       repository: String(r.repository_name ?? ''),
       branch: String(r.branch ?? ''),
@@ -145,39 +172,66 @@ export class ReportService {
       state: String(r.state ?? ''),
       message: String(r.message ?? ''),
       createdAt: String(r.created_at ?? '')
-    }))
+    })).filter(() => allowed.size > 0)
   }
 
-  async generateReport(period: string, format = 'html', repositoryId?: string | null): Promise<ReportRecord> {
-    const activeRepositoryId = (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
-    const resolvedRepositoryId = resolveReportRepositoryId(repositoryId, activeRepositoryId)
-    return this.generateReportForScope(period, format, resolvedRepositoryId)
-  }
-
-  async generateAllRepositoriesReport(period: string, format = 'html'): Promise<ReportRecord> {
-    return this.generateReportForScope(period, format, null)
-  }
-
-  private async generateReportForScope(period: string, format: string, resolvedRepositoryId: string | null): Promise<ReportRecord> {
-    const repos = this.repositoryService.list().filter((repo) => !resolvedRepositoryId || repo.id === resolvedRepositoryId)
-    const branches = this.branchService.listBranches().filter((branch) => !resolvedRepositoryId || branch.repositoryId === resolvedRepositoryId)
+  /**
+   * 只按勾选的仓库生成报告。没有勾选任何仓库时直接失败，绝不回退成全部仓库。
+   * 报告主体按仓库分区，每个仓库独立统计自己的分支，最后给出所选范围总汇总。
+   */
+  async generateReport(period: string, format = 'html', repositoryIds?: string[]): Promise<ReportRecord> {
+    const scope = this.resolveScope(repositoryIds)
+    if (scope.length === 0) throw new Error('未选择仓库：请先在仓库页勾选要汇总的仓库。')
+    const repos = scope
+      .map((id) => this.repositoryService.get(id))
+      .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo))
+    const branches = this.branchService.listBranches(scope)
     const summary = this.buildSummary(branches, repos.length)
-    const runs = this.recentRuns(resolvedRepositoryId)
-    const notifications = this.notifications(resolvedRepositoryId)
-    const title = resolvedRepositoryId
-      ? `Git Branch Health Report (${period})`
-      : `Git Branch Health Report - 全部仓库 (${period})`
+    const runs = this.recentRuns(scope)
+    const notifications = this.notifications(scope)
+    const title = `Git Branch Health Report - 勾选仓库 (${period})`
     const generatedAt = new Date().toISOString()
     const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
 
     const safeFormat = (['html', 'csv'].includes(format) ? format : 'html') as string
-    await this.writeFile(safeFormat, filePath, title, generatedAt, period, summary, branches, runs, notifications)
+    const partitions: EmailReportPartition[] = repos.map((repo) => {
+      const repositoryBranches = branches.filter((branch) => branch.repositoryId === repo.id)
+      return {
+        repositoryId: repo.id,
+        repositoryName: repo.name,
+        data: {
+          ...this.buildSummary(repositoryBranches, 1),
+          // 复用邮件汇总结构：分区内的指标只统计本仓库分支。
+          total: repositoryBranches.length,
+          stale: repositoryBranches.filter((branch) => branch.stale).length,
+          namingInvalid: repositoryBranches.filter((branch) => branch.naming.status === 'invalid').length,
+          merged: repositoryBranches.filter((branch) => branch.merged).length,
+          cleanupCandidates: repositoryBranches.filter((branch) => branch.cleanupCandidate).length,
+          repositories: 1,
+          generatedAt,
+          branches: repositoryBranches.map(toEmailIssueRow),
+          thresholdHint: `统计范围 ${period}`
+        } as EmailSummaryData
+      }
+    })
+    const overall: EmailSummaryData = {
+      total: summary.totalBranches,
+      stale: summary.stale,
+      namingInvalid: summary.namingViolations,
+      merged: summary.merged,
+      cleanupCandidates: summary.cleanupCandidates,
+      repositories: repos.length,
+      generatedAt,
+      branches: branches.map(toEmailIssueRow),
+      thresholdHint: `统计范围 ${period}`
+    }
+    await this.writeFile(safeFormat, filePath, title, generatedAt, branches, partitions, overall)
 
     const record: ReportRecord = {
       id: newId(),
       title,
-      repositoryId: resolvedRepositoryId,
+      repositoryIds: scope,
       generatedAt,
       period,
       format: safeFormat,
@@ -187,26 +241,31 @@ export class ReportService {
     this.storage.insert('reports', {
       id: record.id,
       title,
-      repository_id: resolvedRepositoryId,
+      repository_id: scope[0] ?? null,
+      repository_ids_json: JSON.stringify(scope),
       generated_at: generatedAt,
       period,
       format: safeFormat,
       path: filePath,
       summary_json: JSON.stringify(summary)
     })
-    this.audit.record('report_generated', { period, format: safeFormat, branches: summary.totalBranches })
+    this.audit.record('report_generated', {
+      period,
+      format: safeFormat,
+      branches: summary.totalBranches,
+      repositoryIds: scope
+    })
     return record
   }
 
-  async exportReport(id: string, format: string): Promise<ReportRecord> {
-    const report = this.listReports().find((r) => r.id === id)
+  async exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord> {
+    const report = this.listReports(repositoryIds).find((r) => r.id === id)
     if (!report) throw new Error('Report not found.')
-    if (report.repositoryId === null) return this.generateAllRepositoriesReport(report.period, format)
-    return this.generateReport(report.period, format, report.repositoryId)
+    return this.generateReport(report.period, format, report.repositoryIds)
   }
 
-  deleteReport(id: string): ReportRecord[] {
-    const report = this.listReports().find((r) => r.id === id)
+  deleteReport(id: string, repositoryIds?: string[]): ReportRecord[] {
+    const report = this.listReports(repositoryIds).find((r) => r.id === id)
     if (report) {
       try {
         if (report.path && fs.existsSync(report.path)) fs.unlinkSync(report.path)
@@ -216,7 +275,7 @@ export class ReportService {
     }
     this.storage.delete('reports', 'id = ?', [id])
     this.audit.record('report_deleted', { id })
-    return this.listReports()
+    return this.listReports(repositoryIds)
   }
 
   async openReportFolder(): Promise<void> {
@@ -224,8 +283,8 @@ export class ReportService {
     await shell.openPath(dir)
   }
 
-  async openReportFile(id: string): Promise<void> {
-    const report = this.listReports().find((r) => r.id === id)
+  async openReportFile(id: string, repositoryIds?: string[]): Promise<void> {
+    const report = this.listReports(repositoryIds).find((r) => r.id === id)
     if (report?.path && fs.existsSync(report.path)) {
       shell.showItemInFolder(report.path)
       return
@@ -236,13 +295,11 @@ export class ReportService {
   private async writeFile(
     format: string,
     filePath: string,
-    _title: string,
+    title: string,
     generatedAt: string,
-    period: string,
-    summary: ReportSummary,
     branches: BranchSummary[],
-    runs: ScanRun[],
-    notifications: Array<Record<string, unknown>>
+    partitions: EmailReportPartition[],
+    overall: EmailSummaryData
   ): Promise<void> {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     if (format === 'csv') {
@@ -266,173 +323,30 @@ export class ReportService {
       fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
       return
     }
-    const data: EmailSummaryData = {
-      total: summary.totalBranches,
-      stale: summary.stale,
-      namingInvalid: summary.namingViolations,
-      merged: summary.merged,
-      cleanupCandidates: summary.cleanupCandidates,
-      repositories: summary.repositories,
-      generatedAt,
-      branches: branches.map(toEmailIssueRow),
-      thresholdHint: `统计范围 ${period}`
-    }
-    fs.writeFileSync(filePath, buildBranchEmailHtml(data, 'zh', 'report'), 'utf8')
+    fs.writeFileSync(
+      filePath,
+      buildPartitionedReportHtml({ title, generatedAt, partitions, overall }, 'zh'),
+      'utf8'
+    )
   }
 
-  private renderHtml(
-    title: string,
-    generatedAt: string,
-    period: string,
-    summary: ReportSummary,
-    branches: BranchSummary[],
-    runs: ScanRun[],
-    notifications: Array<Record<string, unknown>>
-  ): string {
-    const cardData = [
-      ['分支总数', summary.totalBranches],
-      ['活跃分支', summary.active],
-      ['已停更分支', summary.stale],
-      ['命名不规范', summary.namingViolations],
-      ['清理候选', summary.cleanupCandidates]
-    ]
-      .map(([label, value]) => ({ label: String(label), value: String(value) }))
+}
 
-    const runRows = runs
-      .slice(0, 12)
-      .map(
-        (r) => `<tr><td>${escapeHtml(new Date(r.startedAt).toLocaleString())}</td><td>${r.trigger}</td><td>${r.status}</td><td>${r.branches}</td><td>${r.stale}</td><td>${r.namingInvalid}</td><td>${r.notifications}</td></tr>`
-      )
-      .join('')
-    const notificationRows = notifications
-      .slice(0, 30)
-      .map(
-        (n) => `<tr><td>${escapeHtml(String(n.branch))}</td><td>${escapeHtml(String(n.type))}</td><td>${escapeHtml(String(n.state))}</td><td>${escapeHtml(String(n.message))}</td></tr>`
-      )
-      .join('')
-    const metricCarousel = cardData
-      .map((card, index) => `<article class="glass ${index === 0 ? 'active' : ''}"><span>${card.label}</span><strong>${card.value}</strong></article>`)
-      .join('')
-    const chartItems = [
-      { label: '活跃', value: summary.active, color: '#16a34a' },
-      { label: '已停更', value: summary.stale, color: '#f59e0b' },
-      { label: '命名不规范', value: summary.namingViolations, color: '#7c5cfc' },
-      { label: '清理候选', value: summary.cleanupCandidates, color: '#e11d48' }
-    ]
-    const maxChartValue = Math.max(1, ...chartItems.map((item) => item.value))
-    const chartRows = chartItems
-      .map((item) => `
-        <tr>
-          <td class="chart-label">${escapeHtml(item.label)}</td>
-          <td class="chart-cell"><div class="bar"><span style="width:${Math.round((item.value / maxChartValue) * 100)}%;background:${item.color}"></span></div></td>
-          <td class="chart-value">${item.value}</td>
-        </tr>`)
-      .join('')
-    const ring = (value: number, color: string, label: string): string => {
-      const circumference = 2 * Math.PI * 52
-      const offset = circumference * (1 - Math.min(100, Math.max(0, value)) / 100)
-      return `
-        <div class="ring">
-          <svg viewBox="0 0 130 130" role="img" aria-label="${escapeHtml(label)}">
-            <circle cx="65" cy="65" r="52" stroke="#edeff5" stroke-width="12" fill="none"></circle>
-            <circle cx="65" cy="65" r="52" stroke="${color}" stroke-width="12" fill="none"
-              stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" transform="rotate(-90 65 65)"></circle>
-            <text x="65" y="60" text-anchor="middle" class="ring-value">${value}</text>
-            <text x="65" y="80" text-anchor="middle" class="ring-label">${escapeHtml(label)}</text>
-          </svg>
-        </div>`
+/**
+ * 报告行可能是新格式（repository_ids_json 数组），也可能是升级前的单仓库
+ * 列。两种都读取，保证旧报告的归属判断不会错位。
+ */
+function reportRepositoryIds(row: Record<string, unknown>): string[] {
+  if (row.repository_ids_json != null) {
+    try {
+      const parsed = JSON.parse(String(row.repository_ids_json))
+      if (Array.isArray(parsed)) return [...new Set(parsed.map(String).filter(Boolean))]
+    } catch {
+      return []
     }
-    const rings = [
-      ring(summary.averageHealth, '#16a34a', '平均健康分'),
-      ring(summary.compliancePercent, '#7c5cfc', '命名合规率')
-    ].join('')
-    const trendData = runs.slice(0, 12).reverse()
-    const trendMax = Math.max(1, ...trendData.map((run) => run.branches))
-    const trendPoints = trendData
-      .map((run, index) => `${24 + index * Math.max(1, 512 / Math.max(1, trendData.length - 1))},${164 - (run.branches / trendMax) * 136}`)
-      .join(' ')
-    const riskBranches = branches
-      .filter((b) => b.stale || b.cleanupCandidate)
-      .sort((a, b) => b.inactiveDays - a.inactiveDays)
-      .slice(0, 120)
-    const riskRows = riskBranches.length ? riskBranches.map((b) => `
-      <tr>
-        <td>${escapeHtml(b.repositoryName)}</td>
-        <td><code>${escapeHtml(b.displayName)}</code></td>
-        <td>${escapeHtml(b.creator.name)}</td>
-        <td>${b.inactiveDays} 天</td>
-        <td>${escapeHtml(new Date(b.lastCommitAt ?? b.lastScannedAt).toLocaleString('zh-CN'))}</td>
-        <td><b class="${b.cleanupCandidate ? 'danger' : 'warn'}">${escapeHtml(reportStateLabel(b.state))}</b></td>
-        <td>${b.cleanupCandidate ? '是' : '否'}</td>
-      </tr>`).join('') : '<tr><td colspan="7">当前没有超过阈值或待清理的分支。</td></tr>'
-    const detailRows = branches.slice(0, 500).map((b) => `
-      <tr>
-        <td>${escapeHtml(b.repositoryName)}</td>
-        <td><code>${escapeHtml(b.displayName)}</code></td>
-        <td>${escapeHtml(b.creator.name)}</td>
-        <td>${b.commitCount}</td>
-        <td>${b.inactiveDays} 天</td>
-        <td>${escapeHtml(reportStateLabel(b.state))}</td>
-        <td>${escapeHtml(reportNamingLabel(b.naming.status))}</td>
-        <td>${b.health.score}</td>
-        <td>${b.protection.isDefault ? '默认' : b.protection.protected ? '保护' : '普通'}</td>
-      </tr>`).join('')
-    return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"/>
-<title>${escapeHtml(title)}</title>
-<style>
-  *{box-sizing:border-box;margin:0} body{font-family:'Segoe UI','Microsoft YaHei',system-ui,sans-serif;color:#12141c;background:#f4f5f8}
-  .hero{position:relative;overflow:hidden;padding:64px 56px;background:linear-gradient(135deg,#fff 0%,#f0f1f6 46%,#e8eaf2 100%)}
-  .hero:before{content:"";position:absolute;inset:-40% -20% auto -20%;height:480px;background:radial-gradient(circle at 24% 34%,rgba(255,122,24,.16),transparent 26%),radial-gradient(circle at 68% 42%,rgba(124,92,252,.17),transparent 28%);filter:blur(34px)}
-  .hero-content{position:relative;max-width:1200px;margin:auto}.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#ff7a18;font-weight:700}
-  h1{font-size:clamp(32px,4vw,52px);line-height:1.05;margin:14px 0 16px;letter-spacing:-.02em}.sub{max-width:760px;color:#5f6679;font-size:16px;line-height:1.7}
-  .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.pill{padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.72);border:1px solid #dde0ea;color:#5f6679;font-size:12px}
-  .layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(520px,1.1fr);gap:24px;max-width:1200px;margin:-48px auto 0;padding:0 56px 56px;position:relative}
-  .glass{height:100%;border:1px solid rgba(255,255,255,.58);border-radius:16px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px);box-shadow:0 20px 60px rgba(20,24,40,.10);padding:26px}
-  .carousel{position:relative;min-height:196px}.slide{position:absolute;inset:0;opacity:0;transform:translateY(12px);transition:.55s ease;pointer-events:none}
-  .slide.active{opacity:1;transform:none}.slide span{color:#5f6679;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
-  .slide strong{display:block;font-size:54px;margin:12px 0 10px;color:#12141c}.slide p{color:#5f6679;font-size:14px;line-height:1.6}
-  .section{margin-top:26px}.section h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#ff7a18;margin-bottom:12px}
-  table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:#69707f;font-size:11px;text-transform:uppercase;padding:8px 8px;border-bottom:1px solid #e6e8ef}
-  td{padding:9px 8px;border-bottom:1px solid #eef0f4;color:#3c4250}code{font-family:Consolas,monospace;color:#7c5cfc}
-  .bar{height:10px;min-width:4px;border-radius:999px;background:#edeff5;overflow:hidden}.bar span{display:block;height:100%;border-radius:999px}
-  .chart-label{width:130px;font-weight:600}.chart-cell{width:auto}.chart-value{width:54px;text-align:right;font-weight:700}
-  .danger{color:#dc2626}.warn{color:#d97706}
-  .ring-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:6px}
-  .ring svg{display:block;width:100%;height:auto}.ring-value{fill:#12141c;font-size:24px;font-weight:800}.ring-label{fill:#69707f;font-size:10px;font-weight:650}
-  .trend{width:100%;height:auto;border:1px solid #e6e8ef;border-radius:12px;background:#fff}
-  @media(max-width:900px){.hero,.layout{padding-left:24px;padding-right:24px}.layout{grid-template-columns:1fr}}
-  </style>
-  <script>const slides=document.querySelectorAll('.slide');let active=0;setInterval(()=>{slides[active].classList.remove('active');active=(active+1)%slides.length;slides[active].classList.add('active')},3600)</script>
-  </head><body>
-  <section class="hero"><div class="hero-content">
-    <div class="eyebrow">GitManager Report</div>
-    <h1>分支生命周期<br/>健康与巡检报告</h1>
-    <div class="sub">报告基于远程仓库平台实时巡检数据生成，聚焦已停更分支趋势、命名合规、清理候选与通知投递情况，帮助团队快速做出分支治理决策。</div>
-    <div class="meta"><span class="pill">${escapeHtml(title)}</span><span class="pill">生成时间：${escapeHtml(new Date(generatedAt).toLocaleString('zh-CN'))}</span><span class="pill">统计范围：${escapeHtml(period)}</span></div>
-  </div></section>
-  <main class="layout">
-    <section class="glass carousel"><div class="slides">${metricCarousel}</div>
-      <div class="section"><h2>总览</h2><table><tbody>
-        <tr><td>平均健康分</td><td>${summary.averageHealth}</td></tr><tr><td>命名合规率</td><td>${summary.compliancePercent}%</td></tr><tr><td>仓库数量</td><td>${summary.repositories}</td></tr><tr><td>保护分支</td><td>${summary.protectedBranches}</td></tr>
-      </tbody></table></div>
-    </section>
-    <section class="glass">
-      <div class="section"><h2>数据一览</h2><div class="ring-grid">${rings}</div></div>
-      <div class="section"><h2>分支分布图</h2><table class="chart"><tbody>${chartRows}</tbody></table></div>
-      <div class="section"><h2>巡检趋势</h2><svg class="trend" viewBox="0 0 560 180" role="img" aria-label="巡检分支数量趋势">
-        <line x1="24" y1="164" x2="536" y2="164" stroke="#e6e8ef"></line>
-        <polyline points="${trendPoints}" fill="none" stroke="#ff7a18" stroke-width="3" stroke-linecap="round"></polyline>
-      </svg></div>
-      <div class="section"><h2>超过阈值 / 需要处理</h2><table><thead><tr><th>仓库</th><th>分支</th><th>分支创始人</th><th>未提交</th><th>最近提交</th><th>状态</th><th>清理候选</th></tr></thead><tbody>${riskRows}</tbody></table></div>
-    <div class="section"><h2>最近巡检</h2><table><thead><tr><th>时间</th><th>触发方式</th><th>状态</th><th>分支</th><th>已停更</th><th>命名不规范</th><th>通知</th></tr></thead><tbody>${runRows}</tbody></table></div>
-      <div class="section"><h2>全部分支明细</h2><table><thead><tr><th>仓库</th><th>分支</th><th>分支创始人</th><th>提交数</th><th>未提交</th><th>状态</th><th>命名</th><th>健康分</th><th>保护状态</th></tr></thead><tbody>${detailRows}</tbody></table></div>
-      <div class="section"><h2>通知投递记录</h2><table><thead><tr><th>分支</th><th>类型</th><th>状态</th><th>内容</th></tr></thead><tbody>${notificationRows}</tbody></table></div>
-    </section>
-  </main>
-  </body></html>`
   }
-
+  const legacy = String(row.repository_id ?? '').trim()
+  return legacy ? [legacy] : []
 }
 
 function emptySummary(): ReportSummary {
@@ -452,8 +366,4 @@ function emptySummary(): ReportSummary {
     averageHealth: 0,
     repositories: 0
   }
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c)
 }

@@ -11,8 +11,10 @@ export default function BranchDetail(): JSX.Element {
   const branches = useAppStore((s) => s.branches)
   const monitoring = useAppStore((s) => s.monitoring)
   const language = useAppStore((s) => s.language)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const navigate = useNavigate()
   const decodedName = name.replaceAll('~', '/')
+  const repositoryInScope = repositoryId.length > 0 && selectedRepositoryIds.includes(repositoryId)
 
   const cachedBranch = useMemo(
     () => branches.find((b) => b.repositoryId === repositoryId && b.type === type && b.name === decodedName),
@@ -22,8 +24,14 @@ export default function BranchDetail(): JSX.Element {
 
   useEffect(() => {
     let active = true
+    if (!repositoryInScope) {
+      setBranch(undefined)
+      return () => {
+        active = false
+      }
+    }
     void window.gitmanager
-      .getBranch({ repositoryId, type: type as BranchCriteria['type'], name: decodedName })
+      .getBranch({ repositoryId, type: type as BranchCriteria['type'], name: decodedName }, selectedRepositoryIds)
       .then((result) => {
         if (active) setBranch(result ?? undefined)
       })
@@ -31,13 +39,20 @@ export default function BranchDetail(): JSX.Element {
     return () => {
       active = false
     }
-  }, [repositoryId, type, decodedName])
+  }, [repositoryId, type, decodedName, repositoryInScope, selectedRepositoryIds.join(',')])
 
   if (!branch) {
     return (
       <div className="space-y-4">
         <button className="btn" onClick={() => navigate(-1)}><ArrowLeft size={14} /> {tr('back')}</button>
-        <EmptyState title={tr('noBranches')} />
+        <EmptyState
+          title={repositoryInScope ? tr('noBranches') : '未选择该仓库'}
+          description={
+            repositoryInScope
+              ? undefined
+              : '该仓库不在当前勾选范围内：请先在仓库页或顶栏勾选仓库，分支详情按仓库严格隔离。'
+          }
+        />
       </div>
     )
   }

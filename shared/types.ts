@@ -146,7 +146,7 @@ export interface MonitoringConfig {
 
 export interface SchedulerJob {
   id: string
-  repositoryId?: string | null
+  repositoryIds: string[]
   name: string
   kind: 'interval' | 'calendar'
   enabled: boolean
@@ -262,7 +262,7 @@ export interface ReportSummary {
 export interface ReportRecord {
   id: string
   title: string
-  repositoryId: string | null
+  repositoryIds: string[]
   generatedAt: string
   period: string
   format: string
@@ -275,7 +275,7 @@ export type ReportScheduleFrequency = 'daily' | 'weekly' | 'monthly' | 'once'
 export interface ReportSchedule {
   id: string
   name: string
-  repositoryId: string | null
+  repositoryIds: string[]
   frequency: ReportScheduleFrequency
   time: string
   weekday: number
@@ -303,7 +303,7 @@ export interface BackupRecord {
 }
 
 export interface BackupOptions {
-  repositoryId?: string | null
+  repositoryIds?: string[]
   folderPath?: string
 }
 
@@ -360,7 +360,7 @@ export interface AppSettings {
   gitlabUrl: string
   gitlabApiKey?: string
   hasGitlabApiKey: boolean
-  activeRepositoryId: string | null
+  selectedRepositoryIds: string[]
 }
 
 export interface RunCheckOptions {
@@ -403,7 +403,7 @@ export interface DashboardSnapshot {
   notifications: NotificationRecord[]
   settings: AppSettings
   monitoring: MonitoringConfig
-  activeRepositoryId: string | null
+  selectedRepositoryIds: string[]
 }
 
 export interface ScanProgress {
@@ -429,8 +429,8 @@ export interface BranchApi {
   listRepositories(): Promise<Repository[]>
   scanRepository(id: string, fetch?: boolean): Promise<ScanRun>
   runCheckNow(options: RunCheckOptions): Promise<ScanRun>
-  listBranches(): Promise<BranchSummary[]>
-  getBranch(criteria: BranchCriteria): Promise<BranchSummary | null>
+  listBranches(repositoryIds?: string[]): Promise<BranchSummary[]>
+  getBranch(criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null>
   notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]>
   notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
   notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
@@ -451,38 +451,38 @@ export interface BranchApi {
   getMonitoring(repositoryId?: string | null): Promise<MonitoringConfig>
   saveMonitoring(config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig>
 
-  listJobs(): Promise<SchedulerJob[]>
-  saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
-  deleteJob(id: string): Promise<SchedulerJob[]>
-  deleteAllJobs(): Promise<SchedulerJob[]>
-  runSchedulerJob(id: string): Promise<ScanRun>
-  listRuns(): Promise<ScanRun[]>
-  calendarRuns(): Promise<{ date: string; status: ScanStatus; runs: number }[]>
+  listJobs(repositoryIds?: string[]): Promise<SchedulerJob[]>
+  saveJob(job: Partial<SchedulerJob> & { id?: string }, repositoryIds?: string[]): Promise<SchedulerJob[]>
+  deleteJob(id: string, repositoryIds?: string[]): Promise<SchedulerJob[]>
+  deleteAllJobs(repositoryIds: string[]): Promise<SchedulerJob[]>
+  runSchedulerJob(id: string, repositoryIds?: string[]): Promise<ScanRun>
+  listRuns(repositoryIds?: string[]): Promise<ScanRun[]>
+  calendarRuns(repositoryIds?: string[]): Promise<{ date: string; status: ScanStatus; runs: number }[]>
 
-  listNotifications(): Promise<NotificationRecord[]>
-  markNotificationRead(id: string): Promise<NotificationRecord[]>
-  clearNotifications(): Promise<void>
+  listNotifications(repositoryIds?: string[]): Promise<NotificationRecord[]>
+  markNotificationRead(id: string, repositoryIds?: string[]): Promise<NotificationRecord[]>
+  clearNotifications(repositoryIds?: string[]): Promise<void>
 
   getEmailConfig(): Promise<EmailConfig>
   saveEmailConfig(config: EmailConfig & { password?: string }): Promise<EmailConfig>
   testEmailConnection(): Promise<EmailSendResult>
   sendTestEmail(): Promise<EmailSendResult>
 
-  listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string, repositoryId?: string | null): Promise<ReportRecord>
-  sendAllRepositoriesReport(period: string, recipients?: string): Promise<EmailSendResult>
-  exportReport(id: string, format: string): Promise<ReportRecord>
-  deleteReport(id: string): Promise<ReportRecord[]>
+  listReports(repositoryIds?: string[]): Promise<ReportRecord[]>
+  generateReport(period: string, format?: string, repositoryIds?: string[]): Promise<ReportRecord>
+  sendSelectedRepositoriesReport(period: string, recipients?: string, repositoryIds?: string[]): Promise<EmailSendResult>
+  exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
+  deleteReport(id: string, repositoryIds?: string[]): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
-  openReportFile(id: string): Promise<void>
-  listReportSchedules(): Promise<ReportSchedule[]>
-  saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
-  deleteReportSchedule(id: string): Promise<ReportSchedule[]>
+  openReportFile(id: string, repositoryIds?: string[]): Promise<void>
+  listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
+  saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }, repositoryIds?: string[]): Promise<ReportSchedule[]>
+  deleteReportSchedule(id: string, repositoryIds?: string[]): Promise<ReportSchedule[]>
 
-  listAudit(): Promise<AuditEntry[]>
-  exportAuditLogs(format: 'csv' | 'json' | 'txt'): Promise<AuditExportResult>
-  listBackups(): Promise<BackupRecord[]>
-  startBackup(options?: BackupOptions): Promise<BackupRecord>
+  listAudit(repositoryIds?: string[]): Promise<AuditEntry[]>
+  exportAuditLogs(format: 'csv' | 'json' | 'txt', repositoryIds?: string[]): Promise<AuditExportResult>
+  listBackups(repositoryIds?: string[]): Promise<BackupRecord[]>
+  startBackups(options: BackupOptions): Promise<BackupRecord[]>
   deleteBackup(id: string): Promise<void>
   selectBackupFolder(): Promise<string>
   openBackupFolder(path: string): Promise<void>
