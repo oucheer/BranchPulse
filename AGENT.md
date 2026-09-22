@@ -21,6 +21,8 @@
 - 用户可见文案中禁止混用 `过期`、`到期`、`陈旧` 作为状态名，以及 `已合并`、`合并`。底层 `merged` 字段可以保留用于数据兼容，但不能作为用户筛选或状态展示。
 - 分支筛选统一为问题维度：`所有分支`、`已停更`、`命名不规范`。不要恢复独立的“所有状态/所有问题”双下拉，不要显示 `已合并`。
 - 批量邮件按钮与当前筛选互斥：筛选命名不规范时禁用停更创始人通知；筛选停更时禁用命名不规范创始人通知。
+- 分支列表在勾选多个仓库时**必须**先按仓库分区展示：列表上方给出「全部勾选仓库（N）」+ 每个仓库一个标签页，点击即切换该仓库的分支，不能把多个仓库的分支混在同一个列表里（同名分支会互相覆盖）。标签栏集中在 `src/pages/Branches.tsx` 的仓库标签区，勾选范围变化后要回落到「全部勾选仓库」，否则单仓筛选会指向已取消勾选的仓库导致列表空白。
+- 分支列表的批量通知范围与展示范围不同：**勾选过分支时以勾选为准（可跨仓库）**，没有勾选时才用当前显示范围（`notifyTargets = selectedIds.size > 0 ? selectedBranches : filtered`）。按钮禁用条件必须带 `notifyTargets.length === 0`，提示文案要说清是「已勾选的 N 个分支」还是「当前显示的 N 个分支」。
 - 监控时间单位顺序固定为 `周`、`天`、`小时`、`分钟`，内部换算必须保持一致。新配置默认阈值为 180 天；旧数据只做一次性迁移，不能反复覆盖用户自定义值。
 - 基准分支（`main`、`develop`、仓库默认分支）不参与任何生命周期评比：不计已停更、不进清理候选、不进"需要关注"列表。豁免必须落在 `electron/services/branch.ts` 的 `buildFromFacts` 与 `refreshComputed` 两处（共用 `isBaselineBranch`），不要在页面层逐个 filter 打补丁，否则仪表盘、分支列表、邮件、报告、通知会各算一套。
 - 用户说"某个分支不该出现在某某列表"时，先查状态字段（`stale` / `state` / `cleanupCandidate`）的产生位置，再查消费位置。只改页面过滤会留下缓存、邮件和报告三条漏网路径。
@@ -29,6 +31,10 @@
 - 报告格式只保留 `HTML` 和 `CSV`。报告成功后要显示或提供定位完整文件路径的能力。
 - 报告只汇总勾选的仓库，主体按仓库分区（每个仓库独立的汇总、分支明细和指标），末尾再给「所选仓库总汇总」。没有「发送全部仓库」入口，也没有「当前仓库」入口；未勾选任何仓库时生成/发送/导出按钮禁用并给出明确提示。
 - 报告历史只显示范围**完全属于**当前勾选的记录；包含未勾选仓库的报告不出现在列表里，也不能导出/删除/打开。
+- 报告与告警通知的语义不同，绝不能互相「统一」：监控页的「通知分支创始人」是**逐人逐封**（`EmailService.sendCreatorEmails`）；报告里的 `creator` token 是**把范围内需要处理分支的创始人去重后放进同一封汇总邮件**。多仓库只有一封邮件，因此报告收件人必须支持三种对象同时出现——通知自己（To）、通知领导（To，`email_config.leader_email`）、通知分支创始人（BCC），再加仓库范围本身。
+- 领导邮箱是**应用级配置**（`email_config.leader_email`），不是仓库级；报告里勾选 `leader` 时取该字段。没有兜底地址：未配置时该收件人直接跳过，绝不静默改发到 `selfEmail`。
+- 报告唯一发送入口是 `sendSelectedRepositoriesReport(period, recipients, repositoryIds)`。收件人解析走 `resolveReportRecipients(input, config, groups)`（同时被 `tick()` 定时报告复用）；只勾了创始人时 `resolvedRecipients` 为空，此时创始人**升为 To**（Outlook 至少需要一个 To 收件人），其余情况创始人走 BCC 保护隐私。范围内创始人全都缺邮箱时返回失败文案「范围内的分支创始人都没有有效邮箱」，并记 `creators_without_email` 审计，不能静默发出空收件人邮件。
+- 创始人通知说明区块通过 `creatorNotificationSection()` 渲染、`appendCreatorSection()` 插入邮件正文（插在页脚分隔线之前，磁盘上的报告文件保持原样）。读语言失败必须 `try/catch` 兜底返回原文，绝不能因为附加区块让整封邮件发不出去。
 - 设置页必须保留「配置导入 / 导出」（`electron/services/configPort.ts`）。导出覆盖单行表 `app_settings`、`monitoring_rules`、`email_config`，集合表 `monitoring_rules_repo`、`branch_naming_rules`、`whitelist`、`protected_branches`、`email_groups`、`email_templates`、`scheduler_jobs`、`report_schedules`、`repositories`，以及渲染层的动效开关和语言。换机导入后配置必须与原机一致。
 - 配置包格式版本为 `CONFIG_BUNDLE_VERSION = 2`：仓库范围写数组字段（`selected_repository_ids_json`、`repository_ids_json`）。导入仍接受版本 1，把旧的单值 `active_repository_id` / `repository_id` 转成数组，重复执行升级不得产生重复规则。
 - 配置导出绝不能写出敏感列：`gitlab_api_key`、`remote_api_key`、`password_encrypted` 由 `SENSITIVE_COLUMNS` 统一拦截，导入时保留本机原值，`gitlab_has_key` 按本机实际情况重算。新增表或列时必须同步维护这张清单。
