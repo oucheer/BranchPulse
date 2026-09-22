@@ -1,4 +1,4 @@
-import { Mail, UserRound } from 'lucide-react'
+import { Crown, Mail, UserRound } from 'lucide-react'
 import { Toggle } from './ui'
 import type { EmailGroup, NotifyTarget } from '@shared/types'
 import { applyRecipientDraft, resolveRecipientDisplay, splitRecipientTokens } from '../lib/recipients'
@@ -8,9 +8,12 @@ interface RecipientPickerProps {
   onChange: (value: NotifyTarget) => void
   groups: EmailGroup[]
   selfEmail?: string
+  leaderEmail?: string
   disabled?: boolean
   allowSelf?: boolean
   allowCreator?: boolean
+  allowLeader?: boolean
+  creatorHint?: string
   label?: string
   manualPlaceholder?: string
   rows?: number
@@ -21,9 +24,12 @@ export default function RecipientPicker({
   onChange,
   groups,
   selfEmail = '',
+  leaderEmail = '',
   disabled = false,
   allowSelf = false,
   allowCreator = false,
+  allowLeader = false,
+  creatorHint = '勾选后已停更的分支将邮件通知对应创始人',
   label = '收件邮箱 / 邮箱分组',
   manualPlaceholder = 'you@example.com, team@example.com',
   rows = 4
@@ -31,22 +37,25 @@ export default function RecipientPicker({
   const tokens = splitRecipientTokens(value)
   const self = tokens.some((token) => ['self', 'both'].includes(token.toLowerCase()))
   const creator = tokens.some((token) => ['creator', 'both'].includes(token.toLowerCase()))
+  const leader = tokens.some((token) => token.toLowerCase() === 'leader')
   const groupNames = new Set(groups.map((group) => group.name.trim().toLowerCase()))
   const selectedGroup = tokens.find((token) => groupNames.has(token.toLowerCase())) ?? ''
   const manualRecipients = tokens.filter((token) => {
     const lower = token.toLowerCase()
-    return !['self', 'creator', 'both', 'none'].includes(lower) && !groupNames.has(lower)
+    return !['self', 'creator', 'leader', 'both', 'none'].includes(lower) && !groupNames.has(lower)
   })
 
   const apply = (next: {
     self?: boolean
     creator?: boolean
+    leader?: boolean
     manualRecipients?: string[]
     groupTokens?: string[]
   }): void => {
     onChange(applyRecipientDraft({
       self: next.self ?? self,
       creator: next.creator ?? creator,
+      leader: next.leader ?? leader,
       manualRecipients: next.manualRecipients ?? manualRecipients,
       groupTokens: next.groupTokens ?? (selectedGroup ? [selectedGroup] : [])
     }))
@@ -54,7 +63,7 @@ export default function RecipientPicker({
 
   const readOnly = Boolean(selectedGroup)
   const displayRecipients = selectedGroup
-    ? resolveRecipientDisplay(value, groups, self ? selfEmail : '')
+    ? resolveRecipientDisplay(value, groups, self ? selfEmail : '', leader ? leaderEmail : '')
     : manualRecipients
 
   return (
@@ -120,10 +129,25 @@ export default function RecipientPicker({
             <UserRound size={13} className="text-secondary" />
             <div>
               <div className="text-sm text-canvas-fg">通知分支创始人</div>
-              <div className="text-xs text-muted">勾选后已停更的分支将邮件通知对应创始人</div>
+              <div className="text-xs text-muted">{creatorHint}</div>
             </div>
           </div>
           <Toggle checked={creator} onChange={(next) => apply({ creator: next })} />
+        </div>
+      ) : null}
+
+      {allowLeader ? (
+        <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <Crown size={13} className="text-secondary" />
+            <div>
+              <div className="text-sm text-canvas-fg">通知领导</div>
+              <div className="text-xs text-muted">
+                {leaderEmail ? leaderEmail : '请先在设置中填写领导邮箱。'}
+              </div>
+            </div>
+          </div>
+          <Toggle checked={leader} onChange={(next) => apply({ leader: next })} />
         </div>
       ) : null}
     </div>

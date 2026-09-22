@@ -30,7 +30,9 @@ const needles = [
   '导出 GitManager 配置',
   '导入配置',
   'gitmanager:exportConfig',
-  'gitmanager:importConfig'
+  'gitmanager:importConfig',
+  'leader_email',
+  '分支创始人通知范围'
 ]
 
 const forbidden = ['过期', '已合并', '到期', '陈旧']
@@ -70,7 +72,9 @@ for (const needle of [
   '敏感凭据不会写入配置文件',
   '一键清除勾选范围内的定时任务',
   '再次点击“确认清除”',
-  '发送勾选仓库汇总'
+  '发送勾选仓库汇总',
+  '通知领导',
+  '按仓库查看：'
 ]) {
   const count = countOf(renderer, needle)
   const ok = count > 0

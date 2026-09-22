@@ -368,6 +368,7 @@ export class StorageService {
         AND interval_hours <> 24
     `)
     this.ensureColumn('email_config', 'self_email', 'TEXT')
+    this.ensureColumn('email_config', 'leader_email', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_url', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')

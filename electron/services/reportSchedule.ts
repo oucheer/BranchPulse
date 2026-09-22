@@ -4,7 +4,14 @@ import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
-import { parseNotifyTarget, resolveRecipients } from './email'
+import {
+  collectCreatorAddresses,
+  creatorNotificationSection,
+  parseNotifyTarget,
+  readEmailLang,
+  resolveRecipients,
+  type EmailIssueRow
+} from './email'
 import { parseStringArray, uniqueIds } from './storage'
 import { newId } from '../utils/ids'
 
@@ -34,26 +41,89 @@ function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
 
 export function resolveReportRecipients(
   input: string | null | undefined,
-  config: Pick<EmailConfig, 'selfEmail' | 'testRecipient' | 'username'>,
+  config: Pick<EmailConfig, 'selfEmail' | 'testRecipient' | 'username'> & { leaderEmail?: string },
   groups: EmailGroup[] = []
 ): string[] {
   const parsed = parseNotifyTarget(input)
   const selfAddress = (config.selfEmail || config.testRecipient || config.username || '').trim()
+  const leaderAddress = String(config.leaderEmail ?? '').trim()
   const targetRecipients: string[] = []
   if (parsed.self && selfAddress) targetRecipients.push(selfAddress)
+  // 领导邮箱没有兜底地址：未配置时不静默改发到别处。
+  if (parsed.leader && leaderAddress) targetRecipients.push(leaderAddress)
   if (parsed.recipients) targetRecipients.push(...resolveRecipients(parsed.recipients, groups))
 
   const resolved = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
   if (resolved.length > 0) return resolved
 
-  // 一键发送默认使用本机配置的通知邮箱；显式选择 none 时不自动补发。
+  // 一键发送默认使用本机配置的通知邮箱；显式选择 none 或只选了创始人时不自动补发。
   const normalized = String(input ?? '').trim()
   return !normalized && selfAddress ? [selfAddress] : []
+}
+
+/** 报告语境下需要处理的分支：与监控页「需要处理」的口径保持一致。 */
+function reportCreatorRows(rows: EmailIssueRow[]): EmailIssueRow[] {
+  return rows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid' || Boolean(row.cleanupCandidate))
+}
+
+interface CreatorRecipients {
+  /** 分支创始人邮箱：密送到同一封邮件，避免多仓库各发一封。 */
+  addresses: string[]
+  /** 缺少有效邮箱、无法送达的创始人。 */
+  missing: string[]
+}
+
+function toCreatorRecipients(collected: { to: string[]; missing: string[] }): CreatorRecipients {
+  return { addresses: collected.to, missing: collected.missing }
 }
 
 function coversRepositoryIds(scope: string[], requested: string[]): boolean {
   const allowed = new Set(scope)
   return requested.every((id) => allowed.has(id))
+}
+
+/** 把「无法送达的创始人」提示拼进结果文案，避免用户以为全部通知都成功了。 */
+function withCreatorNotes(
+  message: string,
+  creators: { addresses: string[]; missing: string[] },
+  creatorsAsTo: boolean
+): string {
+  const notes: string[] = []
+  if (creators.addresses.length > 0) {
+    notes.push(
+      creatorsAsTo
+        ? `创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`
+        : `同一封邮件已密送 ${creators.addresses.length} 位分支创始人`
+    )
+  }
+  if (creators.missing.length > 0) notes.push(`缺少有效邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
+  return notes.length > 0 ? `${message}（${notes.join('；')}）` : message
+}
+
+/** 报告正文里的页脚分隔线：创始人通知区块插在它之前，保持在白色卡片内。 */
+const REPORT_FOOTER_MARKER = '<hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">'
+
+/**
+ * 邮件正文来自报告文件，只在这里追加「创始人通知范围」区块——
+ * 磁盘上的报告文件保持原样，收件人看到的邮件才带上通知说明。
+ */
+function appendCreatorSection(
+  html: string,
+  creators: { addresses: string[]; missing: string[] },
+  storage: StorageService
+): string {
+  // 没有创始人通知时连语言都不必读，避免触碰到不需要的存储调用。
+  if (creators.addresses.length === 0 && creators.missing.length === 0) return html
+  let section = ''
+  try {
+    section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage))
+  } catch {
+    // 邮件正文的附加区块绝不能因为读语言失败而让整封邮件发不出去。
+    return html
+  }
+  if (!section) return html
+  const at = html.lastIndexOf(REPORT_FOOTER_MARKER)
+  return at < 0 ? html + section : `${html.slice(0, at)}${section}\n  ${html.slice(at)}`
 }
 
 export function computeNextReportRunAt(schedule: ReportSchedule, from = new Date()): string | null {
@@ -186,7 +256,23 @@ export class ReportScheduleService {
     }
 
     const resolvedRecipients = resolveReportRecipients(recipients, emailConfig, this.emailService.listGroups())
-    if (resolvedRecipients.length === 0) {
+    const creators = this.collectReportCreators(recipients, scope)
+    // 只勾选「通知分支创始人」时创始人就是唯一收件人，邮件依然只发一封。
+    const creatorsAsTo = resolvedRecipients.length === 0
+    const to = creatorsAsTo ? creators.addresses : resolvedRecipients
+    if (to.length === 0 && creators.missing.length > 0) {
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { reason: 'creators_without_email', input: recipients, repositoryIds: scope, missing: creators.missing },
+        'failure'
+      )
+      return {
+        ok: false,
+        message: `范围内的分支创始人都没有有效邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
+        emailsSent: 0
+      }
+    }
+    if (to.length === 0) {
       this.audit.record(
         'report_selected_repositories_sent',
         { reason: 'recipients_empty', input: recipients, repositoryIds: scope },
@@ -200,32 +286,51 @@ export class ReportScheduleService {
       const reportHtml = await fs.promises.readFile(report.path, 'utf8')
       const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
       const result = await this.emailService.sendReportEmail({
-        to: resolvedRecipients,
+        to,
+        bcc: creatorsAsTo ? [] : creators.addresses,
         subject: `【分支健康汇总】勾选仓库（${scope.length} 个） ${month}`,
         body: '',
-        html: reportHtml,
+        html: appendCreatorSection(reportHtml, creators, this.storage),
         attachmentPath: report.path
       })
+      const message = withCreatorNotes(result.message, creators, creatorsAsTo)
       this.audit.record(
         'report_selected_repositories_sent',
         {
           report: report.id,
           repositoryIds: scope,
-          recipients: result.recipients ?? resolvedRecipients,
+          recipients: result.recipients ?? to,
+          creatorRecipients: creatorsAsTo ? [] : creators.addresses,
+          creatorsWithoutEmail: creators.missing,
           ok: result.ok
         },
         result.ok ? 'success' : 'failure'
       )
-      return result
+      return { ...result, message }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       this.audit.record(
         'report_selected_repositories_sent',
-        { recipients: resolvedRecipients, repositoryIds: scope, error: message },
+        { recipients: to, repositoryIds: scope, error: message },
         'failure'
       )
       return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
     }
+  }
+
+  /**
+   * 报告语境下的分支创始人：不逐人逐封，而是把范围内需要处理分支的创始人
+   * 去重后放进同一封邮件的密送，实现「一封邮件覆盖多个仓库的多个分支」。
+   */
+  private collectReportCreators(
+    recipients: string,
+    scope: string[]
+  ): { addresses: string[]; missing: string[] } {
+    const parsed = parseNotifyTarget(recipients)
+    if (!parsed.creator) return { addresses: [], missing: [] }
+    const summary = this.reportService.getSummaryEmailData(scope)
+    const creators = collectCreatorAddresses(reportCreatorRows(summary.branches))
+    return { addresses: creators.to, missing: creators.missing }
   }
 
   start(): void {
@@ -259,16 +364,20 @@ export class ReportScheduleService {
           const emailConfig = this.emailService.getConfig()
           const parsedNotify = parseNotifyTarget(schedule.recipients)
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
-          const targetRecipients: string[] = []
-          if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
-          if (parsedNotify.recipients) {
-            targetRecipients.push(...resolveRecipients(parsedNotify.recipients, this.emailService.listGroups()))
-          }
-          const resolvedRecipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
           // 未选择收件人时，默认发送到本机 Outlook 当前登录账户可配置的通知邮箱。
-          const recipients = resolvedRecipients.length > 0
-            ? resolvedRecipients
-            : selfAddress ? [selfAddress] : []
+          const resolvedRecipients = resolveReportRecipients(
+            schedule.recipients,
+            emailConfig,
+            this.emailService.listGroups()
+          )
+          // 报告只发一封：创始人放进密送，覆盖该任务范围内多个仓库的多个分支。
+          const creators = parsedNotify.creator
+            ? toCreatorRecipients(
+                collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(schedule.repositoryIds).branches))
+              )
+            : { addresses: [] as string[], missing: [] as string[] }
+          const creatorsAsTo = resolvedRecipients.length === 0
+          const recipients = creatorsAsTo ? creators.addresses : resolvedRecipients
 
           if (!emailConfig.enabled) {
             this.audit.record('report_schedule_email_skipped', {
@@ -284,12 +393,21 @@ export class ReportScheduleService {
           } else {
             const reportHtml = await fs.promises.readFile(report.path, 'utf8')
             const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
-            await this.emailService.sendReportEmail({
+            const sent = await this.emailService.sendReportEmail({
               to: recipients,
+              bcc: creatorsAsTo ? [] : creators.addresses,
               subject: `【分支健康月报】${month}`,
               body: '',
-              html: reportHtml,
+              html: appendCreatorSection(reportHtml, creators, this.storage),
               attachmentPath: report.path
+            })
+            this.audit.record('report_schedule_email_sent', {
+              id: schedule.id,
+              name: schedule.name,
+              recipients,
+              creatorRecipients: creatorsAsTo ? [] : creators.addresses,
+              creatorsWithoutEmail: creators.missing,
+              ok: sent.ok
             })
           }
           const nextRunAt = schedule.frequency === 'once' ? null : computeNextReportRunAt(schedule, new Date())

@@ -374,6 +374,7 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
         enabled: saved.enabled,
         username: saved.username,
         selfEmail: saved.selfEmail,
+        leaderEmail: saved.leaderEmail,
         testRecipient: saved.testRecipient
       })
       return saved

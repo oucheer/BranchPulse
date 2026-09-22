@@ -36,6 +36,7 @@ export default function Settings(): JSX.Element {
     tls: false,
     testRecipient: '',
     selfEmail: '',
+    leaderEmail: '',
     enabled: false
   })
   const [savingApp, setSavingApp] = useState(false)
@@ -285,6 +286,17 @@ export default function Settings(): JSX.Element {
                 placeholder="your@email.com"
               />
               <p className="mt-1 text-xs text-muted">勾选“通知自己”时发送到这个邮箱。邮件统一通过本机 Outlook 当前登录账户发送，无需在此配置发件账号或密码。</p>
+            </div>
+            <div>
+              <div className="label mb-1.5">领导邮箱</div>
+              <input
+                className="input"
+                type="email"
+                value={emailDraft.leaderEmail}
+                onChange={(e) => setEmailDraft({ ...emailDraft, leaderEmail: e.target.value })}
+                placeholder="leader@email.com"
+              />
+              <p className="mt-1 text-xs text-muted">在报告中勾选“通知领导”时，该邮箱会作为同一封汇总邮件的收件人，不会额外多发一封。</p>
             </div>
             <div className="flex items-center justify-between">
               <div>

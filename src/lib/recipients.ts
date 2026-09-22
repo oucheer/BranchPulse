@@ -3,6 +3,7 @@ import type { EmailGroup, NotifyTarget } from '@shared/types'
 export interface RecipientDraft {
   self: boolean
   creator: boolean
+  leader: boolean
   manualRecipients: string[]
   groupTokens: string[]
 }
@@ -18,6 +19,7 @@ export function parseRecipientDraft(value: string | null | undefined, groups: Em
   const groupNames = new Set(groups.map((group) => group.name.trim().toLowerCase()))
   const self = false
   const creator = false
+  const leader = false
   const manualRecipients: string[] = []
   const groupTokens: string[] = []
 
@@ -25,6 +27,7 @@ export function parseRecipientDraft(value: string | null | undefined, groups: Em
     const lower = token.toLowerCase()
     if (lower === 'self') continue
     if (lower === 'creator') continue
+    if (lower === 'leader') continue
     if (lower === 'both') continue
     if (lower === 'none') continue
     if (groupNames.has(lower)) {
@@ -34,16 +37,17 @@ export function parseRecipientDraft(value: string | null | undefined, groups: Em
     }
   }
 
-  return { self, creator, manualRecipients, groupTokens }
+  return { self, creator, leader, manualRecipients, groupTokens }
 }
 
 export function applyRecipientDraft(draft: RecipientDraft): NotifyTarget {
   const parts: string[] = []
   if (draft.self) parts.push('self')
   if (draft.creator) parts.push('creator')
+  if (draft.leader) parts.push('leader')
   for (const token of [...draft.manualRecipients, ...draft.groupTokens]) {
     const lower = token.toLowerCase()
-    if (lower === 'self' || lower === 'creator' || lower === 'both' || lower === 'none') continue
+    if (lower === 'self' || lower === 'creator' || lower === 'leader' || lower === 'both' || lower === 'none') continue
     if (!parts.some((item) => item.toLowerCase() === lower)) parts.push(token)
   }
   return (parts.join(', ') || 'none') as NotifyTarget
@@ -52,7 +56,8 @@ export function applyRecipientDraft(draft: RecipientDraft): NotifyTarget {
 export function resolveRecipientDisplay(
   value: string | null | undefined,
   groups: EmailGroup[],
-  selfEmail = ''
+  selfEmail = '',
+  leaderEmail = ''
 ): string[] {
   const groupByName = new Map(groups.map((group) => [group.name.trim().toLowerCase(), group]))
   const out: string[] = []
@@ -70,12 +75,15 @@ export function resolveRecipientDisplay(
   if (tokens.some((token) => ['self', 'both'].includes(token.toLowerCase())) && selfEmail.trim()) {
     add(selfEmail)
   }
+  if (tokens.some((token) => token.toLowerCase() === 'leader') && leaderEmail.trim()) {
+    add(leaderEmail)
+  }
 
   for (const token of tokens) {
     const group = groupByName.get(token.toLowerCase())
     if (group) {
       for (const recipient of splitRecipientTokens(group.recipients)) add(recipient)
-    } else if (!['self', 'creator', 'both', 'none'].includes(token.toLowerCase())) {
+    } else if (!['self', 'creator', 'leader', 'both', 'none'].includes(token.toLowerCase())) {
       add(token)
     }
   }

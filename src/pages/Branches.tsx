@@ -305,6 +305,11 @@ export default function Branches(): JSX.Element {
     () => repositories.filter((repository) => selectedRepositoryIds.includes(repository.id)),
     [repositories, selectedRepositoryIds]
   )
+  // 勾选范围变化后原来的单仓筛选可能已不在范围内，必须回落到「全部勾选仓库」。
+  useEffect(() => {
+    if (repoFilter && !selectedRepositoryIds.includes(repoFilter)) setRepoFilter('')
+  }, [repoFilter, selectedRepositoryIds])
+
   const branchesInScope = useMemo(
     () => (noSelection ? [] : branches.filter((branch) => selectedRepositoryIds.includes(branch.repositoryId))),
     [branches, selectedRepositoryIds, noSelection]
@@ -332,6 +337,11 @@ export default function Branches(): JSX.Element {
 
   const branchKey = (b: BranchSummary): string => b.id + '-' + b.type
   const selectedBranches = branchesInScope.filter((b) => selectedIds.has(branchKey(b)))
+  /**
+   * 批量通知的数据源：勾选过分支时以勾选为准（可以跨仓库），否则用当前显示范围。
+   * 单一仓库视图下就是该仓库的分支，多仓库视图下就是勾选仓库的全部分支。
+   */
+  const notifyTargets = selectedIds.size > 0 ? selectedBranches : filtered
 
   const toggleSelect = (b: BranchSummary): void => {
     setSelectedIds((prev) => {
@@ -371,7 +381,7 @@ export default function Branches(): JSX.Element {
 
   const notifyCreatorsBulk = async (pred: (b: BranchSummary) => boolean, label: string): Promise<void> => {
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
-    const targets = selectedBranches.filter(pred)
+    const targets = notifyTargets.filter(pred)
     if (targets.length === 0) { toast('没有符合条件的分支: ' + label, 'warn'); return }
     try {
       const r = await window.gitmanager.notifyBranchesEmail(targets)
@@ -382,9 +392,9 @@ export default function Branches(): JSX.Element {
 
   const notifySelfBulk = async (): Promise<void> => {
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
-    if (selectedBranches.length === 0) { toast('请先勾选分支', 'warn'); return }
+    if (notifyTargets.length === 0) { toast('当前没有可通知的分支', 'warn'); return }
     try {
-      const r = await window.gitmanager.notifySelfEmail(selectedBranches)
+      const r = await window.gitmanager.notifySelfEmail(notifyTargets)
       toast(r.message, r.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -464,6 +474,40 @@ export default function Branches(): JSX.Element {
         </button>
       </div>
 
+      {/* Repository tabs：多仓库时按仓库切换查看，分支不再混在一个列表里 */}
+      {scopedRepositories.length > 1 ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted">{zh ? '按仓库查看：' : 'Repository:'}</span>
+          <button
+            className={`no-specular rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              repoFilter === ''
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-line bg-surface text-muted hover:border-primary/40 hover:text-canvas-fg'
+            }`}
+            onClick={() => setRepoFilter('')}
+          >
+            {zh ? `全部勾选仓库（${scopedRepositories.length}）` : `All selected (${scopedRepositories.length})`}
+          </button>
+          {scopedRepositories.map((repository) => {
+            const count = branchesInScope.filter((b) => b.repositoryId === repository.id).length
+            return (
+              <button
+                key={repository.id}
+                className={`no-specular max-w-[14rem] truncate rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                  repoFilter === repository.id
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-line bg-surface text-muted hover:border-primary/40 hover:text-canvas-fg'
+                }`}
+                title={repository.name}
+                onClick={() => setRepoFilter(repository.id)}
+              >
+                {repository.name}（{count}）
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <select
@@ -504,28 +548,37 @@ export default function Branches(): JSX.Element {
                 ? (zh ? '已选中' : 'Selected') + ' ' + selectedIds.size + ' ' + (zh ? '个分支' : 'branches')
                 : (zh ? '未选择分支' : 'No branches selected')}
             </span>
+            <span className="text-xs text-muted">
+              {selectedIds.size > 0
+                ? (zh
+                    ? `通知范围为已勾选的 ${selectedIds.size} 个分支（可跨仓库）`
+                    : `Notifications cover the ${selectedIds.size} checked branches`)
+                : (zh
+                    ? `未勾选分支时，通知范围为当前显示的 ${notifyTargets.length} 个分支`
+                    : `Without checked branches, notifications cover the ${notifyTargets.length} displayed branches`)}
+            </span>
             <div className="flex-1" />
             <button
               className="btn text-xs"
-              disabled={!emailConfig?.enabled}
+              disabled={!emailConfig?.enabled || notifyTargets.length === 0}
               onClick={() => void notifySelfBulk()}
-              title={zh ? '将选中分支信息汇总通知给自己' : 'Notify self with summary'}
+              title={zh ? '把当前通知范围内的分支汇总成一封邮件发给自己' : 'Send one summary email to self for the current scope'}
             >
               <Mail size={12} /> {zh ? '汇总通知给自己' : 'Notify self'}
             </button>
             <button
               className="btn text-xs"
-              disabled={!emailConfig?.enabled || notifyStaleDisabled}
+              disabled={!emailConfig?.enabled || notifyStaleDisabled || notifyTargets.length === 0}
               onClick={() => void notifyCreatorsBulk((b) => b.stale, '已停更')}
-              title={zh ? '通知选中的已停更分支创始人' : 'Notify stale branch creators'}
+              title={zh ? '通知当前范围内已停更分支的创始人（可跨仓库）' : 'Notify stale branch creators in the current scope'}
             >
               <Bell size={12} /> {zh ? '通知已停更分支创始人' : 'Notify stale creators'}
             </button>
             <button
               className="btn text-xs"
-              disabled={!emailConfig?.enabled || notifyInvalidDisabled}
+              disabled={!emailConfig?.enabled || notifyInvalidDisabled || notifyTargets.length === 0}
               onClick={() => void notifyCreatorsBulk((b) => b.naming.status === 'invalid', '命名不规范')}
-              title={zh ? '通知选中的命名不规范分支创始人' : 'Notify invalid-name branch creators'}
+              title={zh ? '通知当前范围内命名不规范分支的创始人（可跨仓库）' : 'Notify invalid-name branch creators in the current scope'}
             >
               <Bell size={12} /> {zh ? '通知命名不规范创始人' : 'Notify invalid creators'}
             </button>

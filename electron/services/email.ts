@@ -92,6 +92,7 @@ export function resolveRecipients(input: string, groups: EmailGroup[] = []): str
 export interface ParsedNotifyTarget {
   self: boolean
   creator: boolean
+  leader: boolean
   recipients: string
 }
 
@@ -99,14 +100,16 @@ export function parseNotifyTarget(target: string | null | undefined): ParsedNoti
   const tokens = String(target ?? '').split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean)
   let self = false
   let creator = false
+  let leader = false
   const rest: string[] = []
   for (const token of tokens) {
     if (token === 'self') self = true
     else if (token === 'creator') creator = true
+    else if (token === 'leader') leader = true
     else if (token === 'both') { self = true; creator = true }
     else if (token !== 'none') rest.push(token)
   }
-  return { self, creator, recipients: rest.join(', ') }
+  return { self, creator, leader, recipients: rest.join(', ') }
 }
 
 function escapeHtml(value: unknown): string {
@@ -610,6 +613,67 @@ function validRecipients(recipients: string[]): string[] {
   return [...new Set(recipients.map((recipient) => recipient.trim()).filter(Boolean))]
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * 报告/汇总邮件的分支创始人收件人：把范围内所有需要处理分支的创始人邮箱去重，
+ * 让同一封邮件同时覆盖多个仓库的多个分支，而不是逐人逐分支重复发送。
+ */
+export function collectCreatorAddresses(rows: EmailIssueRow[]): { to: string[]; missing: string[] } {
+  const to: string[] = []
+  const missing: string[] = []
+  const seenAddr = new Set<string>()
+  const seenMissing = new Set<string>()
+  for (const row of rows) {
+    const address = String(row.creatorEmail ?? '').trim()
+    const key = address.toLowerCase()
+    if (address && EMAIL_PATTERN.test(address)) {
+      if (!seenAddr.has(key)) {
+        seenAddr.add(key)
+        to.push(address)
+      }
+      continue
+    }
+    const name = String(row.creator ?? '').trim()
+    const fallback = name || address || '未知创始人'
+    if (!seenMissing.has(fallback)) {
+      seenMissing.add(fallback)
+      missing.push(fallback)
+    }
+  }
+  return { to, missing }
+}
+
+/**
+ * 报告邮件里的「创始人通知范围」区块：把同一封密送覆盖到的创始人、
+ * 以及因缺少邮箱没能送达的创始人写清楚，收件人一眼能看出通知了谁。
+ */
+export function creatorNotificationSection(
+  addresses: string[],
+  missing: string[],
+  lang: EmailLang
+): string {
+  if (addresses.length === 0 && missing.length === 0) return ''
+  const zh = lang === 'zh'
+  const title = zh ? '分支创始人通知范围' : 'Branch creators notified'
+  const noted = addresses.length
+    ? zh
+      ? `<p style="font-size:12px;margin:6px 0 0">本邮件已密送以下 ${addresses.length} 位分支创始人：${escapeHtml(addresses.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0">This email BCCs ${addresses.length} branch creator(s): ${escapeHtml(addresses.join(', '))}</p>`
+    : ''
+  const skipped = missing.length
+    ? zh
+      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">因缺少有效邮箱未通知（请补充邮箱后重试）：${escapeHtml(missing.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">Not notified (missing email): ${escapeHtml(missing.join(', '))}</p>`
+    : ''
+  return `
+  <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 18px">
+    <h3 style="font-size:14px;margin:0">${title}</h3>
+    ${noted}
+    ${skipped}
+  </section>`
+}
+
 export class EmailService {
   constructor(
     private readonly storage: StorageService,
@@ -628,6 +692,7 @@ export class EmailService {
       tls: Number(row?.tls ?? 0) === 1,
       testRecipient: String(row?.test_recipient ?? row?.username ?? ''),
       selfEmail: String(row?.self_email ?? ''),
+      leaderEmail: String(row?.leader_email ?? ''),
       enabled: Number(row?.enabled ?? 0) === 1
     }
   }
@@ -652,6 +717,7 @@ export class EmailService {
         tls: config.tls ? 1 : 0,
         test_recipient: config.testRecipient || config.selfEmail || config.username,
         self_email: config.selfEmail || '',
+        leader_email: config.leaderEmail || '',
         enabled: config.enabled ? 1 : 0
       },
       'id = 1'
@@ -783,9 +849,20 @@ export class EmailService {
     ].join("\r\n"))
   }
 
-  private async sendWithOutlook(input: { to: string[]; subject: string; body: string; html?: string; lang?: EmailLang; attachments?: string[] }): Promise<void> {
+  private async sendWithOutlook(input: {
+    to: string[]
+    cc?: string[]
+    bcc?: string[]
+    subject: string
+    body: string
+    html?: string
+    lang?: EmailLang
+    attachments?: string[]
+  }): Promise<void> {
     const recipients = validRecipients(input.to)
     if (recipients.length === 0) throw new Error('收件人为空。')
+    const cc = validRecipients(input.cc ?? [])
+    const bcc = validRecipients(input.bcc ?? [])
     const script = [
       "$ErrorActionPreference = 'Stop'",
       'try {',
@@ -795,6 +872,10 @@ export class EmailService {
       '  $recipients = @($payload.recipients | Where-Object { $_ -and $_.Trim() })',
       '  if ($recipients.Count -eq 0) { throw "收件人为空。" }',
       '  $mail.To = (($recipients | ForEach-Object { [string]$_ }) -join "; ")',
+      '  $cc = @($payload.cc | Where-Object { $_ -and $_.Trim() })',
+      '  if ($cc.Count -gt 0) { $mail.CC = (($cc | ForEach-Object { [string]$_ }) -join "; ") }',
+      '  $bcc = @($payload.bcc | Where-Object { $_ -and $_.Trim() })',
+      '  if ($bcc.Count -gt 0) { $mail.BCC = (($bcc | ForEach-Object { [string]$_ }) -join "; ") }',
       '  $mail.Subject = [string]$payload.subject',
       '  $mail.HTMLBody = [string]$payload.htmlBody',
       '  if ($payload.attachments) {',
@@ -813,6 +894,8 @@ export class EmailService {
     ].join("\r\n")
     await this.runOutlookScript(script, {
       recipients,
+      cc,
+      bcc,
       subject: input.subject,
       htmlBody: input.html ?? textToHtml(input.subject, input.body, input.lang),
       attachments: input.attachments ?? []
@@ -967,6 +1050,8 @@ export class EmailService {
 
   async sendReportEmail(input: {
     to: string[]
+    cc?: string[]
+    bcc?: string[]
     subject: string
     body: string
     html?: string
@@ -976,19 +1061,31 @@ export class EmailService {
     if (!cfg.enabled) return { ok: false, message: '邮件发送未启用。', emailsSent: 0 }
     try {
       if (!fs.existsSync(input.attachmentPath)) throw new Error(`Report file not found: ${input.attachmentPath}`)
+      // 多仓库只发一封：创始人放入密送，收件人之间互相看不到邮箱。
       await this.sendWithOutlook({
         to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
         subject: input.subject,
         body: input.body,
         html: input.html,
         attachments: [input.attachmentPath]
       })
-      this.audit.record('email_report_sent', { recipients: input.to, report: path.basename(input.attachmentPath) }, 'success')
+      this.audit.record(
+        'email_report_sent',
+        {
+          recipients: input.to,
+          cc: input.cc ?? [],
+          bcc: input.bcc ?? [],
+          report: path.basename(input.attachmentPath)
+        },
+        'success'
+      )
       return { ok: true, message: '报告邮件发送成功。', recipients: input.to, emailsSent: input.to.length }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error('Report email failed', message)
-      this.audit.record('email_report_sent', { recipients: input.to, error: message }, 'failure')
+      this.audit.record('email_report_sent', { recipients: input.to, cc: input.cc ?? [], bcc: input.bcc ?? [], error: message }, 'failure')
       return { ok: false, message: '报告邮件发送失败。', technical: message, emailsSent: 0 }
     }
   }
