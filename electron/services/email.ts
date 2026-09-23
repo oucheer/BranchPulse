@@ -601,6 +601,31 @@ function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: Cre
   return emailTable(headers, tableRows)
 }
 
+/** One message per creator, with every selected repository and issue type included. */
+export function creatorDigestEmail(
+  rows: EmailIssueRow[],
+  lang: EmailLang,
+  thresholdHint?: string
+): { subject: string; html: string } {
+  const zh = lang === 'zh'
+  const stale = [...rows].filter((row) => row.state === 'stale').sort((a, b) => b.inactiveDays - a.inactiveDays)
+  const naming = [...rows].filter((row) => row.namingStatus === 'invalid').sort((a, b) => b.inactiveDays - a.inactiveDays)
+  const subject = zh
+    ? `【GitManager】分支异常汇总：${stale.length} 个停更，${naming.length} 个命名不规范`
+    : `GitManager branch issues: ${stale.length} stale, ${naming.length} naming`
+  const staleSection = stale.length
+    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `已停更分支（${stale.length}）` : `Stale branches (${stale.length})`}</h2>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(stale, lang, 'stale')}`
+    : ''
+  const namingSection = naming.length
+    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `命名不规范分支（${naming.length}）` : `Naming issues (${naming.length})`}</h2><p>${zh ? '请按仓库命名规范修改后重新推送。' : 'Rename these branches to match the repository rules and push again.'}</p>${scenarioRowsTable(naming, lang, 'naming')}`
+    : ''
+  const repositories = [...new Set(rows.map((row) => row.repository).filter(Boolean))]
+  const intro = zh
+    ? `您在 ${repositories.length} 个勾选仓库中有 ${rows.length} 个分支需要处理。异常已合并在本邮件中。`
+    : `You have ${rows.length} branches requiring attention across ${repositories.length} selected repositories. All issues are combined in this email.`
+  return { subject, html: htmlEmailShell(subject, `<p>${escapeHtml(intro)}</p>${staleSection}${namingSection}`, lang) }
+}
+
 /** 同一封邮件可能覆盖多个仓库，正文必须点明仓库名，否则创始人不知道是哪个远程仓。 */
 function repositoryContext(rows: EmailIssueRow[], lang: EmailLang): string {
   const zh = lang === 'zh'
@@ -1031,24 +1056,18 @@ export class EmailService {
         skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
         continue
       }
-      const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
-        ['stale', branchRows.filter((row) => row.state === 'stale')],
-        ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
-      ]
-      for (const [scenario, scenarioBranchRows] of scenarios) {
-        if (scenarioBranchRows.length === 0) continue
-        const sortedRows = [...scenarioBranchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
-        const email = creatorScenarioEmail(sortedRows, scenario, lang, options?.thresholdHint)
-        try {
-          await this.sendWithOutlook({ to: [to], subject: email.subject, body: '', html: email.html, lang })
-          recipients.push(to)
-          sent += 1
-        } catch (err) {
-          failed += 1
-          const message = err instanceof Error ? err.message : String(err)
-          failures.push(`${to}: ${message}`)
-          logger.warn(`creator email send failed: ${to} ${message}`)
-        }
+      const issueRows = branchRows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid')
+      if (issueRows.length === 0) continue
+      const email = creatorDigestEmail(issueRows, lang, options?.thresholdHint)
+      try {
+        await this.sendWithOutlook({ to: [to], subject: email.subject, body: '', html: email.html, lang })
+        recipients.push(to)
+        sent += 1
+      } catch (err) {
+        failed += 1
+        const message = err instanceof Error ? err.message : String(err)
+        failures.push(`${to}: ${message}`)
+        logger.warn(`creator email send failed: ${to} ${message}`)
       }
     }
     const details = failures.slice(0, 3).join('; ')

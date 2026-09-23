@@ -205,6 +205,8 @@ describe('per-repository configurations', () => {
 
     expect(storage.get('SELECT repository_id FROM monitoring_rules_repo WHERE repository_id = ?', [REPO_A])).toBeDefined()
     expect(storage.get('SELECT repository_id FROM monitoring_rules_repo WHERE repository_id = ?', [REPO_B])).toBeDefined()
+    expect(storage.all<{ stale_threshold_days: number }>('SELECT stale_threshold_days FROM monitoring_rules_repo'))
+      .toEqual([{ stale_threshold_days: 180 }, { stale_threshold_days: 180 }])
     expect(rulesOf(REPO_A)).toBeGreaterThan(0)
     expect(rulesOf(REPO_B)).toBeGreaterThan(0)
 

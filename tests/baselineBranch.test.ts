@@ -119,11 +119,12 @@ describe('resolveRemoteCreator', () => {
     ...overrides
   })
 
-  it('does not mistake the first contributor for the branch creator', () => {
+  it('uses the oldest branch-only commit author as a provisional fallback', () => {
     const { creator } = resolveRemoteCreator(commit() as never, null)
-    expect(creator.name).toBe('Unknown')
-    expect(creator.email).toBe('')
-    expect(creator.confidence).toBe('unknown')
+    expect(creator.name).toBe('李四')
+    expect(creator.email).toBe('li@example.com')
+    expect(creator.firstCommitAt).toBe('2026-01-01T00:00:00.000Z')
+    expect(creator.confidence).toBe('low')
   })
 
   it('uses the forge creation event when the branch has no commits of its own', () => {
@@ -155,8 +156,7 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('medium')
   })
 
-  it('never invents a creator when there are no commits and no creation event', () => {
-    // The reported bug: this used to return the base branch's last committer.
+  it('keeps an unknown creator when there are no branch-only commits or creation event', () => {
     const { creator } = resolveRemoteCreator(null, null)
     expect(creator.name).toBe('Unknown')
     expect(creator.email).toBe('')

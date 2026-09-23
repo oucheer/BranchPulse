@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildBranchEmailHtml,
+  creatorDigestEmail,
   creatorScenarioEmail,
   processingDeadlineNotice,
   type EmailIssueRow,
@@ -70,6 +71,27 @@ describe('inspection-only creator emails', () => {
     expect(zh.html).not.toContain('自动回收')
     expect(en.html).toContain('Whitelisted; inspection only')
     expect(en.html).not.toMatch(/delete/i)
+  })
+
+  it('combines stale and naming issues from multiple repositories in one creator digest', () => {
+    const secondRepoNaming = {
+      ...row,
+      repository: 'payments',
+      branch: 'legacy_hotfix',
+      state: 'active',
+      namingStatus: 'invalid' as const,
+      namingReason: '命名规则不匹配'
+    }
+    const staleOnly = { ...row, repository: 'inventory', namingStatus: 'valid' }
+    const digest = creatorDigestEmail([staleOnly, secondRepoNaming], 'zh')
+
+    expect(digest.subject).toContain('1 个停更，1 个命名不规范')
+    expect(digest.html).toContain('已停更分支（1）')
+    expect(digest.html).toContain('命名不规范分支（1）')
+    expect(digest.html).toContain('inventory')
+    expect(digest.html).toContain('payments')
+    expect(digest.html).toContain('feature/login/page')
+    expect(digest.html).toContain('legacy_hotfix')
   })
 })
 

@@ -78,6 +78,7 @@ export class GitLabApiErrorImpl extends Error {
  * looks like it simply has no branches.
  */
 const REQUEST_TIMEOUT_MS = 30_000
+const CONNECTION_TEST_TIMEOUT_MS = 5_000
 
 /** Transient failures are retried before the repository is declared unreadable. */
 const MAX_TRANSIENT_RETRIES = 2
@@ -232,6 +233,8 @@ export class GitLabService {
   private projectPathCache = new Map<string, string>()
   /** `<host>|<username>` -> public address; empty string means "looked up, none public". */
   private userEmailCache = new Map<string, string>()
+  /** `<host>|<username>` -> profile identity, including an empty profile result. */
+  private userProfileCache = new Map<string, { name: string; email: string } | null>()
 
   /** Cache key: the same login can exist on two hosts with different addresses. */
   private userEmailKey(username: string): string {
@@ -258,7 +261,12 @@ export class GitLabService {
     return !isApiBaseUrl(url) && this.pathSegments(url).length >= 2
   }
 
-  private async request<T>(path: string, config?: GitLabConnectionConfig, init: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    config?: GitLabConnectionConfig,
+    init: RequestInit = {},
+    options: { timeoutMs?: number; retries?: number } = {}
+  ): Promise<T> {
     const { url, token, provider } = this.resolve(config)
     // `projectPath` lets a project URL (`http://host/gitlab/group/app`) reveal the
     // instance's relative URL root, so the API call keeps its `/gitlab` prefix.
@@ -273,7 +281,7 @@ export class GitLabService {
     let lastBody = ''
     let lastDetail = ''
     for (let attempt = 0; ; attempt += 1) {
-      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt)
+      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt, options)
       if (!response.ok) {
         const body = await response.text().catch(() => null)
         if (body !== null) {
@@ -282,8 +290,9 @@ export class GitLabService {
         }
         const detail = lastDetail
         const statusLabel = response.statusText ? ` ${response.statusText}` : ''
-        if (attempt < MAX_TRANSIENT_RETRIES && isTransientStatus(response.status)) {
-          logger.warn(`Remote repository API ${response.status} at ${safeTarget}; retrying (${attempt + 1}/${MAX_TRANSIENT_RETRIES}).`)
+        const retryLimit = options.retries ?? MAX_TRANSIENT_RETRIES
+        if (attempt < retryLimit && isTransientStatus(response.status)) {
+          logger.warn(`Remote repository API ${response.status} at ${safeTarget}; retrying (${attempt + 1}/${retryLimit}).`)
           await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
           continue
         }
@@ -307,12 +316,13 @@ export class GitLabService {
     token: string,
     init: RequestInit,
     safeTarget: string,
-    attempt: number
+    attempt: number,
+    options: { timeoutMs?: number; retries?: number }
   ): Promise<Response> {
     try {
       return await fetch(requestUrl, {
         ...init,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
         headers: provider === 'gitlab' ? {
           'PRIVATE-TOKEN': token,
           Accept: 'application/json',
@@ -329,11 +339,12 @@ export class GitLabService {
     } catch (err) {
       // A dropped connection, DNS hiccup or timeout is the signature of a flaky
       // intranet path; retry before blaming the repository.
-      if (attempt < MAX_TRANSIENT_RETRIES) {
+      const retryLimit = options.retries ?? MAX_TRANSIENT_RETRIES
+      if (attempt < retryLimit) {
         const reason = err instanceof Error ? err.message : String(err)
-        logger.warn(`Remote repository API request to ${safeTarget} failed (${reason}); retrying (${attempt + 1}/${MAX_TRANSIENT_RETRIES}).`)
+        logger.warn(`Remote repository API request to ${safeTarget} failed (${reason}); retrying (${attempt + 1}/${retryLimit}).`)
         await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
-        return this.send(requestUrl, provider, token, init, safeTarget, attempt + 1)
+        return this.send(requestUrl, provider, token, init, safeTarget, attempt + 1, options)
       }
       throw err
     }
@@ -342,15 +353,22 @@ export class GitLabService {
   async testConnection(config?: GitLabConnectionConfig): Promise<GitLabTestResult> {
     try {
       const { url, provider } = this.resolve(config)
-      const result: { login?: string; version?: string } = provider === 'github'
-        ? await this.request<{ login: string }>('/user', config)
-        : provider === 'gitee'
-          ? await this.request<{ login: string }>('/user', config)
-          : await this.request<{ version: string }>('/version', config)
+      const projectUrl = this.isProjectUrl(url)
+      const testOptions = { timeoutMs: CONNECTION_TEST_TIMEOUT_MS, retries: 0 }
+      const projectPath = this.pathSegments(url).join('/')
+      const result = (provider === 'github' && projectUrl
+        ? await this.request(`/repos/${projectPath}`, config, {}, testOptions)
+        : provider === 'github'
+          ? await this.request('/user', config, {}, testOptions)
+          : provider === 'gitee' && projectUrl
+            ? await this.request(`/repos/${projectPath}`, config, {}, testOptions)
+            : provider === 'gitee'
+              ? await this.request('/user', config, {}, testOptions)
+              : await this.request('/version', config, {}, testOptions)) as Record<string, unknown>
       return {
         ok: true,
-        message: `Connected to ${provider} ${result.login ?? result.version ?? ''}`.trim(),
-        version: provider === 'gitlab' ? result.version : provider
+        message: `Connected to ${provider} ${String(result.login ?? result.full_name ?? result.path_with_namespace ?? result.version ?? '')}`.trim(),
+        version: provider === 'gitlab' ? String(result.version ?? '') : provider
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -775,8 +793,8 @@ export class GitLabService {
     let rows: Array<Record<string, unknown>> = []
     try {
       rows = await eventPages(true)
-    } catch {
-      return creators
+    } catch (error) {
+      logger.warn(`Could not read filtered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
     const parseEvents = (events: Array<Record<string, unknown>>): void => {
       for (const row of events) {
@@ -788,14 +806,16 @@ export class GitLabService {
         const branch = String(push.ref ?? '').trim()
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
+        const username = String(author.username ?? row.author_username ?? '').trim()
         const name = String(author.name ?? '').trim()
           || String(row.author_name ?? '').trim()
-          || String(row.author_username ?? '').trim()
+          || username
+          || (author.id ?? row.author_id ? `GitLab user ${String(author.id ?? row.author_id)}` : '')
         if (!name) continue
         creators.set(branch, {
           name,
           email: String(author.public_email ?? author.email ?? row.author_email ?? '').trim(),
-          username: String(author.username ?? row.author_username ?? '').trim(),
+          username,
           createdAt: typeof row.created_at === 'string' ? row.created_at : null,
           source: 'event'
         })
@@ -804,19 +824,56 @@ export class GitLabService {
     parseEvents(rows)
     try {
       parseEvents(await eventPages(false))
-    } catch {
-      // Event history is supplementary; unavailable fallback pages are ignored.
+    } catch (error) {
+      logger.warn(`Could not read unfiltered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
     const missing = [...creators.values()].filter((creator) => !creator.email && creator.username)
-    if (missing.length > 0) {
-      const emails = await this.resolveUserEmails(missing.map((creator) => creator.username), config)
+    const usersToResolve = [...creators.values()].filter((creator) => creator.username)
+    if (usersToResolve.length > 0) {
+      const profiles = await this.resolveGitLabUsers(usersToResolve.map((creator) => creator.username), config)
       for (const creator of creators.values()) {
-        if (creator.email || !creator.username) continue
-        const email = emails.get(creator.username)
-        if (email) creator.email = email
+        if (!creator.username) continue
+        const profile = profiles.get(creator.username.toLowerCase())
+        if (!profile) continue
+        creator.name = profile.name || creator.name
+        if (!creator.email) creator.email = profile.email
       }
     }
     return creators
+  }
+
+  private async resolveGitLabUsers(
+    usernames: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, { name: string; email: string }>> {
+    const profiles = new Map<string, { name: string; email: string }>()
+    const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
+      .filter((username) => {
+        const cached = this.userProfileCache.get(this.userEmailKey(username))
+        if (cached === undefined) return true
+        if (cached) profiles.set(username.toLowerCase(), cached)
+        return false
+      })
+      .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
+    for (const username of pending) {
+      const qs = new URLSearchParams({ username })
+      try {
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const match = Array.isArray(rows)
+          ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
+          : undefined
+        this.userProfileCache.set(this.userEmailKey(username), match ? {
+          name: String(match.name ?? '').trim(),
+          email: String(match.public_email ?? '').trim() || String(match.email ?? '').trim()
+        } : null)
+        if (match) {
+          profiles.set(username.toLowerCase(), this.userProfileCache.get(this.userEmailKey(username))!)
+        }
+      } catch {
+        // Event identity remains valid even when profile access is restricted.
+      }
+    }
+    return profiles
   }
 
   /**

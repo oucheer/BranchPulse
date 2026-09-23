@@ -96,8 +96,9 @@ export default function Settings(): JSX.Element {
         ...(gitlabApiKey ? { gitlabApiKey } : {})
       })
       setDraft(saved)
-      await window.gitmanager.listGitLabProjects({ url: saved.gitlabUrl })
-      toast('远程仓库 API 已连接', 'success')
+      const result = await window.gitmanager.testGitLabConnection({ url: saved.gitlabUrl })
+      if (!result.ok) throw new Error(result.message)
+      toast(`远程仓库 API 已连接：${result.message}`, 'success')
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -260,7 +261,7 @@ export default function Settings(): JSX.Element {
             </div>
             <div className="flex items-center gap-2 border-t border-line pt-4">
               <button className="btn btn-primary" disabled={gitlabBusy || !draft.gitlabUrl} onClick={() => void connectGitLab()}>
-                <Cloud size={14} /> 连接
+                <Cloud size={14} /> 测试连接
               </button>
               <Badge tone={draft.hasGitlabApiKey ? 'ok' : 'default'}>{draft.hasGitlabApiKey ? '已保存' : '未配置'}</Badge>
             </div>

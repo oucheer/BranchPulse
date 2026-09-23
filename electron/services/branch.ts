@@ -26,15 +26,16 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /**
  * Decide who created a remote branch.
  *
- * Only an explicit forge branch-creation event proves who created a branch.
- * Commit authorship proves contribution, not branch creation, so it must never
- * be presented as creator attribution.
+ * Prefer an explicit forge branch-creation event. When it is unavailable, use
+ * the oldest commit unique to the branch as a provisional display candidate.
+ * The latter is not proof of who created the ref, but is more useful than an
+ * empty creator field while validating real repositories.
  *
  * Exported for unit tests; the attribution rules are easy to regress and hard to
  * observe end to end.
  */
 export function resolveRemoteCreator(
-  _firstOwnCommit: GitLabCommitDto | null,
+  firstOwnCommit: GitLabCommitDto | null,
   creationEvent: BranchCreatorDto | null
 ): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
   if (creationEvent) {
@@ -46,6 +47,16 @@ export function resolveRemoteCreator(
         // A known creator without an address is still a correct name, but it
         // cannot be emailed, so it must not read as fully confident.
         confidence: creationEvent.email ? 'high' : 'medium'
+      }
+    }
+  }
+  if (firstOwnCommit && (firstOwnCommit.author_name || firstOwnCommit.author_email)) {
+    return {
+      creator: {
+        name: firstOwnCommit.author_name || firstOwnCommit.author_email,
+        email: firstOwnCommit.author_email,
+        firstCommitAt: firstOwnCommit.committed_date ?? firstOwnCommit.authored_date ?? firstOwnCommit.created_at ?? null,
+        confidence: 'low'
       }
     }
   }
@@ -330,7 +341,8 @@ export class BranchService {
     const firstOwn = ownCommits[0] ?? null
     const creatorEvent = branchCreators.get(branch.name) ?? null
 
-    // Only a recorded branch-creation event is a reliable creator signal.
+    // Use an explicit creation event when available; otherwise show the oldest
+    // branch-only commit author as a provisional creator candidate.
     const { creator } = resolveRemoteCreator(firstOwn, creatorEvent)
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null

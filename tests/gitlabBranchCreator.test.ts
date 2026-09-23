@@ -259,6 +259,39 @@ describe('GitLabService.listBranchCreators', () => {
     expect(calls.some((url) => url.includes('/events?per_page=100') && !url.includes('action=pushed'))).toBe(true)
   })
 
+  it('keeps the actor when an event has only a username and resolves its display name', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?')) return jsonResponse([{ username: 'alice', name: 'Alice Example', public_email: '' }])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'alice',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/alice' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/alice')).toMatchObject({ name: 'Alice Example', username: 'alice', source: 'event' })
+  })
+
+  it('retains an event actor name when user profile details are hidden', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?')) return jsonResponse([])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'alice',
+        author: { name: 'Alice Event Name' },
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/alice' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/alice')?.name).toBe('Alice Event Name')
+  })
+
   it('keeps the creator when the profile lookup fails', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
@@ -360,5 +393,31 @@ describe('GitLabService.listBranchCreators', () => {
     const svc = service(GL_URL)
     const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
     expect(creators.size).toBe(0)
+  })
+
+  it('still reads unfiltered events when the filtered event query is rejected', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/projects/') && !url.includes('/events')) {
+        return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+      }
+      if (url.includes('/events') && url.includes('action=pushed')) {
+        return new Response('filtered events forbidden', { status: 403 })
+      }
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'zhangsan',
+        author: { name: '张三' },
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/recovered' }
+      }])
+      return jsonResponse([])
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/recovered')?.name).toBe('张三')
+    expect(calls.some((url) => url.includes('/events') && !url.includes('action=pushed'))).toBe(true)
   })
 })

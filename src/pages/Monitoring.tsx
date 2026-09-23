@@ -36,16 +36,11 @@ export default function Monitoring(): JSX.Element {
     : scopedRepositories[0]?.id ?? null
 
   useEffect(() => {
-    if (effectiveRepositoryId === activeRepositoryId) return
-    setActiveRepositoryId(effectiveRepositoryId)
-  }, [effectiveRepositoryId, activeRepositoryId])
-
-  useEffect(() => {
-    let cancelled = false
     if (!effectiveRepositoryId) {
-      setDraft(monitoring)
+      setDraft({ ...monitoring, staleThresholdDays: 180, staleThresholdUnit: 'days' })
       return
     }
+    let cancelled = false
     void window.gitmanager.getMonitoring(effectiveRepositoryId).then((config) => {
       if (!cancelled) setDraft(config)
     })
@@ -55,8 +50,12 @@ export default function Monitoring(): JSX.Element {
   }, [effectiveRepositoryId])
 
   useEffect(() => {
+    if (effectiveRepositoryId !== activeRepositoryId) setActiveRepositoryId(effectiveRepositoryId)
+  }, [effectiveRepositoryId, activeRepositoryId])
+
+  useEffect(() => {
     if (suppressDraftSync.current) return
-    if (!effectiveRepositoryId) setDraft(monitoring)
+    if (!effectiveRepositoryId) setDraft({ ...monitoring, staleThresholdDays: 180, staleThresholdUnit: 'days' })
   }, [monitoring, effectiveRepositoryId])
 
   const emailDisabled = !emailConfig?.enabled
@@ -173,9 +172,14 @@ export default function Monitoring(): JSX.Element {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="p-5">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-            <Timer size={15} className="text-warn" /> 巡查规则
-            {activeRepository ? <span className="text-xs font-normal text-muted">· {activeRepository.name}</span> : null}
+          <div className="mb-4 flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1 text-sm font-semibold text-canvas-fg">
+            <Timer size={15} className="mt-0.5 shrink-0 text-warn" />
+            <span className="shrink-0">巡查规则</span>
+            {activeRepository ? (
+              <span className="min-w-0 max-w-full break-all text-xs font-normal text-muted">
+                · {activeRepository.name}
+              </span>
+            ) : null}
           </div>
           <div className="space-y-4">
             <div className="rounded-md bg-surface-elevated p-3 text-xs text-muted">

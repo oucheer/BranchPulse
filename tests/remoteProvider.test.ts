@@ -78,6 +78,20 @@ describe('remote providers', () => {
     expect(apiBaseUrl('https://github.com/oucheer/git-test.git', 'github')).toBe('https://api.github.com')
   })
 
+  it('tests a GitHub clone URL against that repository without enumerating projects', async () => {
+    const { GitLabService } = await import('../electron/services/gitlab')
+    const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
+    const svc = new GitLabService(settings as never)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ full_name: 'oucher/git-test' }), { status: 200 }))
+
+    const result = await svc.testConnection({ url: 'https://github.com/oucher/git-test.git', apiKey: 'tok' })
+
+    expect(result.ok).toBe(true)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.github.com/repos/oucher/git-test')
+    expect(fetchMock.mock.calls).toHaveLength(1)
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(false)
+  })
+
   it('GitHub/Gitee API paths use real slashes (not %2F)', async () => {
     const { GitLabService } = await import('../electron/services/gitlab')
     const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }

@@ -52,16 +52,33 @@ export default function Repositories(): JSX.Element {
     ...((gitlabApiKey || settings.gitlabApiKey) ? { apiKey: gitlabApiKey || settings.gitlabApiKey } : {})
   })
 
-  const connect = async (): Promise<void> => {
+  const testConnection = async (): Promise<void> => {
+    setGitlabBusy(true)
+    setGitlabMessage(null)
+    try {
+      await window.gitmanager.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
+      const result = await window.gitmanager.testGitLabConnection(gitlabConfig())
+      if (!result.ok) throw new Error(result.message)
+      setGitlabMessage(`连接成功：${result.message}`)
+      toast('已连接远程仓库', 'success')
+      void refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setGitlabMessage(message)
+      toast(message, 'error')
+    } finally {
+      setGitlabBusy(false)
+    }
+  }
+
+  const loadProjects = async (): Promise<void> => {
     setGitlabBusy(true)
     setGitlabMessage(null)
     try {
       await window.gitmanager.saveSettings({ ...settings, gitlabUrl, ...(gitlabApiKey ? { gitlabApiKey } : {}) })
       const projects = await window.gitmanager.listGitLabProjects(gitlabConfig())
       setGitlabProjects(projects)
-      setGitlabMessage(`已连接，发现 ${projects.length} 个仓库`)
-      toast('已连接远程仓库', 'success')
-      void refresh()
+      setGitlabMessage(`已加载 ${projects.length} 个项目`)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setGitlabMessage(message)
@@ -139,8 +156,8 @@ export default function Repositories(): JSX.Element {
           <div className="text-xs text-muted">{repositories.length} {tr('repositories').toLowerCase()} · {branches.length} 分支</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
-            <Plus size={15} /> 连接仓库
+          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void loadProjects()}>
+            <Plus size={15} /> 加载项目
           </button>
         </div>
       </div>
@@ -245,8 +262,11 @@ export default function Repositories(): JSX.Element {
               </button>
             </div>
           </div>
-          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
-            <RefreshCw size={14} /> 连接
+          <button className="btn" disabled={gitlabBusy || !gitlabUrl} onClick={() => void testConnection()}>
+            <RefreshCw size={14} /> 测试连接
+          </button>
+          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void loadProjects()}>
+            <Plus size={14} /> 加载项目
           </button>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
@@ -254,10 +274,8 @@ export default function Repositories(): JSX.Element {
           <span className="text-xs text-muted">支持 GitLab / GitHub / Gitee，自动识别平台</span>
         </div>
         <p className="mt-1 text-xs text-muted">
-          自建 GitLab 为根路径时填 <span className="font-mono">http://内网地址[:端口]</span>；
-          挂在子路径下时填子路径根（如 <span className="font-mono">http://内网地址/gitlab</span>）；
-          也可以填项目完整地址。若自动推导失败，直接把完整 API 地址（如
-          <span className="font-mono"> http://内网地址[:端口]/api/v4</span>）填进去。
+          可填写服务地址或项目地址（如 GitHub 的 <span className="font-mono">https://github.com/owner/repo.git</span>）；
+          GitLab 自建实例支持子路径及 <span className="font-mono">/api/v4</span> 地址。Token 需具备对应平台的仓库读取权限；GitLab 通常需要 API 读取权限。
         </p>
         {gitlabProjects.length > 0 ? (
           <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto pr-1">
