@@ -76,6 +76,31 @@ export class GitLabApiErrorImpl extends Error {
   }
 }
 
+/**
+ * Every forge request has a deadline. Without one a stalled intranet proxy
+ * leaves `fetch` hanging forever, the scan never completes and the repository
+ * looks like it simply has no branches.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+
+/** Transient failures are retried before the repository is declared unreadable. */
+const MAX_TRANSIENT_RETRIES = 2
+const TRANSIENT_RETRY_DELAY_MS = 250
+
+/**
+ * A single flaky connection on an internal network must not be reported as
+ * "this repository has 0 branches". Rate limits, gateway hiccups and gateway
+ * timeouts resolve themselves on a second attempt; a 4xx is a real answer and
+ * is never retried.
+ */
+export function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 function normalizeUrl(url: string): string {
   let clean = url.trim()
   if (!clean) throw new Error('远程仓库地址不能为空。')
@@ -245,36 +270,77 @@ export class GitLabService {
       `${apiBaseUrl(url, provider, config?.projectPath)}${path.startsWith('/') ? path : `/${path}`}`
     )
     if (provider === 'gitee') requestUrl.searchParams.set('access_token', token)
-    const response = await fetch(requestUrl, {
-      ...init,
-      headers: provider === 'gitlab' ? {
-        'PRIVATE-TOKEN': token,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...(init.headers ?? {})
-      } : provider === 'github' ? {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json'
-      } : {
-        Accept: 'application/json',
-        ...(init.headers ?? {})
+    // Keep query strings out of the log: Gitee carries its token there.
+    const safeTarget = `${requestUrl.origin}${requestUrl.pathname}`
+    // Kept so a retried failure still reports the reason read from an earlier
+    // response body (a body stream can only be read once).
+    let lastBody = ''
+    let lastDetail = ''
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt)
+      if (!response.ok) {
+        const body = await response.text().catch(() => null)
+        if (body !== null) {
+          lastBody = body
+          lastDetail = apiErrorDetail(body)
+        }
+        const detail = lastDetail
+        const statusLabel = response.statusText ? ` ${response.statusText}` : ''
+        if (attempt < MAX_TRANSIENT_RETRIES && isTransientStatus(response.status)) {
+          logger.warn(`Remote repository API ${response.status} at ${safeTarget}; retrying (${attempt + 1}/${MAX_TRANSIENT_RETRIES}).`)
+          await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+          continue
+        }
+        const message = `Remote repository API ${response.status}${statusLabel}${detail ? `: ${detail}` : ''}`
+        logger.error(`Remote repository API request failed: ${init.method ?? 'GET'} ${safeTarget} -> ${response.status}${statusLabel}${detail ? ` | ${detail}` : ''}`)
+        throw new GitLabApiErrorImpl(
+          message,
+          response.status,
+          lastBody.slice(0, 500)
+        )
       }
-    })
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      const detail = apiErrorDetail(body)
-      const statusLabel = response.statusText ? ` ${response.statusText}` : ''
-      const message = `Remote repository API ${response.status}${statusLabel}${detail ? `: ${detail}` : ''}`
-      // Keep query strings out of the log: Gitee carries its token there.
-      logger.error(`Remote repository API request failed: ${init.method ?? 'GET'} ${requestUrl.origin}${requestUrl.pathname} -> ${response.status}${statusLabel}${detail ? ` | ${detail}` : ''}`)
-      throw new GitLabApiErrorImpl(
-        message,
-        response.status,
-        body.slice(0, 500)
-      )
+      if (response.status === 204) return undefined as T
+      return (await response.json()) as T
     }
-    if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+  }
+
+  /** One attempt, with a deadline so a stalled proxy cannot hang the scan. */
+  private async send(
+    requestUrl: URL,
+    provider: 'gitlab' | 'github' | 'gitee',
+    token: string,
+    init: RequestInit,
+    safeTarget: string,
+    attempt: number
+  ): Promise<Response> {
+    try {
+      return await fetch(requestUrl, {
+        ...init,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: provider === 'gitlab' ? {
+          'PRIVATE-TOKEN': token,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(init.headers ?? {})
+        } : provider === 'github' ? {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json'
+        } : {
+          Accept: 'application/json',
+          ...(init.headers ?? {})
+        }
+      })
+    } catch (err) {
+      // A dropped connection, DNS hiccup or timeout is the signature of a flaky
+      // intranet path; retry before blaming the repository.
+      if (attempt < MAX_TRANSIENT_RETRIES) {
+        const reason = err instanceof Error ? err.message : String(err)
+        logger.warn(`Remote repository API request to ${safeTarget} failed (${reason}); retrying (${attempt + 1}/${MAX_TRANSIENT_RETRIES}).`)
+        await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+        return this.send(requestUrl, provider, token, init, safeTarget, attempt + 1)
+      }
+      throw err
+    }
   }
 
   async testConnection(config?: GitLabConnectionConfig): Promise<GitLabTestResult> {
@@ -416,6 +482,14 @@ export class GitLabService {
     for (let page = 1; page <= 20; page += 1) {
       const separator = path.includes('?') ? '&' : '?'
       const pageRows = await this.request<Array<Record<string, unknown>>>(`${path}${separator}page=${page}`, config)
+      // 204 No Content means "nothing here"; any other non-array body is a
+      // gateway answering with an error envelope. Both used to be spread
+      // blindly, which either threw "pageRows is not iterable" or silently
+      // produced an empty list — the "0 分支" report the user saw.
+      if (pageRows === null || pageRows === undefined) break
+      if (!Array.isArray(pageRows)) {
+        throw new Error(`远程仓库 API 返回了非列表数据（${path}，第 ${page} 页），已中止本次扫描以免误报 0 个分支。`)
+      }
       rows.push(...pageRows)
       if (pageRows.length < 100) break
     }

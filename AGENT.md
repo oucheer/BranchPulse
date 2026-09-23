@@ -136,6 +136,7 @@
 - 「地址加进去了、分支是 0」必须有明确反馈：`request()` 失败时的错误信息要带 HTTP 状态与上游 `message`（`apiErrorDetail()`），`monitoring.ts` 收集每仓失败原因写进 `scan_runs.error`（`A: 原因 | B: 原因`），部分失败时状态是 `completed`、全失败才是 `failed`；前端用 `describeScanRun()` 与检查页 toast 展示。**不要**让失败静默变成「0 个分支」。
 - 分支级容错是内网可用性的前提：`scanGitLabRepository()`（`electron/services/branch.ts`）逐批分析分支时必须用 `Promise.allSettled`，单个分支的 commits / compare 失败只跳过该分支并 `progress()` 报「N 个分支分析失败」；**禁止**退回 `Promise.all`——批内一个分支抖动就会 reject 整批，整个仓库被记成扫描失败并显示 0 分支（实测内网多仓时表现为「有的仓库有分支、有的为 0」）。全部分支都失败才抛错（带前 3 个原因），交给 `failures` 机制记录。
 - 监控门控同样逐仓读取：`runCheckNow()` 里每仓的 `fetch_enabled` / `notification_enabled` 由自己那行决定，`notify_target` / `email_policy` 取所选仓库的并集（一封汇总邮件要覆盖多仓），阈值提示在多仓阈值不一致时逐仓列出。**不要**再拿 `targets[0]` 的行去代表全部仓库。
+- 请求层兜底（`electron/services/gitlab.ts`）：`request()` 对 `408/429/5xx` 与网络异常重试 `MAX_TRANSIENT_RETRIES = 2` 次（`isTransientStatus()`），每次请求带 `AbortSignal.timeout(REQUEST_TIMEOUT_MS = 30s)`；4xx 是真实答案，**不重试**。重试耗尽后抛出的 message 必须仍带 forge 的 `message`（用 `lastBody`/`lastDetail` 保存上一次读到的 body，因为 Response body 只能读一次）。`paginate()` 遇到非数组响应要**抛错**（带 path 与页码），只有 `null`/`undefined` 才视作「没有内容」——静默返回空列表就是用户看到的「某些仓库 0 分支」。
 
 ## Git 工作流
 
