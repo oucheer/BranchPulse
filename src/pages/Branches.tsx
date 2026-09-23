@@ -66,7 +66,9 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
   const zh = language === 'zh'
   const cat = branchCategory(b.name)
   const sc = stateColor(b.state)
-  const creatorName = b.creator.name && b.creator.name !== 'Unknown' ? b.creator.name : ''
+  const creatorName = b.creator.name && b.creator.name !== 'Unknown'
+    ? b.creator.name
+    : (zh ? '未能从远程获取' : 'Unavailable from remote')
   return (
     <div
       className={`group ${ROW_GRID} cursor-pointer border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
@@ -92,9 +94,11 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
       </span>
       <span
         className="min-w-0 truncate text-[10px] text-canvas-fg"
-        title={creatorName || (zh ? '未找到分支创始人' : 'Branch creator unavailable')}
+        title={b.creator.confidence === 'low'
+          ? (zh ? '根据分支提交作者推断，需核实' : 'Inferred from branch commit author; verify')
+          : creatorName}
       >
-        {creatorName || '—'}
+        {creatorName}
       </span>
       <span className="truncate text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
       <span className="tabular-nums text-muted">{b.inactiveDays}d</span>
@@ -156,8 +160,8 @@ function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
     { label: zh ? '类别' : 'Category', value: cat.label },
     { label: zh ? '状态' : 'Status', value: stateLabel(b.state, language) },
     { label: zh ? '健康度' : 'Health', value: `${b.health.score} / 100` },
-    { label: zh ? '分支创始人' : 'Creator', value: b.creator.name === 'Unknown' ? '—' : b.creator.name || '—' },
-    { label: zh ? '分支创始人邮箱' : 'Creator email', value: b.creator.email || '—' },
+    { label: zh ? '分支创始人' : 'Creator', value: b.creator.name === 'Unknown' ? (zh ? '未能从远程获取' : 'Unavailable from remote') : b.creator.name },
+    { label: zh ? '分支创始人邮箱' : 'Creator email', value: b.creator.email || (zh ? '未公开' : 'Not public') },
     { label: zh ? '最后提交' : 'Last commit', value: formatDateTime(b.lastCommitAt) },
     { label: zh ? '最后提交哈希' : 'Commit SHA', value: b.lastCommitSha ? b.lastCommitSha.slice(0, 8) : '—' },
     { label: zh ? '最近提交人' : 'Last author', value: b.lastAuthor || '—' },

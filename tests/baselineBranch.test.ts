@@ -163,6 +163,21 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('unknown')
   })
 
+  it('uses the branch tip author when creation events and branch-only commits are unavailable', () => {
+    const { creator } = resolveRemoteCreator(null, null, commit({
+      author_name: '',
+      author_email: '',
+      committer_name: '分支提交者',
+      committer_email: 'committer@example.com'
+    }) as never)
+
+    expect(creator).toMatchObject({
+      name: '分支提交者',
+      email: 'committer@example.com',
+      confidence: 'low'
+    })
+  })
+
   it('prefers the explicit creation event over a later commit author', () => {
     const { creator } = resolveRemoteCreator(commit({ author_email: 'real@example.com' }) as never, {
       name: '王五',

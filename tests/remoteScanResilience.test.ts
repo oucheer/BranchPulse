@@ -243,6 +243,38 @@ describe('intranet branch analysis tolerates a flaky subset', () => {
     expect(rows.map((row) => row.name)).toEqual(['feature/ok', 'main'])
   })
 
+  it('re-analyzes cached remote branches from the previous creator-cache version', async () => {
+    const key = `${REPO_A}|remote|feature/cached`
+    const cached = branchSummary({
+      repositoryId: REPO_A,
+      repositoryName: 'Alpha',
+      name: 'feature/cached',
+      displayName: 'feature/cached',
+      creator: { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' },
+      lastCommitSha: 'feature/cached-tip'
+    })
+    storage.insert('branches', {
+      id: 'cached-branch',
+      key,
+      repository_id: REPO_A,
+      name: 'feature/cached',
+      type: 'remote',
+      data_json: JSON.stringify(cached),
+      last_scanned_at: new Date().toISOString()
+    })
+    storage.insert('branch_snapshots', {
+      key,
+      sha: `v8|feature/cached-tip|unknown|`,
+      updated_at: new Date().toISOString()
+    })
+
+    const result = await branchService(gitlabStub(['feature/cached'], new Set())).scanRepository(REPO_A)
+
+    expect(result[0].creator).toMatchObject({ name: '张三', email: 'zhang@example.com', confidence: 'low' })
+    const row = storage.get<{ data_json: string }>('SELECT data_json FROM branches WHERE key = ?', [key])
+    expect(JSON.parse(row!.data_json).creator.name).toBe('张三')
+  })
+
   it('still fails loudly when every branch fails, so the run records a reason', async () => {
     const gitlab = gitlabStub(['main', 'feature/ok'], new Set(['main', 'feature/ok']))
 

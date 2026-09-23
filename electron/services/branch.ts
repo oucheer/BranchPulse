@@ -36,7 +36,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
  */
 export function resolveRemoteCreator(
   firstOwnCommit: GitLabCommitDto | null,
-  creationEvent: BranchCreatorDto | null
+  creationEvent: BranchCreatorDto | null,
+  branchTip: GitLabCommitDto | null = null
 ): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
   if (creationEvent) {
     return {
@@ -50,12 +51,14 @@ export function resolveRemoteCreator(
       }
     }
   }
-  if (firstOwnCommit && (firstOwnCommit.author_name || firstOwnCommit.author_email)) {
+  const commitCandidate = firstOwnCommit ?? branchTip
+  const candidateName = commitCandidate?.author_name || commitCandidate?.author_email || commitCandidate?.committer_name || commitCandidate?.committer_email
+  if (commitCandidate && candidateName) {
     return {
       creator: {
-        name: firstOwnCommit.author_name || firstOwnCommit.author_email,
-        email: firstOwnCommit.author_email,
-        firstCommitAt: firstOwnCommit.committed_date ?? firstOwnCommit.authored_date ?? firstOwnCommit.created_at ?? null,
+        name: candidateName,
+        email: commitCandidate.author_email || commitCandidate.committer_email,
+        firstCommitAt: commitCandidate.committed_date ?? commitCandidate.authored_date ?? commitCandidate.created_at ?? null,
         confidence: 'low'
       }
     }
@@ -296,10 +299,9 @@ export class BranchService {
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    // v7: only explicit creation events identify creators; rebuild summaries
-    // that may have mislabeled an initial contributor.
+    // v9: rebuild remote summaries so cached unknown creators are analyzed again.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    const cacheContentKey = `v8|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    const cacheContentKey = `v9|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -338,12 +340,18 @@ export class BranchService {
     const ownCommits: GitLabCommitDto[] = branch.name === defaultBranch
       ? []
       : await this.gitlab.compareCommits(projectId, defaultBranch, branch.name, config)
-    const firstOwn = ownCommits[0] ?? null
+    const firstOwn = ownCommits
+      .filter((commit) => commit.author_name || commit.author_email || commit.committer_name || commit.committer_email)
+      .sort((a, b) => {
+        const aTime = new Date(a.committed_date || a.authored_date || a.created_at || 0).getTime()
+        const bTime = new Date(b.committed_date || b.authored_date || b.created_at || 0).getTime()
+        return aTime - bTime
+      })[0] ?? null
     const creatorEvent = branchCreators.get(branch.name) ?? null
 
-    // Use an explicit creation event when available; otherwise show the oldest
-    // branch-only commit author as a provisional creator candidate.
-    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent)
+    // Use explicit ref-creation identity first, then the oldest branch-only
+    // commit author, and finally the branch tip author for older/eventless refs.
+    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
     const oldestFetched = commits.length > 0
