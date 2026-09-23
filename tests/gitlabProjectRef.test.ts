@@ -49,12 +49,13 @@ describe('GitLab project references', () => {
     await svc.compareCommits(7, 'main', 'feature/x', config)
     await svc.listBranchCreators(7, config)
 
-    expect(calls).toEqual([
+    expect(calls.slice(0, 3)).toEqual([
       'http://git.corp.com/api/v4/projects/7/repository/branches?per_page=100&page=1',
       'http://git.corp.com/api/v4/projects/7/repository/commits?ref_name=feature%2Fx&per_page=50&page=2',
-      'http://git.corp.com/api/v4/projects/7/repository/compare?from=main&to=feature%2Fx',
-      'http://git.corp.com/api/v4/projects/7/events?action=pushed&per_page=100&page=1'
+      'http://git.corp.com/api/v4/projects/7/repository/compare?from=main&to=feature%2Fx'
     ])
+    expect(calls).toContain('http://git.corp.com/api/v4/projects/7/events?action=pushed&per_page=100&page=1')
+    expect(calls).toContain('http://git.corp.com/api/v4/projects/7/events?per_page=100&page=1')
     expect(calls.every((url) => url.includes('/projects/7/'))).toBe(true)
     expect(calls.some((url) => url.includes('/projects/group%2Fapp'))).toBe(false)
   })

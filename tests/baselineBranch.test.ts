@@ -119,11 +119,11 @@ describe('resolveRemoteCreator', () => {
     ...overrides
   })
 
-  it('attributes the branch to its first own commit with high confidence', () => {
+  it('does not mistake the first contributor for the branch creator', () => {
     const { creator } = resolveRemoteCreator(commit() as never, null)
-    expect(creator.name).toBe('李四')
-    expect(creator.email).toBe('li@example.com')
-    expect(creator.confidence).toBe('high')
+    expect(creator.name).toBe('Unknown')
+    expect(creator.email).toBe('')
+    expect(creator.confidence).toBe('unknown')
   })
 
   it('uses the forge creation event when the branch has no commits of its own', () => {
@@ -163,7 +163,7 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('unknown')
   })
 
-  it('prefers the first own commit over the creation event, because only the commit carries an email', () => {
+  it('prefers the explicit creation event over a later commit author', () => {
     const { creator } = resolveRemoteCreator(commit({ author_email: 'real@example.com' }) as never, {
       name: '王五',
       email: '',
@@ -171,8 +171,9 @@ describe('resolveRemoteCreator', () => {
       createdAt: null,
       source: 'event'
     })
-    expect(creator.email).toBe('real@example.com')
-    expect(creator.confidence).toBe('high')
+    expect(creator.name).toBe('王五')
+    expect(creator.email).toBe('')
+    expect(creator.confidence).toBe('medium')
   })
 })
 

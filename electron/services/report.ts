@@ -185,7 +185,10 @@ export class ReportService {
     const repos = scope
       .map((id) => this.repositoryService.get(id))
       .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo))
-    const branches = this.branchService.listBranches(scope)
+    const branches = this.branchService.listBranches(scope).map((branch) => ({
+      ...branch,
+      repositoryName: repos.find((repo) => repo.id === branch.repositoryId)?.name ?? branch.repositoryName
+    }))
     const summary = this.buildSummary(branches, repos.length)
     const runs = this.recentRuns(scope)
     const notifications = this.notifications(scope)

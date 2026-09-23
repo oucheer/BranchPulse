@@ -360,7 +360,8 @@ describe('report partitioning', () => {
     // 每个仓库一个独立分区标题，总汇总另算；同名分支不得共享分区。
     expect(html.match(/>仓库：Alpha<\/h2>/g)).toHaveLength(1)
     expect(html.match(/>仓库：Beta<\/h2>/g)).toHaveLength(1)
-    expect(html).toContain('所选仓库总汇总')
+    expect(html).toContain('管理总览')
+    expect(html).toContain('总分支')
   })
 
   it('refuses to generate a report when nothing is selected', async () => {

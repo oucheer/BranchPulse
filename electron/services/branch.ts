@@ -26,30 +26,17 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /**
  * Decide who created a remote branch.
  *
- * Order matters and both fallbacks are deliberate:
- *  1. the branch's first own commit — authoritative and carries an email;
- *  2. the forge's branch-creation event — the only signal for a branch that has
- *     no commits yet (GitLab only), but its `public_email` is often blank;
- *  3. unknown — never the base branch's latest committer. Guessing there sends
- *     creator notifications to an unrelated person.
+ * Only an explicit forge branch-creation event proves who created a branch.
+ * Commit authorship proves contribution, not branch creation, so it must never
+ * be presented as creator attribution.
  *
  * Exported for unit tests; the attribution rules are easy to regress and hard to
  * observe end to end.
  */
 export function resolveRemoteCreator(
-  firstOwnCommit: GitLabCommitDto | null,
+  _firstOwnCommit: GitLabCommitDto | null,
   creationEvent: BranchCreatorDto | null
 ): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
-  if (firstOwnCommit) {
-    return {
-      creator: {
-        name: firstOwnCommit.author_name,
-        email: firstOwnCommit.author_email,
-        firstCommitAt: firstOwnCommit.committed_date ?? firstOwnCommit.authored_date ?? null,
-        confidence: 'high'
-      }
-    }
-  }
   if (creationEvent) {
     return {
       creator: {
@@ -298,9 +285,9 @@ export class BranchService {
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    // v5: the creator email is now looked up from the forge profile, so cached
-    // v4 summaries have to be rebuilt to pick up the resolved address.
-    const cacheContentKey = `v5|${latestCommit?.id ?? ''}|${fp}`
+    // v7: only explicit creation events identify creators; rebuild summaries
+    // that may have mislabeled an initial contributor.
+    const cacheContentKey = `v7|${latestCommit?.id ?? ''}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -328,8 +315,8 @@ export class BranchService {
       }
     }
 
-    // Commits this branch has and the default branch does not. Index 0 is the
-    // branch's first own commit, which is what identifies who started it.
+    // Commits this branch has and the default branch does not. These establish
+    // ahead/merged state, but their authors are not necessarily branch creators.
     //
     // This replaces a previous "subtract the default branch's recent SHAs"
     // heuristic. That heuristic could not tell a branch with no commits apart
@@ -342,10 +329,7 @@ export class BranchService {
     const firstOwn = ownCommits[0] ?? null
     const creatorEvent = branchCreators.get(branch.name) ?? null
 
-    // Prefer the first own commit: it carries a usable author email, which the
-    // forge's branch-creation event often omits. When the branch has no commits
-    // of its own the commit APIs have nothing to report, so fall back to the
-    // creation event (GitLab only). Never fall back to the base branch author.
+    // Only a recorded branch-creation event is a reliable creator signal.
     const { creator } = resolveRemoteCreator(firstOwn, creatorEvent)
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
@@ -410,7 +394,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `v5|${ref.sha}|${fp}`
+    const cacheContentKey = `v7|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {

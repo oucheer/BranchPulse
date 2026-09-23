@@ -717,33 +717,58 @@ export class GitLabService {
     if (provider !== 'gitlab') return creators
     const projectRef = await this.projectRef(projectId, config)
     // Newest first. Events only cover a bounded window, so older branches may
-    // simply not appear; stop early once a page comes back short.
-    for (let page = 1; page <= 5; page += 1) {
-      const qs = new URLSearchParams({ action: 'pushed', per_page: '100', page: String(page) })
-      let rows: Array<Record<string, unknown>>
-      try {
-        rows = await this.request<Array<Record<string, unknown>>>(`/projects/${projectRef}/events?${qs.toString()}`, config)
-      } catch {
-        return creators
+    // simply not appear. Some self-hosted GitLab versions ignore `action` or
+    // expose the author fields in a slightly different shape; query both forms
+    // so a partially filtered result cannot hide creation events for other refs.
+    const eventPages = async (withAction: boolean): Promise<Array<Record<string, unknown>>> => {
+      const collected: Array<Record<string, unknown>> = []
+      for (let page = 1; page <= 20; page += 1) {
+        const qs = new URLSearchParams()
+        if (withAction) qs.set('action', 'pushed')
+        qs.set('per_page', '100')
+        qs.set('page', String(page))
+        const rows = await this.request<Array<Record<string, unknown>>>(`/projects/${projectRef}/events?${qs.toString()}`, config)
+        if (!Array.isArray(rows) || rows.length === 0) break
+        collected.push(...rows)
+        if (rows.length < 100) break
       }
-      if (!Array.isArray(rows) || rows.length === 0) break
-      for (const row of rows) {
+      return collected
+    }
+
+    let rows: Array<Record<string, unknown>> = []
+    try {
+      rows = await eventPages(true)
+    } catch {
+      return creators
+    }
+    const parseEvents = (events: Array<Record<string, unknown>>): void => {
+      for (const row of events) {
         const push = (row.push_data ?? {}) as Record<string, unknown>
-        if (push.action !== 'created' || push.ref_type !== 'branch') continue
+        const action = String(push.action ?? '').toLowerCase()
+        const refType = String(push.ref_type ?? '').toLowerCase()
+        const actionName = String(row.action_name ?? '').toLowerCase()
+        if ((action !== 'created' && actionName !== 'pushed new') || refType !== 'branch') continue
         const branch = String(push.ref ?? '').trim()
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
-        const name = String(author.name ?? '').trim() || String(row.author_username ?? '').trim()
+        const name = String(author.name ?? '').trim()
+          || String(row.author_name ?? '').trim()
+          || String(row.author_username ?? '').trim()
         if (!name) continue
         creators.set(branch, {
           name,
-          email: String(author.public_email ?? '').trim(),
-          username: String(row.author_username ?? '').trim(),
-          createdAt: (row.created_at as string | null) ?? null,
+          email: String(author.public_email ?? author.email ?? row.author_email ?? '').trim(),
+          username: String(author.username ?? row.author_username ?? '').trim(),
+          createdAt: typeof row.created_at === 'string' ? row.created_at : null,
           source: 'event'
         })
       }
-      if (rows.length < 100) break
+    }
+    parseEvents(rows)
+    try {
+      parseEvents(await eventPages(false))
+    } catch {
+      // Event history is supplementary; unavailable fallback pages are ignored.
     }
     const missing = [...creators.values()].filter((creator) => !creator.email && creator.username)
     if (missing.length > 0) {

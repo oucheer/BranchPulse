@@ -8,6 +8,7 @@ import type { GitLabConnectionConfig, GitLabProject } from '@shared/types'
 export default function Repositories(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const branches = useAppStore((s) => s.branches)
+  const [allRepositoryBranches, setAllRepositoryBranches] = useState<typeof branches>([])
   const scanning = useAppStore((s) => s.scanning)
   const setScanning = useAppStore((s) => s.setScanning)
   const toast = useAppStore((s) => s.toast)
@@ -25,6 +26,22 @@ export default function Repositories(): JSX.Element {
   const [gitlabProjects, setGitlabProjects] = useState<GitLabProject[]>([])
   const [gitlabMessage, setGitlabMessage] = useState<string | null>(null)
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (repositories.length === 0) {
+      setAllRepositoryBranches([])
+      return
+    }
+    void window.gitmanager.listBranches(repositories.map((repository) => repository.id)).then((rows) => {
+      if (!cancelled) setAllRepositoryBranches(rows)
+    }).catch(() => {
+      if (!cancelled) setAllRepositoryBranches([])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [repositories, branches])
 
   useEffect(() => {
     if (!gitlabApiKeyTouched) setGitlabApiKey(settings.gitlabApiKey ?? '')
@@ -136,7 +153,7 @@ export default function Repositories(): JSX.Element {
       ) : (
         <div className="space-y-3">
           {repositories.map((repo) => {
-            const repoBranches = branches.filter((b) => b.repositoryId === repo.id)
+            const repoBranches = allRepositoryBranches.filter((b) => b.repositoryId === repo.id)
             return (
               <Card key={repo.id} className="p-4">
                 <div className="flex items-center gap-3">
@@ -163,7 +180,7 @@ export default function Repositories(): JSX.Element {
                       分支
                     </div>
                     <div>
-                      <div className="font-semibold text-canvas-fg">{repoBranches.filter((b) => b.stale).length}</div>
+                      <div className="font-semibold text-canvas-fg">{repo.lastScanAt ? repoBranches.filter((b) => b.stale).length : '—'}</div>
                       已停更
                     </div>
                     <div>

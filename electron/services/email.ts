@@ -557,12 +557,13 @@ export function buildPartitionedReportHtml(
   const overview = `<section style="margin-top:18px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 16px">
     <h2 style="font-size:16px;margin:0 0 10px">${overviewTitle}</h2>
     <div style="display:flex;gap:8px;margin-bottom:12px">${[
-      { value: input.overall.total, label: lang === 'zh' ? '總分支' : 'Branches' },
+      { value: input.overall.total, label: lang === 'zh' ? '总分支' : 'Branches' },
       { value: input.overall.stale, label: lang === 'zh' ? '已停更' : 'Stale', color: '#b42318' },
       { value: input.overall.namingInvalid, label: lang === 'zh' ? '命名不规范' : 'Naming issues', color: '#b54708' },
       { value: input.overall.cleanupCandidates, label: lang === 'zh' ? '清理候选' : 'Cleanup candidates', color: '#c4320a' }
     ].map((item) => `<div style="flex:1;border:1px solid #e2e6ea;border-radius:6px;padding:9px;text-align:center"><strong style="font-size:20px;color:${item.color ?? '#20242a'}">${item.value}</strong><div style="font-size:11px;color:#6b7280">${item.label}</div></div>`).join('')}</div>
     ${overviewTable}${overviewChart}
+    <div style="margin-top:12px">${branchEmailBody(input.overall, lang, 'report').body}</div>
     <p style="font-size:11px;color:#6b7280;margin:8px 0 0">${lang === 'zh' ? `覆盖 ${input.partitions.length} 个勾选仓库；下方为整体图表及逐仓详情。` : `Covers ${input.partitions.length} selected repositories; portfolio charts and repository details follow.`}</p>
   </section>`
   const meta = input.partitions.length
@@ -572,11 +573,6 @@ export function buildPartitionedReportHtml(
     escapeHtml(input.title),
     meta,
     `${overview}
-  <section style="margin-top:24px;border:1px solid #c7d2fe;border-radius:8px;padding:16px 18px;background:#f8faff">
-    <h2 style="font-size:16px;margin:0 0 4px">${lang === 'zh' ? '所选仓库总汇总' : 'Selected repositories summary'}</h2>
-    <div style="color:#6b7280;font-size:12px">${escapeHtml(overall.meta)}</div>
-    ${overall.body}
-  </section>
   <h2 style="font-size:18px;margin:24px 0 8px">${lang === 'zh' ? '仓库详细情况' : 'Repository details'}</h2>
   ${partitionHtml}`,
     lang

@@ -258,6 +258,8 @@ describe('multi-repository report overview', () => {
     expect(html.indexOf('管理总览')).toBeLessThan(html.indexOf('仓库甲'))
     expect(html.indexOf('仓库乙')).toBeGreaterThan(html.indexOf('管理总览'))
     expect(html).toContain('各仓库已停更分支')
+    expect(html.indexOf('总分支')).toBeLessThan(html.indexOf('仓库详细情况'))
+    expect(html.indexOf('已停更占比')).toBeLessThan(html.indexOf('仓库详细情况'))
     expect(html).toContain('仓库详细情况')
   })
 })

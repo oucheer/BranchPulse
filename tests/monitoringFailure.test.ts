@@ -99,3 +99,16 @@ describe('monitoring check with unreachable repositories', () => {
     expect(progress.at(-1)?.summary?.status).toBe('failed')
   })
 })
+
+describe('repository scan email behavior', () => {
+  it('never sends email from the repository scan action', async () => {
+    const { service } = setup(async () => [])
+    const run = await service.runCheckNow({
+      repositoryIds: ['repo-1'],
+      trigger: 'scan_repository',
+      bypassEnabledCheck: true
+    })
+
+    expect(run.emailsSent).toBe(0)
+  })
+})

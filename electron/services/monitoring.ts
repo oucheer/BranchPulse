@@ -153,13 +153,14 @@ export class MonitoringService {
       addActivity(`Scanning ${repo.name}...`)
       this.emitProgress(runId, activity)
       try {
-        const branches = await this.branchService.scanRepository(repo.id, {
+        const scannedBranches = await this.branchService.scanRepository(repo.id, {
           fetch: fetchEnabled,
           progress: (message) => {
             addActivity(message)
             this.emitProgress(runId, activity)
           }
         })
+        const branches = scannedBranches.map((branch) => ({ ...branch, repositoryName: repo.name }))
         allBranches.push(...branches)
         scannedRepos.push(repo)
         addActivity(`${repo.name}: ${branches.length} branches analyzed.`, 'success')
@@ -192,7 +193,9 @@ export class MonitoringService {
     const notifications: NotificationRecord[] = []
     // Notifications follow each repository's own switch: enabling them for one
     // repository must not enable them for every other selected repository.
-    const notifyingRepos = targets.filter((repo) => Number(rowOf(repo.id)?.notification_enabled ?? 1) === 1)
+    const notifyingRepos = options.trigger === 'scan_repository'
+      ? []
+      : targets.filter((repo) => Number(rowOf(repo.id)?.notification_enabled ?? 1) === 1)
     const notifyingIds = new Set(notifyingRepos.map((repo) => repo.id))
     const notifiableBranches = allBranches.filter((branch) => notifyingIds.has(branch.repositoryId))
     if (notifiableBranches.length > 0) {
@@ -223,7 +226,7 @@ export class MonitoringService {
       if (policy.has('creators')) delivery.push('creators')
     }
     const thresholdHint = this.scopedThresholdHint(scannedRepos, rowOf)
-    for (const deliveryKind of delivery) {
+    for (const deliveryKind of options.trigger === 'scan_repository' ? [] : delivery) {
       const emailConfig = this.email.getConfig()
       const groups = this.email.listGroups()
       if (!emailConfig.enabled) {
