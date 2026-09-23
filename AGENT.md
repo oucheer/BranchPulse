@@ -125,7 +125,8 @@
 - 分支「自有提交」用 `compareCommits(projectId, defaultBranch, branchName)` 获取，**索引 0 就是分支第一个自有提交**（GitHub `/compare/base...head` 与 GitLab `/repository/compare?from=&to=` 都是 oldest-first）。不要退回本地差集启发式：差集分不清「分支没有提交」和「基准分支提交超出抓取窗口」两种情况。
 - GitLab 的 `/projects/:id/events?action=pushed` 是**唯一**能查到「无提交分支的创建人」的接口：`push_data.action === "created" && push_data.ref_type === "branch"`，`commit_count` 可以是 0。GitHub REST **没有**等价端点（`CreateEvent` 不出现在 `/repos/:o/:r/events`，实测 3 个仓库 100 条事件为 0 条），所以 `listBranchCreators()` 对非 GitLab 直接返回空 Map 且**不发请求**。
 - GitLab 事件的三个已知限制，不要当成 bug：① `author.public_email` 经常为空（实测 8 个创建者里 7 个为空）；② 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；③ 一次扫描只请求一次，不要按分支循环调 events。
-- 归因语义变更时必须同时 bump 分支缓存 key（`v3` → `v4`，`electron/services/branch.ts` 的 `cacheContentKey`），否则库里旧快照会继续返回错误创始人。
+- 归因语义变更时必须同时 bump 分支缓存 key（当前 `v5`，`electron/services/branch.ts` 的 `cacheContentKey`；历史是 `v3` → `v4` → `v5`），否则库里旧快照会继续返回错误创始人。
+- 事件里的作者常常没有邮箱，`resolveUserEmails()`（`electron/services/gitlab.ts`）用 `/users?username=` 补：优先 `public_email`、退回账号 `email`，结果进进程级 `userEmailCache`（key 为 `<host>|<username>`，空串表示「查过了，没有公开地址」，避免每次扫描重查）。每个用户名一次请求，上限 `MAX_CREATOR_EMAIL_LOOKUPS = 50`；单次查询失败 `continue` 降级成「无地址」，**不得**让扫描失败。
 
 ## 内网与子路径远程仓库扫描
 
@@ -133,6 +134,8 @@
 - GitLab 的 `CLOUD_ROOTS`（`gitlab.com`、`www.gitlab.com`）不附加路径前缀；其它主机的单段路径会被当实例前缀（`segments.length === 1 && !CLOUD_ROOTS.has(hostname)`）。`projectSegments()` / `isNamedProjectUrl()` 负责剪掉已经属于项目路径的段，避免把 `group/project` 又拼一次前缀。
 - GitLab 的 project ref 必须用**数字 id**（`projectRef()` 返回 `String(projectId)`）。把 `group/project` 做 `encodeURIComponent` 后当 ref 用，会被内网反代直接 500；GitHub/Gitee 才走 `projectPath()`。
 - 「地址加进去了、分支是 0」必须有明确反馈：`request()` 失败时的错误信息要带 HTTP 状态与上游 `message`（`apiErrorDetail()`），`monitoring.ts` 收集每仓失败原因写进 `scan_runs.error`（`A: 原因 | B: 原因`），部分失败时状态是 `completed`、全失败才是 `failed`；前端用 `describeScanRun()` 与检查页 toast 展示。**不要**让失败静默变成「0 个分支」。
+- 分支级容错是内网可用性的前提：`scanGitLabRepository()`（`electron/services/branch.ts`）逐批分析分支时必须用 `Promise.allSettled`，单个分支的 commits / compare 失败只跳过该分支并 `progress()` 报「N 个分支分析失败」；**禁止**退回 `Promise.all`——批内一个分支抖动就会 reject 整批，整个仓库被记成扫描失败并显示 0 分支（实测内网多仓时表现为「有的仓库有分支、有的为 0」）。全部分支都失败才抛错（带前 3 个原因），交给 `failures` 机制记录。
+- 监控门控同样逐仓读取：`runCheckNow()` 里每仓的 `fetch_enabled` / `notification_enabled` 由自己那行决定，`notify_target` / `email_policy` 取所选仓库的并集（一封汇总邮件要覆盖多仓），阈值提示在多仓阈值不一致时逐仓列出。**不要**再拿 `targets[0]` 的行去代表全部仓库。
 
 ## Git 工作流
 

@@ -211,14 +211,37 @@ export class BranchService {
     // created each branch. Empty for providers without that event stream.
     const branchCreators = await this.gitlab.listBranchCreators(projectId, remoteConfig)
     const analyzed: BranchSummary[] = []
+    const failedBranches: Array<{ name: string; reason: string }> = []
     const batchSize = 6
     for (let i = 0; i < branches.length; i += batchSize) {
       const batch = branches.slice(i, i + batchSize)
-      const results = await Promise.all(
+      // One flaky branch (a proxy hiccup, a 429, a slow compare) must never turn
+      // the whole repository into "0 branches": settle every branch in the batch
+      // and keep the ones that succeeded. This is the difference between an
+      // intranet instance with a few shaky branches and a repository that looks
+      // unreachable even though its branches are readable.
+      const results = await Promise.allSettled(
         batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, branchCreators, monitoring, fp, remoteConfig))
       )
-      analyzed.push(...results)
+      results.forEach((entry, index) => {
+        if (entry.status === 'fulfilled') {
+          analyzed.push(entry.value)
+          return
+        }
+        const reason = entry.reason instanceof Error ? entry.reason.message : String(entry.reason)
+        failedBranches.push({ name: batch[index].name, reason })
+      })
       progress(`Analyzed ${Math.min(i + batchSize, branches.length)} of ${branches.length} branches...`)
+    }
+    if (failedBranches.length > 0) {
+      const sample = failedBranches.slice(0, 3).map((item) => `${item.name}（${item.reason}）`).join('；')
+      progress(`${failedBranches.length} 个分支分析失败，已跳过：${sample}`)
+    }
+    // Every branch failing means the forge was unreachable for this repository,
+    // not that the repository is empty — report it so the run records a reason.
+    if (analyzed.length === 0 && branches.length > 0) {
+      const sample = failedBranches.slice(0, 3).map((item) => `${item.name}（${item.reason}）`).join('；')
+      throw new Error(`${branches.length} 个分支全部分析失败：${sample}`)
     }
 
     this.storage.transaction(() => {
