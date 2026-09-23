@@ -45,6 +45,7 @@ export default function Reports(): JSX.Element {
   const [generating, setGenerating] = useState(false)
   const [bulkRecipients, setBulkRecipients] = useState('self')
   const [sendingAll, setSendingAll] = useState(false)
+  const [reportMode, setReportMode] = useState<'send' | 'schedule'>('send')
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
   const noSelection = selectedRepositoryIds.length === 0
@@ -115,6 +116,7 @@ export default function Reports(): JSX.Element {
     try {
       await window.gitmanager.saveReportSchedule({
         ...draft,
+        recipients: bulkRecipients,
         // 保存创建/编辑时的仓库快照；之后修改全局勾选不会改变该任务范围。
         repositoryIds: [...draftRepositoryIds],
         enabled: true,
@@ -215,7 +217,18 @@ export default function Reports(): JSX.Element {
       </Card>
 
       <Card className="p-4">
-        <div className="mb-1 text-sm font-semibold text-canvas-fg">发送勾选仓库汇总</div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-canvas-fg">报告邮件</div>
+          <div className="inline-flex rounded-md border border-line p-0.5" role="tablist" aria-label="报告邮件模式">
+            <button type="button" role="tab" aria-selected={reportMode === 'send'} className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${reportMode === 'send' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`} onClick={() => setReportMode('send')}>
+              <Send size={13} /> 立即发送
+            </button>
+            <button type="button" role="tab" aria-selected={reportMode === 'schedule'} className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${reportMode === 'schedule' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`} onClick={() => setReportMode('schedule')}>
+              <CalendarClock size={14} /> 定时发送
+            </button>
+          </div>
+        </div>
+        {reportMode === 'send' ? <>
         <div className="mb-3 text-xs text-muted">
           对当前勾选的仓库生成一份按仓库分区的分支汇总，并通过邮件一次发送；仓库较多时无需逐个发送。
           勾选「通知分支创始人」后，范围内需要处理分支的创始人会加入同一封邮件的密送，而不是逐人逐封发送。
@@ -245,12 +258,8 @@ export default function Reports(): JSX.Element {
         </div>
         {emailDisabled ? <div className="mt-2 text-xs text-warn">邮件发送未启用，请先在设置中配置邮箱。</div> : null}
         {noSelection ? <div className="mt-2 text-xs text-warn">未选择仓库：请先在仓库页勾选要汇总的仓库。</div> : null}
-      </Card>
+        </> : <>
 
-      <Card className="p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-          <CalendarClock size={15} className="text-primary" /> 定时发送报告
-        </div>
         <div className="mb-3 rounded-md border border-line bg-surface/60 p-3 text-xs leading-relaxed text-muted">
           新建定时报告时默认采用当前勾选的仓库（{noSelection ? '当前未选择仓库' : repositoryNames(selectedRepositoryIds)}），
           并保存为任务快照；之后调整全局勾选不会改变已有任务的范围。
@@ -277,8 +286,8 @@ export default function Reports(): JSX.Element {
           </div>
           <div className="lg:col-span-4">
             <RecipientPicker
-              value={draft.recipients}
-              onChange={(value) => setDraft({ ...draft, recipients: value })}
+              value={bulkRecipients}
+              onChange={(value) => setBulkRecipients(value)}
               groups={emailGroups}
               selfEmail={emailConfig?.selfEmail ?? ''}
               disabled={emailDisabled}
@@ -355,6 +364,7 @@ export default function Reports(): JSX.Element {
           <Plus size={14} /> 保存定时任务
         </button>
         <div className="mt-2 text-xs text-muted">{frequencyHint(draft.frequency)}</div>
+        </>}
 
         {reportSchedules.length > 0 ? (
           <div className="mt-4 space-y-2">

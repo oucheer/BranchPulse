@@ -17,9 +17,9 @@ type IssueFilter = '' | 'stale' | 'invalid'
 // The header row and every branch row share this exact column template, so the
 // values under 分支创始人 / 类别 / 未提交 / 健康分 line up instead of drifting with
 // the width of the neighbouring cell. Columns: checkbox · state dot · branch
-// name · creator · category · idle days · health · protected · actions.
+// name · creator/email · category · idle days · health · protected · actions.
 const ROW_GRID =
-  'grid grid-cols-[0.875rem_0.375rem_minmax(0,1fr)_6rem_4.5rem_4rem_2.75rem_2.5rem_6.75rem] items-center gap-2'
+  'grid grid-cols-[0.875rem_0.375rem_minmax(0,1fr)_minmax(6rem,9rem)_4.5rem_4rem_2.75rem_2.5rem_6.75rem] items-center gap-2'
 
 function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): boolean {
   if (issue === 'stale') return branch.stale
@@ -91,10 +91,11 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
         {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
       </span>
       <span
-        className="truncate text-[10px] text-muted"
-        title={[zh ? '分支创始人' : 'Branch creator', creatorName, b.creator.email].filter(Boolean).join(' · ')}
+        className="flex min-w-0 flex-col truncate text-[10px] leading-4 text-muted"
+        title={[zh ? '分支创始人' : 'Branch creator', creatorName || '—', b.creator.email || (zh ? '邮箱未知' : 'Email unavailable')].join(' · ')}
       >
-        {creatorName || '—'}
+        <span className="truncate text-canvas-fg">{creatorName || '—'}</span>
+        <span className="truncate font-mono">{b.creator.email || (zh ? '邮箱未知' : 'Email unavailable')}</span>
       </span>
       <span className="truncate text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
       <span className="tabular-nums text-muted">{b.inactiveDays}d</span>
@@ -686,7 +687,7 @@ export default function Branches(): JSX.Element {
               <span aria-hidden="true" />
               <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
               <span className="truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
-              <span className="truncate text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
+              <span className="truncate text-[10px]" title={zh ? '分支创始人和邮箱' : 'Branch creator and email'}>{zh ? '创始人 / 邮箱' : 'Creator / Email'}</span>
               <span className="truncate text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
               <span className="truncate text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
               <span className="truncate text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>

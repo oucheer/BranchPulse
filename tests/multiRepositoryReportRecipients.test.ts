@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuditService } from '../electron/services/audit'
-import { collectCreatorAddresses, creatorNotificationSection, type EmailIssueRow } from '../electron/services/email'
+import { buildPartitionedReportHtml, collectCreatorAddresses, creatorNotificationSection, type EmailIssueRow } from '../electron/services/email'
 import type { EmailService } from '../electron/services/email'
 import type { ReportService } from '../electron/services/report'
 import type { StorageService } from '../electron/services/storage'
@@ -223,5 +223,41 @@ describe('creatorNotificationSection', () => {
 
   it('renders nothing when there is no creator notification at all', () => {
     expect(creatorNotificationSection([], [], 'zh')).toBe('')
+  })
+})
+
+describe('multi-repository report overview', () => {
+  it('puts the portfolio overview and per-repository comparison before detailed sections', () => {
+    const html = buildPartitionedReportHtml({
+      title: '勾选仓库报告',
+      generatedAt: '2026-09-23T00:00:00.000Z',
+      partitions: [
+        {
+          repositoryId: 'repo-a',
+          repositoryName: '仓库甲',
+          data: {
+            total: 8, stale: 2, namingInvalid: 1, merged: 0, cleanupCandidates: 1,
+            repositories: 1, generatedAt: '2026-09-23T00:00:00.000Z', branches: []
+          }
+        },
+        {
+          repositoryId: 'repo-b',
+          repositoryName: '仓库乙',
+          data: {
+            total: 4, stale: 1, namingInvalid: 0, merged: 0, cleanupCandidates: 1,
+            repositories: 1, generatedAt: '2026-09-23T00:00:00.000Z', branches: []
+          }
+        }
+      ],
+      overall: {
+        total: 12, stale: 3, namingInvalid: 1, merged: 0, cleanupCandidates: 2,
+        repositories: 2, generatedAt: '2026-09-23T00:00:00.000Z', branches: []
+      }
+    }, 'zh')
+
+    expect(html.indexOf('管理总览')).toBeLessThan(html.indexOf('仓库甲'))
+    expect(html.indexOf('仓库乙')).toBeGreaterThan(html.indexOf('管理总览'))
+    expect(html).toContain('各仓库已停更分支')
+    expect(html).toContain('仓库详细情况')
   })
 })

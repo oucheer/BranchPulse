@@ -1,4 +1,5 @@
-import { Mail, UserRound } from 'lucide-react'
+import { ChevronDown, Mail, UserRound } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Toggle } from './ui'
 import type { EmailGroup, NotifyTarget } from '@shared/types'
 import { applyRecipientDraft, resolveRecipientDisplay, splitRecipientTokens } from '../lib/recipients'
@@ -30,6 +31,8 @@ export default function RecipientPicker({
   manualPlaceholder = 'you@example.com, team@example.com',
   rows = 4
 }: RecipientPickerProps): JSX.Element {
+  const [groupsOpen, setGroupsOpen] = useState(false)
+  const groupsRef = useRef<HTMLDivElement | null>(null)
   const tokens = splitRecipientTokens(value)
   const self = tokens.some((token) => ['self', 'both'].includes(token.toLowerCase()))
   const creator = tokens.some((token) => ['creator', 'both'].includes(token.toLowerCase()))
@@ -65,6 +68,14 @@ export default function RecipientPicker({
   }
 
   const readOnly = selectedGroups.length > 0
+  useEffect(() => {
+    if (!groupsOpen) return
+    const closeOnOutside = (event: MouseEvent): void => {
+      if (groupsRef.current && !groupsRef.current.contains(event.target as Node)) setGroupsOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    return () => document.removeEventListener('mousedown', closeOnOutside)
+  }, [groupsOpen])
   const displayRecipients = readOnly
     ? resolveRecipientDisplay(value, groups, self ? selfEmail : '')
     : manualRecipients
@@ -87,27 +98,43 @@ export default function RecipientPicker({
         }}
       />
       {groups.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-line px-3 py-2">
-          <span className="text-xs text-muted">邮箱分组（可多选）</span>
-          {groups.map((group) => {
-            const lower = group.name.trim().toLowerCase()
-            const checked = selectedGroups.some((token) => token.toLowerCase() === lower)
-            return (
-              <label key={group.id} className="flex cursor-pointer items-center gap-1.5 text-sm text-canvas-fg">
-                <input
-                  type="checkbox"
-                  className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
-                  checked={checked}
-                  onChange={(event) => toggleGroup(group.name, event.target.checked)}
-                />
-                {group.name}
-              </label>
-            )
-          })}
-          {readOnly ? (
-            <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>
-              清除分组
-            </button>
+        <div className="relative max-w-md" ref={groupsRef}>
+          <button
+            type="button"
+            className="input flex min-h-10 w-full items-center justify-between gap-3 text-left"
+            aria-expanded={groupsOpen}
+            disabled={disabled}
+            onClick={() => setGroupsOpen((open) => !open)}
+          >
+            <span className="min-w-0 truncate text-sm">
+              <span className="text-muted">邮箱分组（可多选）</span>
+              {selectedGroups.length ? <span className="ml-2 text-canvas-fg">{selectedGroups.join('、')}</span> : <span className="ml-2 text-muted">未选择</span>}
+            </span>
+            <ChevronDown size={14} className={`shrink-0 text-muted transition-transform ${groupsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {groupsOpen ? (
+            <div className="absolute left-0 top-full z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-line bg-surface p-1 shadow-panel">
+              {groups.map((group) => {
+                const lower = group.name.trim().toLowerCase()
+                const checked = selectedGroups.some((token) => token.toLowerCase() === lower)
+                return (
+                  <label key={group.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-canvas-fg hover:bg-line/30">
+                    <input
+                      type="checkbox"
+                      className="no-specular h-3.5 w-3.5 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
+                      checked={checked}
+                      onChange={(event) => toggleGroup(group.name, event.target.checked)}
+                    />
+                    <span className="truncate">{group.name}</span>
+                  </label>
+                )
+              })}
+              {readOnly ? (
+                <button className="w-full border-t border-line px-2 py-2 text-left text-xs text-muted hover:text-canvas-fg" type="button" onClick={() => apply({ groupTokens: [] })}>
+                  清除已选分组
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
