@@ -127,7 +127,7 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('low')
   })
 
-  it('uses the forge creation event when the branch has no commits of its own', () => {
+  it('uses the forge creation event when the branch has no commit author', () => {
     const { creator } = resolveRemoteCreator(null, {
       name: '王五',
       email: 'wang@example.com',
@@ -163,22 +163,7 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('unknown')
   })
 
-  it('uses the branch tip author when creation events and branch-only commits are unavailable', () => {
-    const { creator } = resolveRemoteCreator(null, null, commit({
-      author_name: '',
-      author_email: '',
-      committer_name: '分支提交者',
-      committer_email: 'committer@example.com'
-    }) as never)
-
-    expect(creator).toMatchObject({
-      name: '分支提交者',
-      email: 'committer@example.com',
-      confidence: 'low'
-    })
-  })
-
-  it('prefers the explicit creation event over a later commit author', () => {
+  it('prefers the main-branch commit-first attribution rule over a creation event', () => {
     const { creator } = resolveRemoteCreator(commit({ author_email: 'real@example.com' }) as never, {
       name: '王五',
       email: '',
@@ -186,9 +171,27 @@ describe('resolveRemoteCreator', () => {
       createdAt: null,
       source: 'event'
     })
+    expect(creator.name).toBe('李四')
+    expect(creator.email).toBe('real@example.com')
+    expect(creator.confidence).toBe('low')
+  })
+
+  it('uses the creation event when the unique commit has no identity', () => {
+    const { creator } = resolveRemoteCreator(null, {
+      name: '王五',
+      email: '',
+      username: 'wangwu',
+      createdAt: null,
+      source: 'event'
+    })
+
     expect(creator.name).toBe('王五')
-    expect(creator.email).toBe('')
     expect(creator.confidence).toBe('medium')
+  })
+
+  it('never attributes the base branch tip to a branch without its own commit or creation event', () => {
+    const { creator } = resolveRemoteCreator(null, null)
+    expect(creator).toMatchObject({ name: 'Unknown', confidence: 'unknown' })
   })
 })
 

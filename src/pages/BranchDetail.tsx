@@ -96,7 +96,7 @@ export default function BranchDetail(): JSX.Element {
           <div className="space-y-3 text-sm">
             <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('creator')}</span>
-              <span className="flex items-center gap-1.5 text-canvas-fg"><User size={13} /> {branch.creator.name === 'Unknown' ? '未知' : branch.creator.name}</span>
+              <span className="flex items-center gap-1.5 text-canvas-fg"><User size={13} /> {branch.creator.name === 'Unknown' ? '未能从远程获取' : branch.creator.confidence === 'low' ? `${branch.creator.name}（推断）` : branch.creator.name}</span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-muted">分支创始人邮箱</span>
@@ -126,7 +126,12 @@ export default function BranchDetail(): JSX.Element {
             </div>
             {branch.creator.confidence === 'unknown' ? (
               <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
-                该分支还没有自己的提交，且远程平台未提供分支创建记录（GitHub 不提供），因此无法确定分支创始人，也不会发送创始人邮件。
+                远程平台没有提供可确认的创始人信息，因此无法确定真实创始人。
+              </div>
+            ) : null}
+            {branch.creator.confidence === 'low' ? (
+              <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
+                未找到可确认创始人的远程记录，此姓名根据分支提交作者推断，可能不是创建分支的人。
               </div>
             ) : null}
             {branch.creator.confidence === 'medium' && !branch.creator.email ? (

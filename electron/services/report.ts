@@ -307,7 +307,7 @@ export class ReportService {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     if (format === 'csv') {
       const header = [
-        'repository', 'branch', 'type', 'state', 'inactive_days', 'age_days', 'last_commit', 'creator',
+        'repository', 'branch', 'type', 'state', 'inactive_days', 'age_days', 'last_commit', 'creator', 'last_author', 'creator_review_note',
         'ahead', 'behind', 'merged', 'naming', 'health', 'whitelisted', 'default', 'protected', 'cleanup_candidate'
       ]
       const esc = (v: unknown): string => `"${String(v ?? '').replace(/"/g, '""')}"`
@@ -316,6 +316,10 @@ export class ReportService {
         lines.push(
           [
             b.repositoryName, b.name, b.type, b.state, b.inactiveDays, b.ageDays, b.lastCommitAt, b.creator.name,
+            b.lastAuthor,
+            b.creator.name && b.creator.name !== 'Unknown'
+              ? ''
+              : `无法找到该分支创始人，最后提交人是${b.lastAuthor || '未获取'}，请其确认该分支情况`,
             b.ahead, b.behind, b.merged, b.naming.status, b.health.score,
             b.protection.whitelisted, b.protection.isDefault, b.protection.protected, b.cleanupCandidate
           ]

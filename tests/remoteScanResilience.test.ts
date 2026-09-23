@@ -26,6 +26,7 @@ import { StorageService } from '../electron/services/storage'
 
 const REPO_A = 'repo-alpha'
 const REPO_B = 'repo-beta'
+const REPO_CREATOR_TEST = 'repo-creator-test'
 
 let workDir: string
 let storage: StorageService
@@ -50,13 +51,13 @@ function repository(id: string, name: string): Repository {
   }
 }
 
-function repositoryService(update = vi.fn()): {
+function repositoryService(repositoryId = REPO_A, update = vi.fn()): {
   list: () => Repository[]
   get: (id: string) => Repository | undefined
   getRemoteToken: () => string
   update: typeof update
 } {
-  const repos = [repository(REPO_A, 'Alpha'), repository(REPO_B, 'Beta')]
+  const repos = [repository(REPO_A, 'Alpha'), repository(REPO_B, 'Beta'), repository(REPO_CREATOR_TEST, 'Creator Test')]
   return {
     list: () => repos,
     get: (id: string) => repos.find((repo) => repo.id === id),
@@ -137,11 +138,11 @@ function gitlabStub(branchNames: string[], failing: Set<string>): {
   }
 }
 
-function branchService(gitlab: ReturnType<typeof gitlabStub>): BranchService {
+function branchService(gitlab: ReturnType<typeof gitlabStub>, repositoryId = REPO_A): BranchService {
   return new BranchService(
     storage,
     {} as never,
-    repositoryService() as never,
+    repositoryService(repositoryId) as never,
     gitlab as never,
     new NamingService(storage),
     new ProtectionService(storage),
@@ -198,7 +199,7 @@ beforeAll(async () => {
   process.env.GITMANAGER_DATA_DIR = workDir
   storage = new StorageService(path.join(workDir, 'resilience.db'))
   await storage.init()
-  for (const repo of [repository(REPO_A, 'Alpha'), repository(REPO_B, 'Beta')]) {
+  for (const repo of [repository(REPO_A, 'Alpha'), repository(REPO_B, 'Beta'), repository(REPO_CREATOR_TEST, 'Creator Test')]) {
     storage.insert('repositories', {
       id: repo.id,
       name: repo.name,
@@ -221,6 +222,35 @@ afterAll(() => {
 })
 
 describe('intranet branch analysis tolerates a flaky subset', () => {
+  it('persists the remote author as an inferred creator when forge events are unavailable', async () => {
+    const gitlab = gitlabStub(['main', 'feature/known'], new Set())
+    gitlab.listCommits = async (_projectId, ref) => [
+      { ...remoteCommit(`${ref}-tip`, 10), author_name: '', author_email: '', author_login: 'remote-account' }
+    ]
+    gitlab.compareCommits = async (_projectId, _base, ref) => [
+      { ...remoteCommit(`${ref}-first`, 30), author_name: '', author_email: '', author_login: 'remote-account' }
+    ]
+
+    const service = branchService(gitlab, REPO_CREATOR_TEST)
+    const result = await service.scanRepository(REPO_CREATOR_TEST)
+    expect(result.find((branch) => branch.name === 'feature/known')?.creator).toMatchObject({
+      name: 'remote-account',
+      confidence: 'low'
+    })
+    expect(result.find((branch) => branch.name === 'main')?.creator).toMatchObject({
+      name: 'remote-account',
+      confidence: 'low'
+    })
+
+    const stored = storage.get<{ data_json: string }>(
+      'SELECT data_json FROM branches WHERE key = ?',
+      [`${REPO_CREATOR_TEST}|remote|feature/known`]
+    )
+    expect(JSON.parse(stored!.data_json).creator.name).toBe('remote-account')
+    expect(service.listBranches([REPO_CREATOR_TEST]).find((branch) => branch.name === 'feature/known')?.creator.name)
+      .toBe('remote-account')
+  })
+
   it('keeps the branches that analyzed successfully when one branch fails', async () => {
     const gitlab = gitlabStub(['main', 'feature/ok', 'feature/flaky'], new Set(['feature/flaky']))
     const progress: string[] = []

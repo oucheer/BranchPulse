@@ -88,9 +88,11 @@ describe('GitLabService.compareCommits', () => {
         ahead_by: 1,
         commits: [
           {
-            sha: 'ghfirst1',
-            html_url: 'https://github.com/x/y/commit/ghfirst1',
-            commit: {
+          sha: 'ghfirst1',
+          html_url: 'https://github.com/x/y/commit/ghfirst1',
+          author: { login: 'branch-author' },
+          committer: { login: 'branch-committer' },
+          commit: {
               message: 'feat: first',
               author: { name: 'GH Author', email: 'gh@example.com', date: '2026-01-05T00:00:00Z' }
             }
@@ -108,6 +110,8 @@ describe('GitLabService.compareCommits', () => {
     expect(result).toHaveLength(1)
     expect(result[0].author_name).toBe('GH Author')
     expect(result[0].author_email).toBe('gh@example.com')
+    expect(result[0].author_login).toBe('branch-author')
+    expect(result[0].committer_login).toBe('branch-committer')
   })
 })
 

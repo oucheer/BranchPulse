@@ -67,6 +67,8 @@ export interface BranchSummary {
   lastCommitAt: string | null
   lastCommitSha: string
   lastAuthor: string
+  /** Email of the tip commit author, used only as a notification fallback when creator is unknown. */
+  lastAuthorEmail?: string
   commitCount: number
   ahead: number
   behind: number

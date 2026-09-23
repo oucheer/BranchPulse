@@ -13,6 +13,7 @@ const row: EmailIssueRow = {
   branch: 'feature/login/page',
   creator: '张三',
   creatorEmail: 'zhang@example.com',
+  lastAuthor: '李四',
   lastCommitDate: '2026-05-01',
   lastCommitAt: '2026-05-01T00:00:00.000Z',
   inactiveDays: 200,
@@ -121,5 +122,17 @@ describe('branch report attachment layout', () => {
     expect(html).toContain('table-layout:fixed')
     expect(html).toContain('word-break:break-all')
     expect(html).toContain(longBranch)
+  })
+
+  it('shows the last author and asks for confirmation when the creator is unknown', () => {
+    const html = buildBranchEmailHtml(withBranches([{
+      ...row,
+      creator: 'Unknown',
+      creatorEmail: '',
+      lastAuthor: '王五'
+    }]), 'zh', 'report')
+    expect(html).toContain('最后提交人')
+    expect(html).toContain('王五')
+    expect(html).toContain('待确认创始人')
   })
 })

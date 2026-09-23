@@ -68,10 +68,11 @@ interface CreatorRecipients {
   addresses: string[]
   /** 缺少有效邮箱、无法送达的创始人。 */
   missing: string[]
+  fallback: string[]
 }
 
-function toCreatorRecipients(collected: { to: string[]; missing: string[] }): CreatorRecipients {
-  return { addresses: collected.to, missing: collected.missing }
+function toCreatorRecipients(collected: { to: string[]; missing: string[]; fallback?: string[] }): CreatorRecipients {
+  return { addresses: collected.to, missing: collected.missing, fallback: collected.fallback ?? [] }
 }
 
 function coversRepositoryIds(scope: string[], requested: string[]): boolean {
@@ -82,7 +83,7 @@ function coversRepositoryIds(scope: string[], requested: string[]): boolean {
 /** 把「无法送达的创始人」提示拼进结果文案，避免用户以为全部通知都成功了。 */
 function withCreatorNotes(
   message: string,
-  creators: { addresses: string[]; missing: string[] },
+  creators: { addresses: string[]; missing: string[]; fallback?: string[] },
   creatorsAsTo: boolean
 ): string {
   const notes: string[] = []
@@ -94,6 +95,7 @@ function withCreatorNotes(
     )
   }
   if (creators.missing.length > 0) notes.push(`缺少有效邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
+  if (creators.fallback?.length) notes.push(`创始人未找到，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
   return notes.length > 0 ? `${message}（${notes.join('；')}）` : message
 }
 
@@ -106,14 +108,14 @@ const REPORT_FOOTER_MARKER = '<hr style="border:none;border-top:1px solid #e2e6e
  */
 function appendCreatorSection(
   html: string,
-  creators: { addresses: string[]; missing: string[] },
+  creators: { addresses: string[]; missing: string[]; fallback?: string[] },
   storage: StorageService
 ): string {
   // 没有创始人通知时连语言都不必读，避免触碰到不需要的存储调用。
   if (creators.addresses.length === 0 && creators.missing.length === 0) return html
   let section = ''
   try {
-    section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage))
+    section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage), creators.fallback)
   } catch {
     // 邮件正文的附加区块绝不能因为读语言失败而让整封邮件发不出去。
     return html
@@ -322,12 +324,12 @@ export class ReportScheduleService {
   private collectReportCreators(
     recipients: string,
     scope: string[]
-  ): { addresses: string[]; missing: string[] } {
+  ): CreatorRecipients {
     const parsed = parseNotifyTarget(recipients)
-    if (!parsed.creator) return { addresses: [], missing: [] }
+    if (!parsed.creator) return { addresses: [], missing: [], fallback: [] }
     const summary = this.reportService.getSummaryEmailData(scope)
     const creators = collectCreatorAddresses(reportCreatorRows(summary.branches))
-    return { addresses: creators.to, missing: creators.missing }
+    return toCreatorRecipients(creators)
   }
 
   start(): void {
@@ -372,7 +374,7 @@ export class ReportScheduleService {
             ? toCreatorRecipients(
                 collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(schedule.repositoryIds).branches))
               )
-            : { addresses: [] as string[], missing: [] as string[] }
+            : { addresses: [] as string[], missing: [] as string[], fallback: [] as string[] }
           const creatorsAsTo = resolvedRecipients.length === 0
           const recipients = creatorsAsTo ? creators.addresses : resolvedRecipients
 

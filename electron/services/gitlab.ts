@@ -53,6 +53,8 @@ export interface GitLabCommitDto {
   author_email: string
   committer_name: string
   committer_email: string
+  author_login?: string
+  committer_login?: string
   web_url: string
 }
 
@@ -551,8 +553,8 @@ export class GitLabService {
           html_url?: string
           commit?: {
             message?: string
-            author?: { name?: string; email?: string; date?: string }
-            committer?: { name?: string; email?: string; date?: string }
+            author?: { name?: string; email?: string; date?: string; login?: string }
+            committer?: { name?: string; email?: string; date?: string; login?: string }
           },
           parents?: Array<{ sha?: string }>
           _links?: { html?: string }
@@ -580,6 +582,8 @@ export class GitLabService {
             authored_date: authorDate,
             committer_name: String(sourceCommit.commit?.committer?.name ?? ''),
             committer_email: String(sourceCommit.commit?.committer?.email ?? ''),
+            author_login: String((row as Record<string, unknown>).author && ((row.author as Record<string, unknown>).login ?? '') || ''),
+            committer_login: String((row as Record<string, unknown>).committer && ((row.committer as Record<string, unknown>).login ?? '') || ''),
             committed_date: committerDate,
             web_url: String(sourceCommit.html_url ?? '')
           },
@@ -594,8 +598,8 @@ export class GitLabService {
           html_url?: string
           commit?: {
             message?: string
-            author?: { name?: string; email?: string; date?: string }
-            committer?: { name?: string; email?: string; date?: string }
+          author?: { name?: string; email?: string; date?: string; login?: string }
+          committer?: { name?: string; email?: string; date?: string; login?: string }
           }
           parents?: Array<{ sha?: string }>
         })
@@ -622,6 +626,8 @@ export class GitLabService {
             authored_date: authorDate,
             committer_name: String(sourceCommit.commit?.committer?.name ?? ''),
             committer_email: String(sourceCommit.commit?.committer?.email ?? ''),
+            author_login: String((row as Record<string, unknown>).author && ((row.author as Record<string, unknown>).login ?? '') || ''),
+            committer_login: String((row as Record<string, unknown>).committer && ((row.committer as Record<string, unknown>).login ?? '') || ''),
             committed_date: committerDate,
             web_url: String(sourceCommit.html_url ?? '')
           }
@@ -646,6 +652,8 @@ export class GitLabService {
   private mapGitHubCommit(row: Record<string, unknown>): GitLabCommitDto {
     const commit = (row.commit ?? {}) as Record<string, unknown>
     const author = (commit.author ?? {}) as Record<string, unknown>
+    const authorAccount = (row.author ?? {}) as Record<string, unknown>
+    const committerAccount = (row.committer ?? {}) as Record<string, unknown>
     const authorDate = String(author.date ?? '')
     return {
       id: String(row.sha ?? ''),
@@ -659,6 +667,8 @@ export class GitLabService {
       author_email: String(author.email ?? ''),
       committer_name: String(author.name ?? ''),
       committer_email: String(author.email ?? ''),
+      author_login: String(authorAccount.login ?? authorAccount.username ?? ''),
+      committer_login: String(committerAccount.login ?? committerAccount.username ?? ''),
       web_url: String(row.html_url ?? '')
     }
   }

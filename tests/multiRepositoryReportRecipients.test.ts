@@ -102,6 +102,22 @@ function service(options: {
 }
 
 describe('collectCreatorAddresses', () => {
+  it('falls back to the last commit author email when the creator is unknown', () => {
+    const result = collectCreatorAddresses([
+      issueRow({ creator: 'Unknown', creatorEmail: '', lastAuthor: '李四', lastAuthorEmail: 'lisi@example.com' })
+    ])
+    expect(result.to).toEqual(['lisi@example.com'])
+    expect(result.missing).toEqual([])
+  })
+
+  it('reports an unknown creator separately when the last author has no usable email', () => {
+    const result = collectCreatorAddresses([
+      issueRow({ creator: 'Unknown', creatorEmail: '', lastAuthor: '李四', lastAuthorEmail: '' })
+    ])
+    expect(result.to).toEqual([])
+    expect(result.missing).toContain('李四（无法找到创始人）')
+  })
+
   it('deduplicates creators across repositories and reports the ones without a usable address', () => {
     const rows = [
       issueRow({ repository: 'alpha', branch: 'feature/a', creatorEmail: 'zhang@example.com' }),
