@@ -31,11 +31,7 @@ export interface GitLabBranchDto {
   }
 }
 
-/**
- * Who created a branch. Only GitLab's project events expose this: the branch
- * and commit APIs return commits, and a branch created without any commit has
- * no commits of its own to attribute.
- */
+  /** Who created a branch according to a forge ref-creation event. */
 export interface BranchCreatorDto {
   name: string
   email: string
@@ -714,8 +710,49 @@ export class GitLabService {
   ): Promise<Map<string, BranchCreatorDto>> {
     const creators = new Map<string, BranchCreatorDto>()
     const { provider } = this.resolve(config)
-    if (provider !== 'gitlab') return creators
     const projectRef = await this.projectRef(projectId, config)
+    if (provider === 'github') {
+      let events: Array<Record<string, unknown>>
+      try {
+        events = await this.paginate(`/repos/${projectRef}/events?per_page=100`, config)
+      } catch {
+        return creators
+      }
+      const usernames = new Set<string>()
+      for (const event of events) {
+        if (event.type !== 'PushEvent') continue
+        const payload = (event.payload ?? {}) as Record<string, unknown>
+        const ref = String(payload.ref ?? '')
+        if (!ref.startsWith('refs/heads/') || !/^0+$/.test(String(payload.before ?? ''))) continue
+        const branch = ref.slice('refs/heads/'.length)
+        const actor = (event.actor ?? {}) as Record<string, unknown>
+        const username = String(actor.login ?? '').trim()
+        const name = String(actor.name ?? '').trim() || username
+        if (!branch || !name || creators.has(branch)) continue
+        creators.set(branch, {
+          name,
+          email: '',
+          username,
+          createdAt: typeof event.created_at === 'string' ? event.created_at : null,
+          source: 'event'
+        })
+        if (username) usernames.add(username)
+      }
+      await Promise.all([...usernames].map(async (username) => {
+        try {
+          const profile = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(username)}`, config)
+          for (const creator of creators.values()) {
+            if (creator.username !== username) continue
+            creator.name = String(profile.name ?? '').trim() || creator.name
+            creator.email = String(profile.email ?? '').trim()
+          }
+        } catch {
+          // The event actor remains usable when profile access is restricted.
+        }
+      }))
+      return creators
+    }
+    if (provider !== 'gitlab') return creators
     // Newest first. Events only cover a bounded window, so older branches may
     // simply not appear. Some self-hosted GitLab versions ignore `action` or
     // expose the author fields in a slightly different shape; query both forms

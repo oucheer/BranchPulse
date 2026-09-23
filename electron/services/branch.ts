@@ -287,7 +287,8 @@ export class BranchService {
     const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
     // v7: only explicit creation events identify creators; rebuild summaries
     // that may have mislabeled an initial contributor.
-    const cacheContentKey = `v7|${latestCommit?.id ?? ''}|${fp}`
+    const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
+    const cacheContentKey = `v8|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -394,7 +395,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `v7|${ref.sha}|${fp}`
+    const cacheContentKey = `v8|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -658,4 +659,8 @@ export class BranchService {
     }
   }
 
+}
+
+function creatorKeyForCache(creator: BranchCreatorDto | undefined): string {
+  return creator ? `${creator.username}|${creator.name}|${creator.email}|${creator.createdAt ?? ''}` : 'unknown'
 }

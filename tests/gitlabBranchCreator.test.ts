@@ -9,8 +9,7 @@ import { GitLabService } from '../electron/services/gitlab'
  *  - `listBranchCreators` must read branch creation from GitLab project events
  *    (`push_data.action = 'created'`, `ref_type = 'branch'`), including the
  *    `commit_count: 0` case where a branch has no commits at all.
- *  - it must return an empty map for providers without that event stream
- *    (GitHub), so callers fall back to "unknown" instead of guessing.
+ *  - GitHub PushEvents whose `before` SHA is all zeroes identify newly created refs.
  */
 
 const GL_URL = 'https://gitlab.example.com/group/project'
@@ -324,13 +323,32 @@ describe('GitLabService.listBranchCreators', () => {
     expect(userCalls).toBe(1)
   })
 
-  it('returns an empty map for GitHub, which has no branch-creation events', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+  it('reads GitHub branch-creation push events and resolves the actor profile', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/events')) return jsonResponse([
+        {
+          type: 'PushEvent',
+          actor: { login: 'octocat', name: 'Octo Cat' },
+          created_at: '2026-03-04T10:00:00Z',
+          payload: { ref: 'refs/heads/feature/ui', before: '0000000000000000000000000000000000000000' }
+        },
+        {
+          type: 'PushEvent',
+          actor: { login: 'other' },
+          payload: { ref: 'refs/heads/main', before: 'abc123' }
+        }
+      ])
+      if (url.includes('/users/octocat')) return jsonResponse({ name: 'Octocat Person', email: 'octo@example.com' })
+      return jsonResponse({ id: 1, full_name: 'octocat/Hello-World' })
+    })
     const svc = service(GH_URL)
-    const creators = await svc.listBranchCreators(0, { url: GH_URL, apiKey: 't', provider: 'github' })
-    expect(creators.size).toBe(0)
-    // Must not even call the events API for GitHub.
-    expect(fetchSpy).not.toHaveBeenCalled()
+    const creators = await svc.listBranchCreators(1, { url: GH_URL, apiKey: 't', provider: 'github' })
+    expect([...creators.keys()]).toEqual(['feature/ui'])
+    expect(creators.get('feature/ui')).toMatchObject({ name: 'Octocat Person', email: 'octo@example.com', username: 'octocat' })
+    expect(calls.some((url) => url.includes('/repos/octocat/Hello-World/events'))).toBe(true)
   })
 
   it('degrades to an empty map when the events endpoint fails', async () => {
