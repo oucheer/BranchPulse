@@ -65,6 +65,7 @@ export class ReportService {
       period: String(r.period ?? ''),
       format: String(r.format ?? 'html'),
       path: String(r.path ?? ''),
+      emailPath: String(r.path ?? '') ? `${String(r.path)}.email.html` : undefined,
       summary: safeJson<ReportSummary>(r.summary_json, emptySummary())
     })).filter((record) => record.repositoryIds.length > 0 && record.repositoryIds.every((id) => allowed.has(id)))
   }
@@ -196,8 +197,8 @@ export class ReportService {
     const generatedAt = new Date().toISOString()
     const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
-
     const safeFormat = (['html', 'csv'].includes(format) ? format : 'html') as string
+    const emailPath = safeFormat === 'html' ? `${filePath}.email.html` : undefined
     const partitions: EmailReportPartition[] = repos.map((repo) => {
       const repositoryBranches = branches.filter((branch) => branch.repositoryId === repo.id)
       return {
@@ -229,7 +230,10 @@ export class ReportService {
       branches: branches.map(toEmailIssueRow),
       thresholdHint: `统计范围 ${period}`
     }
-    await this.writeFile(safeFormat, filePath, title, generatedAt, branches, partitions, overall)
+    await this.writeFile(safeFormat, filePath, title, generatedAt, branches, partitions, overall, false)
+    if (emailPath) {
+      await this.writeFile('html', emailPath, title, generatedAt, branches, partitions, overall, true)
+    }
 
     const record: ReportRecord = {
       id: newId(),
@@ -239,6 +243,7 @@ export class ReportService {
       period,
       format: safeFormat,
       path: filePath,
+      emailPath,
       summary
     }
     this.storage.insert('reports', {
@@ -272,6 +277,7 @@ export class ReportService {
     if (report) {
       try {
         if (report.path && fs.existsSync(report.path)) fs.unlinkSync(report.path)
+        if (report.emailPath && fs.existsSync(report.emailPath)) fs.unlinkSync(report.emailPath)
       } catch (err) {
         this.audit.record('report_deleted', { id, error: err instanceof Error ? err.message : String(err) }, 'failure')
       }
@@ -302,7 +308,8 @@ export class ReportService {
     generatedAt: string,
     branches: BranchSummary[],
     partitions: EmailReportPartition[],
-    overall: EmailSummaryData
+    overall: EmailSummaryData,
+    compact = false
   ): Promise<void> {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     if (format === 'csv') {
@@ -332,7 +339,7 @@ export class ReportService {
     }
     fs.writeFileSync(
       filePath,
-      buildPartitionedReportHtml({ title, generatedAt, partitions, overall }, 'zh'),
+      buildPartitionedReportHtml({ title, generatedAt, partitions, overall }, 'zh', compact),
       'utf8'
     )
   }

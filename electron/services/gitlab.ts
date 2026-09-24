@@ -909,8 +909,10 @@ export class GitLabService {
     const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
       .filter((username) => {
         const cached = this.userEmailCache.get(this.userEmailKey(username))
-        if (cached === undefined) return true
-        if (cached) resolved.set(username, cached)
+        // Empty misses may come from a transient or permission-filtered
+        // directory response and must remain retryable.
+        if (!cached) return true
+        resolved.set(username.toLowerCase(), cached)
         return false
       })
       .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
@@ -928,6 +930,32 @@ export class GitLabService {
       const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
       this.userEmailCache.set(this.userEmailKey(username), email)
       if (email) resolved.set(username, email)
+    }
+    return resolved
+  }
+
+  /** Resolve commit identities when the commit API exposes a name but no login/email. */
+  async resolveUserEmailsByNames(
+    names: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>()
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return resolved
+    for (const rawName of [...new Set(names.map((name) => name.trim()).filter(Boolean))].slice(0, MAX_CREATOR_EMAIL_LOOKUPS)) {
+      try {
+        const qs = new URLSearchParams({ search: rawName, per_page: '20' })
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const normalized = rawName.toLowerCase()
+        const match = Array.isArray(rows)
+          ? rows.find((row) => String(row.name ?? '').trim().toLowerCase() === normalized)
+            ?? rows.find((row) => String(row.username ?? '').trim().toLowerCase() === normalized)
+          : undefined
+        const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
+        if (email) resolved.set(rawName, email)
+      } catch {
+        // Missing directory access must not make an otherwise valid scan fail.
+      }
     }
     return resolved
   }

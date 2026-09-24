@@ -269,6 +269,7 @@ export interface ReportRecord {
   period: string
   format: string
   path: string
+  emailPath?: string
   summary: ReportSummary
 }
 

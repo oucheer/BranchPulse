@@ -269,7 +269,7 @@ async function bootstrap(): Promise<void> {
   const monitoring = new MonitoringService(storage, branch, repository, email, audit)
   const scheduler = new SchedulerService(storage, monitoring, audit)
   const report = new ReportService(storage, branch, repository, audit)
-  const reportSchedules = new ReportScheduleService(storage, report, email, audit)
+  const reportSchedules = new ReportScheduleService(storage, report, email, audit, monitoring)
   const backup = new BackupService(
     storage,
     repository,

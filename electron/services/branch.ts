@@ -114,6 +114,11 @@ function refForRemote(remote: string, name: string): string {
   return `refs/remotes/${remote}/${name}`
 }
 
+function emailForUsername(emails: Map<string, string>, username?: string): string | undefined {
+  if (!username) return undefined
+  return emails.get(username) ?? emails.get(username.toLowerCase())
+}
+
 function safeTimestamp(value: string | null | undefined): number {
   if (!value) return Number.NaN
   const parsed = new Date(value).getTime()
@@ -253,7 +258,27 @@ export class BranchService {
       throw new Error(`${branches.length} 个分支全部分析失败：${sample}`)
     }
 
+    const missingAuthorNames = analyzed
+      .filter((branch) => !branch.lastAuthorEmail || !branch.creator.email)
+      .flatMap((branch) => [branch.lastAuthor, branch.creator.name])
+      .filter((name) => name && name !== 'Unknown')
+    if (missingAuthorNames.length > 0 && typeof this.gitlab.resolveUserEmailsByNames === 'function') {
+      const emailByName = await this.gitlab.resolveUserEmailsByNames(missingAuthorNames, remoteConfig)
+      for (const branch of analyzed) {
+        const lastAuthorEmail = branch.lastAuthorEmail || emailByName.get(branch.lastAuthor)
+        const creatorEmail = branch.creator.email || emailByName.get(branch.creator.name)
+        if (lastAuthorEmail || creatorEmail) {
+          branch.lastAuthorEmail = lastAuthorEmail || branch.lastAuthorEmail
+          branch.creator = { ...branch.creator, email: creatorEmail || branch.creator.email }
+        }
+      }
+    }
+
     this.storage.transaction(() => {
+      // A complete remote listing is authoritative. Remove cached branches that
+      // were deleted remotely so report totals match the latest check.
+      this.storage.delete('branches', 'repository_id = ?', [repo.id])
+      this.storage.delete('branch_snapshots', 'key LIKE ?', [`${repo.id}|%`])
       for (const branch of analyzed) {
         const key = `${repo.id}|${branch.type}|${branch.name}`
         this.storage.delete('branches', 'key = ?', [key])
@@ -319,7 +344,9 @@ export class BranchService {
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
       try {
         const cached = JSON.parse(String(existing.data_json)) as BranchSummary
-        return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
+        if (cached.lastAuthorEmail || cached.creator.email || (!cached.lastAuthor && cached.creator.name === 'Unknown')) {
+          return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
+        }
       } catch {
         /* fall through */
       }
@@ -364,6 +391,23 @@ export class BranchService {
     // Match main's branch-only commit first. If neither that nor a forge event
     // identifies a creator, show the branch tip author as an explicitly inferred fallback.
     const { creator } = resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
+    const identityNames = [
+      latestCommit?.author_login,
+      latestCommit?.committer_login,
+      firstOwn?.author_login,
+      firstOwn?.committer_login,
+      creatorEvent?.username
+    ].filter((value): value is string => Boolean(value && value.trim()))
+    const emailByUsername = typeof this.gitlab.resolveUserEmails === 'function'
+      ? await this.gitlab.resolveUserEmails(identityNames, config)
+      : new Map<string, string>()
+    const creatorEmail = creator.email || emailForUsername(emailByUsername, creatorEvent?.username)
+      || emailForUsername(emailByUsername, firstOwn?.author_login)
+      || emailForUsername(emailByUsername, firstOwn?.committer_login)
+    const resolvedCreator = creatorEmail ? { ...creator, email: creatorEmail } : creator
+    const lastAuthorEmail = latestCommit?.author_email
+      || emailForUsername(emailByUsername, latestCommit?.author_login)
+      || emailForUsername(emailByUsername, latestCommit?.committer_login)
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
     const oldestFetched = commits.length > 0
@@ -388,12 +432,12 @@ export class BranchService {
       existsLocally: false,
       existsRemotely: true,
       isHead: false,
-      creator,
+      creator: resolvedCreator,
       createdAt,
       lastCommitAt,
       lastCommitSha: latestCommit?.id ?? '',
       lastAuthor: latestCommit?.author_name ?? latestCommit?.author_login ?? '',
-      lastAuthorEmail: latestCommit?.author_email ?? '',
+      lastAuthorEmail: lastAuthorEmail ?? '',
       commitCount: commits.length,
       ahead: ownCommits.length,
       behind: 0,

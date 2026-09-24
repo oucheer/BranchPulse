@@ -298,7 +298,8 @@ export class MonitoringService {
       notifications: notifications.length,
       emailsSent,
       error: failures.length > 0 ? failures.join(' | ') : null,
-      activity
+      activity,
+      repositoryIds: [...scannedRepositoryIds]
     }
     this.storage.insert('scan_runs', {
       id: runId,

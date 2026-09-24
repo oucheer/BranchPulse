@@ -315,7 +315,9 @@ function stackedSvg(segments: Array<{ label: string; value: number; color: strin
 function branchEmailBody(
   data: EmailSummaryData,
   lang: EmailLang,
-  kind: 'summary' | 'report' = 'summary'
+  kind: 'summary' | 'report' = 'summary',
+  compact = false,
+  includeCreatorReview = true
 ): { title: string; meta: string; body: string } {
   const t = lang === 'zh'
     ? {
@@ -405,7 +407,9 @@ function branchEmailBody(
     { label: lang === 'zh' ? '白名单保留' : 'Whitelist retained', value: whitelistedCount, color: '#9333ea' }
   ]
   const stalePercent = data.total ? Math.round((data.stale / data.total) * 100) : 0
-  const creatorReviewRows = data.branches.filter((row) => !row.creator || row.creator === 'Unknown')
+  const creatorReviewRows = data.branches
+    .filter((row) => !row.creator || row.creator === 'Unknown')
+    .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
 
   const staleIssues = data.branches
     .filter((row) => row.state !== 'active' || row.cleanupCandidate)
@@ -465,7 +469,7 @@ function branchEmailBody(
     ])}</div>
     ${data.thresholdHint ? `<div style="color:#6b7280;font-size:12px">${escapeHtml(data.thresholdHint)}</div>` : ''}
     <div style="height:10px;background:#eef2f6;border-radius:5px;overflow:hidden;margin:10px 0 4px"><div style="width:${stalePercent}%;height:100%;background:#c4320a"></div></div>`)
-  sections.push(`
+  if (!compact) sections.push(`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px">
       <div style="border:1px solid #e2e6ea;border-radius:8px;padding:14px">
         <h3 style="font-size:14px;margin:0 0 10px">${t.chart}</h3>
@@ -482,13 +486,20 @@ function branchEmailBody(
         <p style="color:#6b7280;font-size:11px;margin:8px 0 0">${lang === 'zh' ? `合规 ${Math.max(0, data.total - data.namingInvalid)} 个 · 不规范 ${data.namingInvalid} 个` : `Compliant ${data.total - data.namingInvalid} · Non-compliant ${data.namingInvalid}`}</p>
       </div>
     </div>`)
-  if (creatorReviewRows.length) {
+  if (includeCreatorReview && creatorReviewRows.length) {
     sections.push(`<div style="margin-top:14px;border:1px solid #f2c94c;background:#fff9e6;border-radius:6px;padding:10px 12px;color:#7a5b00;font-size:12px">
       <strong>${lang === 'zh' ? '分支创始人需要确认' : 'Creator confirmation required'}</strong>
       <ul style="margin:6px 0 0 18px;padding:0">${creatorReviewRows.map((row) => `<li>${escapeHtml(row.repository)} / ${escapeHtml(row.branch)}：${lang === 'zh' ? `无法找到该分支创始人，最后提交人是${row.lastAuthor || '未获取'}，请其确认该分支情况` : `The branch creator could not be found; the last author is ${row.lastAuthor || 'unavailable'}. Please ask them to confirm this branch.`}</li>`).join('')}</ul>
     </div>`)
   }
-  sections.push(`
+  if (compact) {
+    return {
+      title: t.title,
+      meta: `${data.repositories} ${t.repositories} · ${data.generatedAt ? `${t.generatedAt} ${formatDateTime(data.generatedAt, lang)}` : ''}`,
+      body: sections.join('')
+    }
+  }
+  if (!compact) sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
     ${staleIssues.length ? groupedTables(staleIssues, lang, [t.branch, t.creator, t.lastAuthor, t.inactive, t.lastCommit, t.state], ['24%', '17%', '15%', '10%', '20%', '14%'], staleCells) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
   sections.push(`
@@ -537,12 +548,13 @@ export interface EmailReportPartition {
  */
 export function buildPartitionedReportHtml(
   input: { title: string; generatedAt: string; partitions: EmailReportPartition[]; overall: EmailSummaryData },
-  lang: EmailLang
+  lang: EmailLang,
+  compact = false
 ): string {
   const repositoryLabel = lang === 'zh' ? '仓库' : 'Repository'
   const partitionHtml = input.partitions
     .map((partition) => {
-      const built = branchEmailBody(partition.data, lang, 'report')
+      const built = branchEmailBody(partition.data, lang, 'report', compact, false)
       return `
   <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:16px 18px">
     <h2 style="font-size:16px;margin:0 0 4px">${escapeHtml(repositoryLabel)}：${escapeHtml(partition.repositoryName || partition.repositoryId)}</h2>
@@ -551,7 +563,7 @@ export function buildPartitionedReportHtml(
   </section>`
     })
     .join('')
-  const overall = branchEmailBody(input.overall, lang, 'report')
+  const overall = branchEmailBody(input.overall, lang, 'report', compact, true)
   const overviewTitle = lang === 'zh' ? '管理总览' : 'Executive overview'
   const repositoryRows = input.partitions.map(({ repositoryName, repositoryId, data }) => [
     escapeHtml(repositoryName || repositoryId),
@@ -564,17 +576,6 @@ export function buildPartitionedReportHtml(
     lang === 'zh' ? ['仓库', '分支总数', '已停更', '命名不规范', '清理候选'] : ['Repository', 'Branches', 'Stale', 'Naming issues', 'Cleanup candidates'],
     repositoryRows
   )
-  const repoBars = input.partitions
-    .map(({ repositoryName, repositoryId, data }) => ({
-      label: repositoryName || repositoryId,
-      value: data.stale,
-      color: data.stale ? '#c4320a' : '#16a34a'
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10)
-  const overviewChart = repoBars.some((item) => item.value > 0)
-    ? `<div style="margin-top:12px"><h3 style="font-size:13px;margin:0 0 8px">${lang === 'zh' ? '各仓库已停更分支' : 'Stale branches by repository'}</h3>${hbarSvg(repoBars)}</div>`
-    : ''
   const overview = `<section style="margin-top:18px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 16px">
     <h2 style="font-size:16px;margin:0 0 10px">${overviewTitle}</h2>
     <div style="display:flex;gap:8px;margin-bottom:12px">${[
@@ -583,8 +584,8 @@ export function buildPartitionedReportHtml(
       { value: input.overall.namingInvalid, label: lang === 'zh' ? '命名不规范' : 'Naming issues', color: '#b54708' },
       { value: input.overall.cleanupCandidates, label: lang === 'zh' ? '清理候选' : 'Cleanup candidates', color: '#c4320a' }
     ].map((item) => `<div style="flex:1;border:1px solid #e2e6ea;border-radius:6px;padding:9px;text-align:center"><strong style="font-size:20px;color:${item.color ?? '#20242a'}">${item.value}</strong><div style="font-size:11px;color:#6b7280">${item.label}</div></div>`).join('')}</div>
-    ${overviewTable}${overviewChart}
-    <div style="margin-top:12px">${branchEmailBody(input.overall, lang, 'report').body}</div>
+    ${overviewTable}
+    <div style="margin-top:12px">${overall.body}</div>
     <p style="font-size:11px;color:#6b7280;margin:8px 0 0">${lang === 'zh' ? `覆盖 ${input.partitions.length} 个勾选仓库；下方为整体图表及逐仓详情。` : `Covers ${input.partitions.length} selected repositories; portfolio charts and repository details follow.`}</p>
   </section>`
   const meta = input.partitions.length

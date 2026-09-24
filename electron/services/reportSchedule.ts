@@ -4,6 +4,7 @@ import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
+import type { MonitoringService } from './monitoring'
 import {
   collectCreatorAddresses,
   creatorNotificationSection,
@@ -161,7 +162,8 @@ export class ReportScheduleService {
     private readonly storage: StorageService,
     private readonly reportService: ReportService,
     private readonly emailService: EmailService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly monitoring?: MonitoringService
   ) {}
 
   list(repositoryIds?: string[]): ReportSchedule[] {
@@ -254,6 +256,28 @@ export class ReportScheduleService {
       return { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
     }
 
+    try {
+      // Refresh before resolving creator recipients as well as before building
+      // the report. Both the branch totals and email addresses must describe
+      // the same current scan.
+      const refreshed = await this.monitoring?.runCheckNow({
+        repositoryIds: [...new Set(scope)],
+        fetch: false,
+        emailPolicy: 'none',
+        notifyTarget: 'none',
+        trigger: 'scan_repository',
+        bypassEnabledCheck: true
+      })
+      const requestedScope = new Set(scope)
+      if (refreshed && (refreshed.status === 'failed' || !refreshed.repositoryIds || refreshed.repositoryIds.some((id) => !requestedScope.has(id)) || refreshed.repositoryIds.length !== requestedScope.size)) {
+        throw new Error(refreshed.error || '部分勾选仓库扫描失败，已停止发送，避免报告混入旧数据。')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.audit.record('report_selected_repositories_sent', { repositoryIds: scope, error: message }, 'failure')
+      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
+    }
+
     const resolvedRecipients = resolveReportRecipients(recipients, emailConfig, this.emailService.listGroups())
     const creators = this.collectReportCreators(recipients, scope)
     // 只勾选「通知分支创始人」时创始人就是唯一收件人，邮件依然只发一封。
@@ -282,7 +306,8 @@ export class ReportScheduleService {
 
     try {
       const report = await this.reportService.generateReport(period, 'html', scope)
-      const reportHtml = await fs.promises.readFile(report.path, 'utf8')
+      const emailPath = report.emailPath && fs.existsSync(report.emailPath) ? report.emailPath : report.path
+      const reportHtml = await fs.promises.readFile(emailPath, 'utf8')
       const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
       const result = await this.emailService.sendReportEmail({
         to,
@@ -359,6 +384,18 @@ export class ReportScheduleService {
             }, 'failure')
             continue
           }
+          const refreshed = await this.monitoring?.runCheckNow({
+            repositoryIds: [...new Set(schedule.repositoryIds)],
+            fetch: false,
+            emailPolicy: 'none',
+            notifyTarget: 'none',
+            trigger: 'scan_repository',
+            bypassEnabledCheck: true
+          })
+          const scheduledScope = new Set(schedule.repositoryIds)
+          if (refreshed && (refreshed.status === 'failed' || !refreshed.repositoryIds || refreshed.repositoryIds.some((id) => !scheduledScope.has(id)) || refreshed.repositoryIds.length !== scheduledScope.size)) {
+            throw new Error(refreshed.error || '部分报告仓库扫描失败，已跳过发送，避免报告混入旧数据。')
+          }
           const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.repositoryIds)
           const emailConfig = this.emailService.getConfig()
           const parsedNotify = parseNotifyTarget(schedule.recipients)
@@ -394,7 +431,8 @@ export class ReportScheduleService {
               input: schedule.recipients
             }, 'failure')
           } else {
-            const reportHtml = await fs.promises.readFile(report.path, 'utf8')
+            const emailPath = report.emailPath && fs.existsSync(report.emailPath) ? report.emailPath : report.path
+            const reportHtml = await fs.promises.readFile(emailPath, 'utf8')
             const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
             const sent = await this.emailService.sendReportEmail({
               to: recipients,
