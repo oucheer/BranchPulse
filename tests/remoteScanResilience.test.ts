@@ -222,7 +222,7 @@ afterAll(() => {
 })
 
 describe('intranet branch analysis tolerates a flaky subset', () => {
-  it('persists the remote author as an inferred creator when forge events are unavailable', async () => {
+  it('keeps the creator unknown when forge events are unavailable', async () => {
     const gitlab = gitlabStub(['main', 'feature/known'], new Set())
     gitlab.listCommits = async (_projectId, ref) => [
       { ...remoteCommit(`${ref}-tip`, 10), author_name: '', author_email: '', author_login: 'remote-account' }
@@ -234,43 +234,43 @@ describe('intranet branch analysis tolerates a flaky subset', () => {
     const service = branchService(gitlab, REPO_CREATOR_TEST)
     const result = await service.scanRepository(REPO_CREATOR_TEST)
     expect(result.find((branch) => branch.name === 'feature/known')?.creator).toMatchObject({
-      name: 'remote-account',
-      confidence: 'low'
+      name: 'Unknown',
+      confidence: 'unknown'
     })
+    expect(result.find((branch) => branch.name === 'feature/known')?.lastAuthor).toBe('remote-account')
     expect(result.find((branch) => branch.name === 'main')?.creator).toMatchObject({
-      name: 'remote-account',
-      confidence: 'low'
+      name: 'Unknown',
+      confidence: 'unknown'
     })
 
     const stored = storage.get<{ data_json: string }>(
       'SELECT data_json FROM branches WHERE key = ?',
       [`${REPO_CREATOR_TEST}|remote|feature/known`]
     )
-    expect(JSON.parse(stored!.data_json).creator.name).toBe('remote-account')
+    expect(JSON.parse(stored!.data_json).creator.name).toBe('Unknown')
     expect(service.listBranches([REPO_CREATOR_TEST]).find((branch) => branch.name === 'feature/known')?.creator.name)
-      .toBe('remote-account')
+      .toBe('Unknown')
   })
 
-  it('keeps the branches that analyzed successfully when one branch fails', async () => {
+  it('rejects a partial scan when one branch fails', async () => {
     const gitlab = gitlabStub(['main', 'feature/ok', 'feature/flaky'], new Set(['feature/flaky']))
     const progress: string[] = []
-    const branches = await branchService(gitlab).scanRepository(REPO_A, { progress: (message) => progress.push(message) })
+    await expect(branchService(gitlab).scanRepository(REPO_A, { progress: (message) => progress.push(message) }))
+      .rejects.toThrow(/1 个分支分析失败/)
 
-    // 失败的分支被跳过，其余分支照常返回——不再整仓归零。
-    expect(branches.map((branch) => branch.name).sort()).toEqual(['feature/ok', 'main'])
     expect(progress.some((message) => message.includes('1 个分支分析失败'))).toBe(true)
     expect(progress.some((message) => message.includes('feature/flaky'))).toBe(true)
   })
 
-  it('persists the successful branches so the repository page is not empty', async () => {
+  it('does not replace the cached snapshot with a partial result', async () => {
     const gitlab = gitlabStub(['main', 'feature/ok', 'feature/flaky'], new Set(['feature/flaky']))
-    await branchService(gitlab).scanRepository(REPO_A)
+    await expect(branchService(gitlab).scanRepository(REPO_A)).rejects.toThrow()
 
     const rows = storage.all<{ name: string }>(
       'SELECT name FROM branches WHERE repository_id = ? ORDER BY name',
       [REPO_A]
     )
-    expect(rows.map((row) => row.name)).toEqual(['feature/ok', 'main'])
+    expect(rows).toEqual([])
   })
 
   it('re-analyzes cached remote branches from the previous creator-cache version', async () => {
@@ -300,9 +300,9 @@ describe('intranet branch analysis tolerates a flaky subset', () => {
 
     const result = await branchService(gitlabStub(['feature/cached'], new Set())).scanRepository(REPO_A)
 
-    expect(result[0].creator).toMatchObject({ name: '张三', email: 'zhang@example.com', confidence: 'low' })
+    expect(result[0].creator).toMatchObject({ name: 'Unknown', email: '', confidence: 'unknown' })
     const row = storage.get<{ data_json: string }>('SELECT data_json FROM branches WHERE key = ?', [key])
-    expect(JSON.parse(row!.data_json).creator.name).toBe('张三')
+    expect(JSON.parse(row!.data_json).creator.name).toBe('Unknown')
   })
 
   it('still fails loudly when every branch fails, so the run records a reason', async () => {

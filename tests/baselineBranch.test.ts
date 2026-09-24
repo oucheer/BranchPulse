@@ -119,12 +119,9 @@ describe('resolveRemoteCreator', () => {
     ...overrides
   })
 
-  it('uses the oldest branch-only commit author as a provisional fallback', () => {
+  it('does not infer the creator from a branch-only commit', () => {
     const { creator } = resolveRemoteCreator(commit() as never, null)
-    expect(creator.name).toBe('李四')
-    expect(creator.email).toBe('li@example.com')
-    expect(creator.firstCommitAt).toBe('2026-01-01T00:00:00.000Z')
-    expect(creator.confidence).toBe('low')
+    expect(creator).toEqual({ name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' })
   })
 
   it('uses the forge creation event when the branch has no commit author', () => {
@@ -163,7 +160,7 @@ describe('resolveRemoteCreator', () => {
     expect(creator.confidence).toBe('unknown')
   })
 
-  it('prefers the main-branch commit-first attribution rule over a creation event', () => {
+  it('always prefers the Activity creation event over commit identities', () => {
     const { creator } = resolveRemoteCreator(commit({ author_email: 'real@example.com' }) as never, {
       name: '王五',
       email: '',
@@ -171,9 +168,9 @@ describe('resolveRemoteCreator', () => {
       createdAt: null,
       source: 'event'
     })
-    expect(creator.name).toBe('李四')
-    expect(creator.email).toBe('real@example.com')
-    expect(creator.confidence).toBe('low')
+    expect(creator.name).toBe('王五')
+    expect(creator.email).toBe('')
+    expect(creator.confidence).toBe('medium')
   })
 
   it('uses the creation event when the unique commit has no identity', () => {

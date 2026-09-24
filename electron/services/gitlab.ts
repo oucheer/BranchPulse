@@ -809,11 +809,13 @@ export class GitLabService {
     const parseEvents = (events: Array<Record<string, unknown>>): void => {
       for (const row of events) {
         const push = (row.push_data ?? {}) as Record<string, unknown>
-        const action = String(push.action ?? '').toLowerCase()
-        const refType = String(push.ref_type ?? '').toLowerCase()
+        const action = String(push.action ?? row.action ?? '').toLowerCase()
+        const refType = String(push.ref_type ?? row.ref_type ?? row.target_type ?? '').toLowerCase()
         const actionName = String(row.action_name ?? '').toLowerCase()
-        if ((action !== 'created' && actionName !== 'pushed new') || refType !== 'branch') continue
-        const branch = String(push.ref ?? '').trim()
+        const isCreation = action === 'created' || actionName === 'pushed new'
+        if (!isCreation || refType !== 'branch') continue
+        const rawRef = String(push.ref ?? row.ref ?? row.target_title ?? '').trim()
+        const branch = rawRef.replace(/^refs\/heads\//, '')
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
         const username = String(author.username ?? row.author_username ?? '').trim()
@@ -837,7 +839,6 @@ export class GitLabService {
     } catch (error) {
       logger.warn(`Could not read unfiltered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
-    const missing = [...creators.values()].filter((creator) => !creator.email && creator.username)
     const usersToResolve = [...creators.values()].filter((creator) => creator.username)
     if (usersToResolve.length > 0) {
       const profiles = await this.resolveGitLabUsers(usersToResolve.map((creator) => creator.username), config)
