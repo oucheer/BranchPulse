@@ -103,6 +103,14 @@ export default function BranchDetail(): JSX.Element {
               <span className="max-w-[60%] truncate text-right font-mono text-xs text-canvas-fg" title={branch.creator.email || '未知'}>{branch.creator.email || '未知'}</span>
             </div>
             <div className="flex justify-between gap-3">
+              <span className="text-muted">最后提交人</span>
+              <span className="max-w-[60%] truncate text-right text-xs text-canvas-fg" title={branch.lastAuthor || '未知'}>{branch.lastAuthor || '未知'}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted">最后提交人邮箱</span>
+              <span className="max-w-[60%] truncate text-right font-mono text-xs text-canvas-fg" title={branch.lastAuthorEmail || '未知'}>{branch.lastAuthorEmail || '未知'}</span>
+            </div>
+            <div className="flex justify-between gap-3">
               <span className="text-muted">{tr('firstCommit')}</span>
               <span className="text-xs text-canvas-fg">
                 {branch.createdAt ? new Date(branch.createdAt).toLocaleString() : '未知'}
