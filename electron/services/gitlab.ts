@@ -58,6 +58,14 @@ export interface GitLabCommitDto {
   web_url: string
 }
 
+export interface GitLabUserDto {
+  id: number
+  username: string
+  name: string
+  email?: string
+  web_url?: string
+}
+
 interface GitLabApiError extends Error {
   status?: number
   body?: string
@@ -247,9 +255,10 @@ export class GitLabService {
   private resolve(config?: GitLabConnectionConfig): { url: string; token: string; provider: 'gitlab' | 'github' | 'gitee' } {
     const appSettings = this.settings.get()
     const url = normalizeUrl(config?.url?.trim() || appSettings.gitlabUrl)
-    const token = (config?.apiKey?.trim() || this.settings.getGitLabToken() || '').trim()
-    if (!token) throw new Error('远程仓库 API token 不能为空。')
-    return { url, token, provider: detectRemoteProvider(url, config?.provider) }
+    const provider = detectRemoteProvider(url, config?.provider)
+    const token = (config?.apiKey !== undefined ? config.apiKey : this.settings.getGitLabToken() || '').trim()
+    if (!token && provider !== 'github') throw new Error('远程仓库 API token 不能为空。')
+    return { url, token, provider }
   }
 
   private pathSegments(url: string): string[] {
@@ -285,6 +294,10 @@ export class GitLabService {
     for (let attempt = 0; ; attempt += 1) {
       const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt, options)
       if (!response.ok) {
+        // Public GitHub reads can still work when a saved credential has expired.
+        if (provider === 'github' && token && response.status === 401 && (!init.method || init.method === 'GET')) {
+          return this.request<T>(path, { ...config, url, provider, apiKey: '' }, init, options)
+        }
         const body = await response.text().catch(() => null)
         if (body !== null) {
           lastBody = body
@@ -331,7 +344,7 @@ export class GitLabService {
           'Content-Type': 'application/json',
           ...(init.headers ?? {})
         } : provider === 'github' ? {
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: 'application/vnd.github+json'
         } : {
           Accept: 'application/json',
@@ -680,8 +693,46 @@ export class GitLabService {
       const rows = await this.request<Array<Record<string, unknown>>>(`/repos/${projectRef}/commits?sha=${encodeURIComponent(refName)}&per_page=${perPage}&page=${page}`, config)
       return rows.map((row) => this.mapGitHubCommit(row))
     }
-    const qs = new URLSearchParams({ ref_name: refName, per_page: String(perPage), page: String(page) })
+    const qs = new URLSearchParams()
+    if (refName) qs.set('ref_name', refName)
+    else qs.set('all', 'true')
+    qs.set('per_page', String(perPage))
+    qs.set('page', String(page))
     return this.request<GitLabCommitDto[]>(`/projects/${projectRef}/repository/commits?${qs.toString()}`, config)
+  }
+
+  async listUsers(search: string, config?: GitLabConnectionConfig): Promise<GitLabUserDto[]> {
+    const { provider } = this.resolve(config)
+    const qs = new URLSearchParams({ search, per_page: '20' })
+    const result = await this.request<Array<Record<string, unknown>> | { items: Array<Record<string, unknown>> }>(provider === 'gitlab' ? `/users?${qs}` : `/search/users?q=${encodeURIComponent(search)}&per_page=20`, config)
+    const values = Array.isArray(result) ? result : result.items
+    return values.map((row) => ({
+      id: Number(row.id ?? 0),
+      username: String(row.username ?? row.login ?? ''),
+      name: String(row.name ?? row.login ?? ''),
+      email: String(row.public_email ?? row.email ?? '') || undefined,
+      web_url: String(row.web_url ?? row.html_url ?? '') || undefined
+    }))
+  }
+
+  async getCommit(projectId: number, sha: string, config?: GitLabConnectionConfig): Promise<Record<string, unknown>> {
+    const { provider } = this.resolve(config)
+    const projectRef = await this.projectRef(projectId, config)
+    const path = provider === 'gitlab'
+      ? `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}`
+      : `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`
+    return this.request<Record<string, unknown>>(path, config)
+  }
+
+  async getCommitDiff(projectId: number, sha: string, config?: GitLabConnectionConfig): Promise<Record<string, unknown>[]> {
+    const { provider } = this.resolve(config)
+    const projectRef = await this.projectRef(projectId, config)
+    const path = provider === 'gitlab'
+      ? `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diff`
+      : `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`
+    const result = await this.request<Record<string, unknown> | Array<Record<string, unknown>>>(path, config)
+    if (Array.isArray(result)) return result
+    return Array.isArray(result.files) ? result.files as Array<Record<string, unknown>> : []
   }
 
   /**

@@ -274,6 +274,74 @@ CREATE TABLE IF NOT EXISTS repository_config_initialized (
   repository_id TEXT PRIMARY KEY,
   initialized_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ai_provider_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  provider_type TEXT NOT NULL DEFAULT 'openai-compatible',
+  base_url TEXT NOT NULL DEFAULT '',
+  api_key_encrypted TEXT,
+  model TEXT NOT NULL DEFAULT '',
+  api_mode TEXT NOT NULL DEFAULT 'chat-completions',
+  temperature REAL NOT NULL DEFAULT 0.2,
+  max_tokens INTEGER NOT NULL DEFAULT 2000,
+  timeout_ms INTEGER NOT NULL DEFAULT 30000,
+  enabled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  page_context_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_traces_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  error_code TEXT,
+  final_answer TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_tool_audit (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  arguments_summary TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  result_summary TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_evidence (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  repository_id TEXT,
+  commit_sha TEXT,
+  source TEXT NOT NULL,
+  reference TEXT NOT NULL,
+  statistic_json TEXT,
+  created_at TEXT NOT NULL
+);
 `
 
 function defaultNamingRules(): Array<Record<string, unknown>> {
@@ -376,6 +444,7 @@ export class StorageService {
     this.ensureColumn('app_settings', 'selected_repository_ids_json', 'TEXT')
     this.ensureColumn('app_settings', 'color_theme', "TEXT NOT NULL DEFAULT 'default'")
     this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
+    this.run(`INSERT OR IGNORE INTO ai_provider_config (id) VALUES (1)`)
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
     this.ensureColumn('monitoring_rules_repo', 'stale_threshold_unit', `TEXT NOT NULL DEFAULT 'days'`)
     this.ensureColumn('monitoring_rules_repo', 'notification_enabled', 'INTEGER NOT NULL DEFAULT 1')

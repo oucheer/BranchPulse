@@ -19,6 +19,7 @@ import Scheduler from './pages/Scheduler'
 import Audit from './pages/Audit'
 import Animation from './pages/Animation'
 import Settings from './pages/Settings'
+import Agent from './pages/Agent'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -35,6 +36,7 @@ const pages = [
   { path: '/audit', element: <Audit /> },
   { path: '/animation', element: <Animation /> },
   { path: '/settings', element: <Settings /> }
+  , { path: '/agent', element: <Agent /> }
 ]
 
 export default function App(): JSX.Element {

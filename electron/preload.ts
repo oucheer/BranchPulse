@@ -16,6 +16,8 @@ import type {
   RunCheckOptions,
   ScanProgress,
   SchedulerJob
+  , AiProviderConfig, AgentPageContext
+  , AgentRun
 } from '@shared/types'
 
 const api: BranchApi = {
@@ -99,6 +101,17 @@ const api: BranchApi = {
   getAppVersion: () => ipcRenderer.invoke('gitmanager:getAppVersion'),
   exportConfig: (extras?: ConfigExtras) => ipcRenderer.invoke('gitmanager:exportConfig', extras),
   importConfig: (confirmReplace?: boolean) => ipcRenderer.invoke('gitmanager:importConfig', confirmReplace),
+  getAiProviderConfig: () => ipcRenderer.invoke('gitmanager:getAiProviderConfig'),
+  saveAiProviderConfig: (config: AiProviderConfig & { apiKey?: string }) => ipcRenderer.invoke('gitmanager:saveAiProviderConfig', config),
+  testAiProviderConnection: (config?: AiProviderConfig & { apiKey?: string }) => ipcRenderer.invoke('gitmanager:testAiProviderConnection', config),
+  createAgentSession: (context?: AgentPageContext) => ipcRenderer.invoke('gitmanager:createAgentSession', context),
+  listAgentSessions: () => ipcRenderer.invoke('gitmanager:listAgentSessions'),
+  getAgentSession: (id: string) => ipcRenderer.invoke('gitmanager:getAgentSession', id),
+  deleteAgentSession: (id: string) => ipcRenderer.invoke('gitmanager:deleteAgentSession', id),
+  sendAgentMessage: (id: string, content: string, context?: AgentPageContext) => ipcRenderer.invoke('gitmanager:sendAgentMessage', id, content, context),
+  listAgentRuns: (sessionId?: string): Promise<AgentRun[]> => ipcRenderer.invoke('gitmanager:listAgentRuns', sessionId),
+  getAgentRun: (id: string): Promise<AgentRun | null> => ipcRenderer.invoke('gitmanager:getAgentRun', id),
+  cancelAgentRun: (id: string): Promise<AgentRun | null> => ipcRenderer.invoke('gitmanager:cancelAgentRun', id),
   onScanProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_e: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on('gitmanager:scan-progress', listener)

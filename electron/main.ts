@@ -18,6 +18,7 @@ import { SettingsService } from './services/settings'
 import { GitLabService } from './services/gitlab'
 import { BackupService } from './services/backup'
 import { ConfigPortService } from './services/configPort'
+import { AgentService } from './services/agent'
 import { registerIpc, type AppServices } from './ipc'
 import { logger } from './utils/logger'
 import { dataDir, dbFile, ensureDir } from './utils/paths'
@@ -278,10 +279,11 @@ async function bootstrap(): Promise<void> {
     () => ensureDir(path.join(dataDir(), 'backups'))
   )
   const configPort = new ConfigPortService(storage, () => app.getVersion())
+  const agent = new AgentService(storage, settings, repository, gitlab, branch)
 
   services = {
     storage, git, gitlab, repository, branch, naming, protection,
-    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort
+    monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort, agent
   }
 
   registerIpc(services, () => {

@@ -366,6 +366,77 @@ export interface AppSettings {
   selectedRepositoryIds: string[]
 }
 
+export interface AiProviderConfig {
+  providerType: 'openai-compatible'
+  baseUrl: string
+  model: string
+  apiMode: 'responses' | 'chat-completions'
+  temperature: number
+  maxTokens: number
+  timeoutMs: number
+  enabled: boolean
+  hasApiKey: boolean
+}
+
+export interface AgentPageContext {
+  page: string
+  repositoryIds?: string[]
+  branch?: string
+  filters?: Record<string, unknown>
+}
+
+export interface AgentToolTrace {
+  id: string
+  toolName: string
+  status: 'running' | 'success' | 'failed'
+  arguments: Record<string, unknown>
+  resultSummary?: Record<string, unknown>
+  durationMs?: number
+  createdAt: string
+}
+
+export type AgentRunStatus = 'created' | 'context_building' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type AgentCapability = 'READ' | 'REPORT_GENERATE'
+
+export interface AgentRun {
+  id: string
+  sessionId: string
+  status: AgentRunStatus
+  scope: string[]
+  startedAt?: string
+  completedAt?: string
+  errorCode?: string
+  finalAnswer?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AgentEvidence {
+  id: string
+  runId: string
+  repositoryId?: string
+  commitSha?: string
+  source: 'gitlab' | 'gitmanager-db' | 'derived'
+  reference: string
+  statistic?: Record<string, number | string | null>
+}
+
+export interface AgentMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  toolTraces: AgentToolTrace[]
+  createdAt: string
+}
+
+export interface AgentSession {
+  id: string
+  title: string
+  pageContext?: AgentPageContext
+  messages: AgentMessage[]
+  updatedAt: string
+}
+
 export interface RunCheckOptions {
   bypassEnabledCheck?: boolean
   emailPolicy?: EmailPolicy
@@ -498,6 +569,17 @@ export interface BranchApi {
   getAppVersion(): Promise<string>
   exportConfig(extras?: ConfigExtras): Promise<ConfigExportResult>
   importConfig(confirmReplace?: boolean): Promise<ConfigImportResult>
+  getAiProviderConfig(): Promise<AiProviderConfig>
+  saveAiProviderConfig(config: AiProviderConfig & { apiKey?: string }): Promise<AiProviderConfig>
+  testAiProviderConnection(config?: AiProviderConfig & { apiKey?: string }): Promise<{ ok: boolean; message: string }>
+  createAgentSession(pageContext?: AgentPageContext): Promise<AgentSession>
+  listAgentSessions(): Promise<AgentSession[]>
+  getAgentSession(id: string): Promise<AgentSession | null>
+  deleteAgentSession(id: string): Promise<void>
+  sendAgentMessage(id: string, content: string, pageContext?: AgentPageContext): Promise<AgentMessage>
+  listAgentRuns(sessionId?: string): Promise<AgentRun[]>
+  getAgentRun(id: string): Promise<AgentRun | null>
+  cancelAgentRun(id: string): Promise<AgentRun | null>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

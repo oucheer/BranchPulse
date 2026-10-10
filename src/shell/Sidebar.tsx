@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Bell, CalendarClock, FileBarChart, FolderGit2,
   GitBranch, HardDrive, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
+  , Bot
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
@@ -34,7 +35,8 @@ const sections: NavSection[] = [
     items: [
       { to: '/', label: 'dashboard', icon: LayoutDashboard, end: true },
       { to: '/repositories', label: 'repositories', icon: FolderGit2 },
-      { to: '/branches', label: 'branches', icon: GitBranch }
+      { to: '/branches', label: 'branches', icon: GitBranch },
+      { to: '/agent', label: 'AI Agent', icon: Bot }
     ]
   },
   {

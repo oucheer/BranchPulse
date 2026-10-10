@@ -48,6 +48,7 @@ import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
 import type { BackupService } from './services/backup'
 import type { ConfigPortService } from './services/configPort'
+import type { AgentService } from './services/agent'
 
 export interface AppServices {
   storage: StorageService
@@ -66,6 +67,7 @@ export interface AppServices {
   settings: SettingsService
   backup: BackupService
   configPort: ConfigPortService
+  agent: AgentService
 }
 
 function dateStamp(): string {
@@ -106,7 +108,7 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function registerIpc(services: AppServices, onSettingsSaved?: (settings: AppSettings) => void): void {
-  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort } = services
+  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, audit, settings, backup, configPort, agent } = services
 
   /**
    * A scan run is only visible when every repository it touched is inside the
@@ -441,6 +443,17 @@ export function registerIpc(services: AppServices, onSettingsSaved?: (settings: 
   })
 
   ipcMain.handle('gitmanager:getSettings', (): AppSettings => settings.get())
+  ipcMain.handle('gitmanager:getAiProviderConfig', () => agent.getProviderConfig())
+  ipcMain.handle('gitmanager:saveAiProviderConfig', (_e, config) => agent.saveProviderConfig(config))
+  ipcMain.handle('gitmanager:testAiProviderConnection', (_e, config) => agent.testProvider(config))
+  ipcMain.handle('gitmanager:createAgentSession', (_e, context) => agent.createSession(context))
+  ipcMain.handle('gitmanager:listAgentSessions', () => agent.listSessions())
+  ipcMain.handle('gitmanager:getAgentSession', (_e, id: string) => agent.getSession(id))
+  ipcMain.handle('gitmanager:deleteAgentSession', (_e, id: string) => agent.deleteSession(id))
+  ipcMain.handle('gitmanager:sendAgentMessage', (_e, id: string, content: string, context) => agent.sendMessage(id, content, context))
+  ipcMain.handle('gitmanager:listAgentRuns', (_e, sessionId?: string) => agent.listRuns(sessionId))
+  ipcMain.handle('gitmanager:getAgentRun', (_e, id: string) => agent.getRun(id))
+  ipcMain.handle('gitmanager:cancelAgentRun', (_e, id: string) => agent.cancelRun(id))
   ipcMain.handle('gitmanager:exportConfig', async (_e, extras: ConfigExtras = {}): Promise<ConfigExportResult> => {
     try {
       const selected = await dialog.showSaveDialog({
