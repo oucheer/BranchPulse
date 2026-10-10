@@ -19,6 +19,7 @@ function sampleJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
     emailPolicy: 'none',
     fetchEnabled: true,
     notifyTarget: 'self',
+    repositoryIds: [],
     groupIds: [],
     lastRunAt: null,
     nextRunAt: null,
@@ -93,6 +94,7 @@ describe('SchedulerService never deletes branches', () => {
     expect(monitoring.runCheckNow).toHaveBeenCalledWith({
       trigger: 'scheduler',
       fetch: true,
+      repositoryIds: [],
       emailPolicy: 'none',
       notifyTarget: 'self'
     })
@@ -158,7 +160,7 @@ describe('SchedulerService bulk job management', () => {
     const state = [...rows]
     return {
       state,
-      all: vi.fn(() => state.map((job) => jobRow({ ...job, repositoryId: job.repositoryId ?? null }))),
+      all: vi.fn(() => state.map((job) => jobRow({ ...job, repositoryIds: job.repositoryIds ?? [] }))),
       get: vi.fn().mockReturnValue(undefined),
       update: vi.fn(),
       insert: vi.fn(),
@@ -168,9 +170,9 @@ describe('SchedulerService bulk job management', () => {
 
   it('deletes every job regardless of which repository it targets', () => {
     const storage = makeStorage([
-      sampleJob({ id: 'job-1', repositoryId: 'repo-a' }),
-      sampleJob({ id: 'job-2', repositoryId: 'repo-b' }),
-      sampleJob({ id: 'job-3', repositoryId: null })
+      sampleJob({ id: 'job-1', repositoryIds: ['repo-a'] }),
+      sampleJob({ id: 'job-2', repositoryIds: ['repo-b'] }),
+      sampleJob({ id: 'job-3', repositoryIds: [] })
     ])
     const audit = { record: vi.fn() } as unknown as AuditService
     const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, audit)
@@ -186,9 +188,9 @@ describe('SchedulerService bulk job management', () => {
 
   it('does not hide jobs that belong to a non-active repository', () => {
     const jobs = [
-      sampleJob({ id: 'job-a', repositoryId: 'repo-active' }),
-      sampleJob({ id: 'job-b', repositoryId: 'repo-other' }),
-      sampleJob({ id: 'job-c', repositoryId: null })
+      sampleJob({ id: 'job-a', repositoryIds: ['repo-active'] }),
+      sampleJob({ id: 'job-b', repositoryIds: ['repo-other'] }),
+      sampleJob({ id: 'job-c', repositoryIds: [] })
     ]
     const storage = makeStorage(jobs)
     const service = new SchedulerService(storage as unknown as StorageService, {} as MonitoringService, {

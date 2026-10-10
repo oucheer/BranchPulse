@@ -27,9 +27,9 @@ export class BackupService {
       .map((row) => this.toRecord(row))
   }
 
-  async start(options: { repositoryId?: string | null; folderPath?: string }): Promise<BackupRecord> {
-    const activeId = this.storage.get<{ active_repository_id: string }>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id
-    const repository = this.repositoryService.get(String(options.repositoryId ?? activeId ?? ''))
+  async start(options: { repositoryIds?: string[]; folderPath?: string }): Promise<BackupRecord> {
+    const repositoryId = options.repositoryIds?.length === 1 ? options.repositoryIds[0] : ''
+    const repository = this.repositoryService.get(repositoryId)
     if (!repository) throw new Error('Select a repository to back up.')
 
     const remoteUrl = await this.remoteUrl(repository.id)

@@ -37,8 +37,8 @@ function notifyLabel(target: string): string {
   return `通知 ${target}`
 }
 
-const emptyJob = (repositoryId: string | null): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
-  repositoryId,
+const emptyJob = (repositoryIds: string[]): Omit<SchedulerJob, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt'> => ({
+  repositoryIds,
   name: '',
   kind: 'interval',
   enabled: true,
@@ -59,7 +59,7 @@ export default function Scheduler(): JSX.Element {
   const calendarRuns = useAppStore((s) => s.calendarRuns)
   const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const settings = useAppStore((s) => s.settings)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
@@ -75,13 +75,16 @@ export default function Scheduler(): JSX.Element {
   // executes all enabled jobs, so hiding the ones bound to another repository
   // made it impossible to notice or stop a schedule that kept firing.
   const visibleJobs = [...jobs].sort((a, b) => {
-    const aMine = a.repositoryId === null || a.repositoryId === activeRepositoryId ? 0 : 1
-    const bMine = b.repositoryId === null || b.repositoryId === activeRepositoryId ? 0 : 1
+    const aMine = a.repositoryIds.length === 0 || a.repositoryIds.some((id) => selectedRepositoryIds.includes(id)) ? 0 : 1
+    const bMine = b.repositoryIds.length === 0 || b.repositoryIds.some((id) => selectedRepositoryIds.includes(id)) ? 0 : 1
     return aMine - bMine || a.createdAt.localeCompare(b.createdAt)
   })
 
-  const repositoryLabel = (repositoryId?: string | null): string =>
-    repositoryId ? repositories.find((repo) => repo.id === repositoryId)?.name ?? '未知仓库（已删除）' : '全部仓库'
+  const repositoryScopeLabel = (repositoryIds: string[]): string => {
+    if (repositoryIds.length === 0) return '全部仓库'
+    const names = repositoryIds.map((id) => repositories.find((repo) => repo.id === id)?.name ?? '未知仓库（已删除）')
+    return names.join('、')
+  }
 
   const groupScopeLabel = (groupIds: string[] | undefined): string => {
     const names = (groupIds ?? [])
@@ -90,7 +93,9 @@ export default function Scheduler(): JSX.Element {
     return names.length > 0 ? names.join('、') : '分组已删除'
   }
 
-  const visibleRuns = activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns
+  const visibleRuns = selectedRepositoryIds.length
+    ? scanRuns.filter((run) => run.repositoryIds?.some((id) => selectedRepositoryIds.includes(id)))
+    : scanRuns
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {
@@ -147,7 +152,7 @@ export default function Scheduler(): JSX.Element {
               <Trash2 size={14} /> 删除全部定时任务
             </button>
           ) : null}
-          <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(activeRepositoryId) })}>
+          <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(selectedRepositoryIds) })}>
             <Plus size={15} /> {tr('schedule')}
           </button>
         </div>
@@ -187,8 +192,8 @@ export default function Scheduler(): JSX.Element {
                     ) : (
                       <span>{job.time} · {job.daysOfWeek.map((d) => weekDays[d]).join(', ')}</span>
                     )}
-                    <span className={job.repositoryId && job.repositoryId !== activeRepositoryId ? 'font-medium text-warn' : undefined}>
-                      · {repositoryLabel(job.repositoryId)}
+                    <span>
+                      · {repositoryScopeLabel(job.repositoryIds)}
                     </span>
                     {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {tr('inspectionOnly')}</span>
@@ -279,10 +284,10 @@ export default function Scheduler(): JSX.Element {
             <div className="label mb-1">仓库范围</div>
             <select
               className="input"
-              value={editJob?.repositoryId ?? ''}
-              onChange={(e) => setEditJob({ ...editJob, repositoryId: e.target.value || null })}
+              value={editJob?.repositoryIds?.length === 1 ? editJob.repositoryIds[0] : ''}
+              onChange={(e) => setEditJob({ ...editJob, repositoryIds: e.target.value ? [e.target.value] : [] })}
             >
-              <option value="">全部仓库</option>
+              <option value="">跟随当前勾选仓库范围</option>
               {repositories.map((repo) => (
                 <option key={repo.id} value={repo.id}>{repo.name}</option>
               ))}

@@ -8,7 +8,8 @@ import { matchPattern } from '../lib/protection'
 export default function Whitelist(): JSX.Element {
   const whitelist = useAppStore((s) => s.whitelist)
   const protectedList = useAppStore((s) => s.protected)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const scopedRepositoryId = selectedRepositoryIds[0] ?? null
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [tab, setTab] = useState<'whitelist' | 'protected'>('whitelist')
@@ -32,9 +33,9 @@ export default function Whitelist(): JSX.Element {
       for (const branch of branches) {
         const type: ProtectionEntry['type'] = /[*?]/.test(branch) ? 'glob' : 'exact'
         if (kind === 'whitelist') {
-          await window.gitmanager.addWhitelist({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
+          await window.gitmanager.addWhitelist({ repositoryId: scopedRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         } else {
-          await window.gitmanager.addProtected({ repositoryId: activeRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
+          await window.gitmanager.addProtected({ repositoryId: scopedRepositoryId, pattern: branch, type, note: '从 TXT 导入' })
         }
       }
       toast(`已导入 ${branches.length} 个分支到${kind === 'whitelist' ? '白名单' : '保护列表'}`, 'success')
@@ -49,9 +50,9 @@ export default function Whitelist(): JSX.Element {
   const remove = async (id: string, kind: 'whitelist' | 'protected'): Promise<void> => {
     try {
       if (kind === 'whitelist') {
-        await window.gitmanager.removeWhitelist(id, activeRepositoryId)
+        await window.gitmanager.removeWhitelist(id, scopedRepositoryId)
       } else {
-        await window.gitmanager.removeProtected(id, activeRepositoryId)
+        await window.gitmanager.removeProtected(id, scopedRepositoryId)
       }
       toast('Removed', 'success')
       void refresh()
@@ -64,9 +65,9 @@ export default function Whitelist(): JSX.Element {
     if (!form.pattern) return
     try {
       if (addMode === 'whitelist') {
-        await window.gitmanager.addWhitelist({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
+        await window.gitmanager.addWhitelist({ repositoryId: scopedRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       } else {
-        await window.gitmanager.addProtected({ repositoryId: activeRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
+        await window.gitmanager.addProtected({ repositoryId: scopedRepositoryId, pattern: form.pattern, type: form.type, note: form.note })
       }
       toast('Added', 'success')
       setAddOpen(false)
@@ -82,7 +83,11 @@ export default function Whitelist(): JSX.Element {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">
           {tr('whitelist')}
-          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库隔离</span> : <span className="ml-2 text-sm font-medium text-muted">全部仓库</span>}
+          {selectedRepositoryIds.length === 0
+            ? <span className="ml-2 text-sm font-medium text-muted">未选择仓库</span>
+            : selectedRepositoryIds.length === 1
+              ? <span className="ml-2 text-sm font-medium text-muted">当前仓库隔离</span>
+              : <span className="ml-2 text-sm font-medium text-muted">使用第一个勾选仓库</span>}
         </h1>
         <div className="flex gap-2">
           <button className="btn" onClick={() => { setAddMode('whitelist'); setAddOpen(true) }}>

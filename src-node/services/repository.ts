@@ -158,8 +158,7 @@ export class RepositoryService {
     const repo = this.get(id)
     if (!repo) return this.list()
     this.storage.transaction(() => {
-      this.storage.delete('branches', 'repository_id = ?', [id])
-      this.storage.delete('branch_snapshots', 'key LIKE ?', [`${id}|%`])
+      this.storage.removeRepositoryReferences(id)
       this.storage.delete('repositories', 'id = ?', [id])
     })
     this.audit.record('repository_removed', { repository: repo.name, path: repo.path })

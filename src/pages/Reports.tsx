@@ -35,7 +35,7 @@ const emptySchedule = () => ({
 export default function Reports(): JSX.Element {
   const allReports = useAppStore((s) => s.reports)
   const reportSchedules = useAppStore((s) => s.reportSchedules)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const emailGroups = useAppStore((s) => s.emailGroups)
@@ -46,14 +46,14 @@ export default function Reports(): JSX.Element {
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
 
-  const reports = activeRepositoryId
-    ? allReports.filter((report) => report.repositoryId === activeRepositoryId)
+  const reports = selectedRepositoryIds.length
+    ? allReports.filter((report) => report.repositoryIds.some((id) => selectedRepositoryIds.includes(id)))
     : allReports
 
   const generate = async (): Promise<void> => {
     setGenerating(true)
     try {
-      const report = await window.gitmanager.generateReport('manual', format, activeRepositoryId, generateGroupIds)
+      const report = await window.gitmanager.generateReport('manual', format, generateGroupIds, selectedRepositoryIds)
       toast(`报告已生成：${report.title} · ${report.path}`, 'success')
       void refresh()
     } catch (err) {
@@ -87,7 +87,7 @@ export default function Reports(): JSX.Element {
     try {
       await window.gitmanager.saveReportSchedule({
         ...draft,
-        repositoryId: activeRepositoryId,
+        repositoryIds: selectedRepositoryIds,
         enabled: true,
         runAt: draft.frequency === 'once' && draft.runAt ? new Date(draft.runAt).toISOString() : null
       })

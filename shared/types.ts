@@ -162,7 +162,7 @@ export interface MonitoringConfig {
 
 export interface SchedulerJob {
   id: string
-  repositoryId?: string | null
+  repositoryIds: string[]
   name: string
   kind: 'interval' | 'calendar'
   enabled: boolean
@@ -291,7 +291,7 @@ export interface ReportSummary {
 export interface ReportRecord {
   id: string
   title: string
-  repositoryId: string | null
+  repositoryIds: string[]
   /** 生成时限制的分组（按分支创始人命中组员）；空数组表示全仓库报告。 */
   groupIds: string[]
   generatedAt: string
@@ -306,7 +306,7 @@ export type ReportScheduleFrequency = 'daily' | 'weekly' | 'monthly' | 'once'
 export interface ReportSchedule {
   id: string
   name: string
-  repositoryId: string | null
+  repositoryIds: string[]
   frequency: ReportScheduleFrequency
   time: string
   weekday: number
@@ -336,7 +336,7 @@ export interface BackupRecord {
 }
 
 export interface BackupOptions {
-  repositoryId?: string | null
+  repositoryIds?: string[]
   folderPath?: string
 }
 
@@ -422,7 +422,7 @@ export interface AppSettings {
   gitlabUrl: string
   gitlabApiKey?: string
   hasGitlabApiKey: boolean
-  activeRepositoryId: string | null
+  selectedRepositoryIds: string[]
 }
 
 export interface RunCheckOptions {
@@ -467,7 +467,7 @@ export interface DashboardSnapshot {
   notifications: NotificationRecord[]
   settings: AppSettings
   monitoring: MonitoringConfig
-  activeRepositoryId: string | null
+  selectedRepositoryIds: string[]
 }
 
 export interface ScanProgress {
@@ -493,8 +493,8 @@ export interface BranchApi {
   listRepositories(): Promise<Repository[]>
   scanRepository(id: string, fetch?: boolean): Promise<ScanRun>
   runCheckNow(options: RunCheckOptions): Promise<ScanRun>
-  listBranches(): Promise<BranchSummary[]>
-  getBranch(criteria: BranchCriteria): Promise<BranchSummary | null>
+  listBranches(repositoryIds?: string[]): Promise<BranchSummary[]>
+  getBranch(criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null>
   notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]>
   notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
   notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
@@ -515,36 +515,36 @@ export interface BranchApi {
   getMonitoring(repositoryId?: string | null): Promise<MonitoringConfig>
   saveMonitoring(config: MonitoringConfig, repositoryId?: string | null): Promise<MonitoringConfig>
 
-  listJobs(): Promise<SchedulerJob[]>
+  listJobs(repositoryIds?: string[]): Promise<SchedulerJob[]>
   saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
   deleteJob(id: string): Promise<SchedulerJob[]>
   deleteAllJobs(): Promise<SchedulerJob[]>
   runSchedulerJob(id: string): Promise<ScanRun>
-  listRuns(): Promise<ScanRun[]>
-  calendarRuns(): Promise<{ date: string; status: ScanStatus; runs: number }[]>
+  listRuns(repositoryIds?: string[]): Promise<ScanRun[]>
+  calendarRuns(repositoryIds?: string[]): Promise<{ date: string; status: ScanStatus; runs: number }[]>
 
-  listNotifications(): Promise<NotificationRecord[]>
-  markNotificationRead(id: string): Promise<NotificationRecord[]>
-  clearNotifications(): Promise<void>
+  listNotifications(repositoryIds?: string[]): Promise<NotificationRecord[]>
+  markNotificationRead(id: string, repositoryIds?: string[]): Promise<NotificationRecord[]>
+  clearNotifications(repositoryIds?: string[]): Promise<void>
 
   getEmailConfig(): Promise<EmailConfig>
   saveEmailConfig(config: EmailConfigDraft): Promise<EmailConfig>
   testEmailConnection(config?: EmailConfigDraft): Promise<EmailSendResult>
   sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
-  listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string, repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord>
-  exportReport(id: string, format: string): Promise<ReportRecord>
-  deleteReport(id: string): Promise<ReportRecord[]>
+  listReports(repositoryIds?: string[]): Promise<ReportRecord[]>
+  generateReport(period: string, format?: string, groupIds?: string[], repositoryIds?: string[]): Promise<ReportRecord>
+  exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
+  deleteReport(id: string, repositoryIds?: string[]): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
   openReportFile(id: string): Promise<void>
-  listReportSchedules(): Promise<ReportSchedule[]>
+  listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
   listAudit(): Promise<AuditEntry[]>
   exportAuditLogs(format: 'csv' | 'json' | 'txt', directory?: string): Promise<AuditExportResult>
-  listBackups(): Promise<BackupRecord[]>
+  listBackups(repositoryIds?: string[]): Promise<BackupRecord[]>
   startBackup(options?: BackupOptions): Promise<BackupRecord>
   deleteBackup(id: string): Promise<void>
   /**
@@ -558,9 +558,9 @@ export interface BranchApi {
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>
   /** 导出某个组的分支数据（HTML/CSV），返回落盘的报告记录。 */
-  exportGroupBranches(groupId: string, format: string, repositoryId?: string | null): Promise<ReportRecord>
+  exportGroupBranches(groupId: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
   /** 把某个组的分支情况邮件发送给该组的组员。 */
-  emailGroupBranches(groupId: string, repositoryId?: string | null): Promise<{ sent: number; message: string }>
+  emailGroupBranches(groupId: string, repositoryIds?: string[]): Promise<{ sent: number; message: string }>
 
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>

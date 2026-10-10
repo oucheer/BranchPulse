@@ -21,7 +21,7 @@ export class SettingsService {
       gitlabUrl: String(row?.gitlab_url ?? ''),
       gitlabApiKey: decryptSecret(String(row?.gitlab_api_key ?? '')),
       hasGitlabApiKey: Number(row?.gitlab_has_key ?? 0) === 1,
-      activeRepositoryId: (row?.active_repository_id as string | null) ?? null
+      selectedRepositoryIds: this.storage.selectedRepositoryIds()
     }
   }
 
@@ -48,7 +48,8 @@ export class SettingsService {
         gitlab_api_key: encryptedKey,
       gitlab_has_key: encryptedKey ? 1 : 0,
         fetch_policy: settings.fetchPolicy,
-        active_repository_id: settings.activeRepositoryId ?? null
+        selected_repository_ids_json: JSON.stringify(settings.selectedRepositoryIds),
+        active_repository_id: settings.selectedRepositoryIds[0] ?? null
       },
       'id = 1'
     )

@@ -48,10 +48,9 @@ export class GroupService {
   }
 
   /** 该组的分支：创始人命中组员即为归属，可选按仓库范围收窄。 */
-  branchesFor(groupId: string, repositoryId?: string | null): { group: EmailGroup; branches: BranchSummary[] } {
+  branchesFor(groupId: string, repositoryIds?: string[]): { group: EmailGroup; branches: BranchSummary[] } {
     const group = this.find(groupId)
-    const all = this.branchService.listBranches()
-      .filter((branch) => !repositoryId || branch.repositoryId === repositoryId)
+    const all = this.branchService.listBranches(repositoryIds)
     return { group, branches: all.filter((branch) => branchBelongsToGroup(group, branch)) }
   }
 
@@ -103,8 +102,8 @@ export class GroupService {
    * 导出组的分支数据。CSV 额外带 `group` 与 `creator_email` 列，HTML 走与邮件
    * 附件一致的版式（报告格式只保留 HTML / CSV 两种）。
    */
-  async exportBranches(groupId: string, format = 'html', repositoryId?: string | null): Promise<ReportRecord> {
-    const { group, branches } = this.branchesFor(groupId, repositoryId)
+  async exportBranches(groupId: string, format = 'html', repositoryIds?: string[]): Promise<ReportRecord> {
+    const { group, branches } = this.branchesFor(groupId, repositoryIds)
     const safeFormat = ['html', 'csv'].includes(format) ? format : 'html'
     const repositories = new Set(branches.map((branch) => branch.repositoryId)).size
     const generatedAt = new Date().toISOString()
@@ -127,7 +126,7 @@ export class GroupService {
     const record: ReportRecord = {
       id: newId(),
       title,
-      repositoryId: repositoryId ?? null,
+      repositoryIds: repositoryIds ?? [],
       groupIds: [group.id],
       generatedAt,
       period: periodLabel,
@@ -138,7 +137,8 @@ export class GroupService {
     this.storage.insert('reports', {
       id: record.id,
       title,
-      repository_id: record.repositoryId,
+      repository_id: repositoryIds?.[0] ?? null,
+      repository_ids_json: JSON.stringify(repositoryIds ?? []),
       group_ids: JSON.stringify(record.groupIds),
       generated_at: generatedAt,
       period: periodLabel,
@@ -156,8 +156,8 @@ export class GroupService {
   }
 
   /** 把该组自己的分支情况发给组员；没有分支时也发一封，说明当前没有归属分支。 */
-  async emailBranches(groupId: string, repositoryId?: string | null): Promise<{ sent: number; message: string }> {
-    const { group, branches } = this.branchesFor(groupId, repositoryId)
+  async emailBranches(groupId: string, repositoryIds?: string[]): Promise<{ sent: number; message: string }> {
+    const { group, branches } = this.branchesFor(groupId, repositoryIds)
     const recipients = groupRecipients(group)
     if (recipients.length === 0) {
       return { sent: 0, message: `分支组「${group.name}」没有配置收件邮箱，请先补全组员邮箱。` }
@@ -191,8 +191,8 @@ export class GroupService {
   }
 
   /** 组的分支情况，供页面展示（分支数 + 状态分布 + 组内出现过的创始人）。 */
-  statsFor(groupId: string, repositoryId?: string | null): GroupBranchStats & { branches: BranchSummary[] } {
-    const { branches } = this.branchesFor(groupId, repositoryId)
+  statsFor(groupId: string, repositoryIds?: string[]): GroupBranchStats & { branches: BranchSummary[] } {
+    const { branches } = this.branchesFor(groupId, repositoryIds)
     return { ...groupBranchStats(branches), branches }
   }
 }

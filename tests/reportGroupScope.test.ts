@@ -132,7 +132,7 @@ afterEach(() => {
 describe('ReportService group scope', () => {
   it('counts only the branches owned by the selected groups', async () => {
     const { service } = buildService()
-    const report = await service.generateReport('manual', 'csv', null, ['group-1'])
+    const report = await service.generateReport('manual', 'csv', ['group-1'], undefined)
     expect(report.summary.totalBranches).toBe(2)
     expect(report.groupIds).toEqual(['group-1'])
     expect(report.title).toContain('支付组')
@@ -143,7 +143,7 @@ describe('ReportService group scope', () => {
 
   it('keeps the whole-repository scope when no group is selected', async () => {
     const { service, audits } = buildService()
-    const report = await service.generateReport('manual', 'csv', null)
+    const report = await service.generateReport('manual', 'csv', undefined, undefined)
     expect(report.summary.totalBranches).toBe(3)
     expect(report.groupIds).toEqual([])
     expect(audits.some((item) => item.action === 'report_group_scope_missing')).toBe(false)
@@ -151,7 +151,7 @@ describe('ReportService group scope', () => {
 
   it('persists the resolved group ids so an export stays scoped', async () => {
     const { service, storage } = buildService()
-    const report = await service.generateReport('manual', 'csv', null, ['group-1'])
+    const report = await service.generateReport('manual', 'csv', ['group-1'], undefined)
     expect(storage.insert).toHaveBeenCalledWith('reports', expect.objectContaining({
       group_ids: JSON.stringify(['group-1'])
     }))
@@ -161,7 +161,7 @@ describe('ReportService group scope', () => {
 
   it('records a failure when every selected group id is unknown', async () => {
     const { service, audits } = buildService()
-    const report = await service.generateReport('manual', 'csv', null, ['deleted-group'])
+    const report = await service.generateReport('manual', 'csv', ['deleted-group'], undefined)
     // 分组不存在时不能静默退回整仓报告。
     expect(report.summary.totalBranches).toBe(0)
     expect(audits.some((item) => item.action === 'report_group_scope_missing' && item.status === 'failure')).toBe(true)

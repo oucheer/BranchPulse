@@ -133,10 +133,10 @@ export class MonitoringService {
     addActivity('Starting monitoring check.')
     this.emitProgress(runId, activity)
 
-    const repos = this.repositoryService.list()
-    const targets = options.repositoryIds?.length
-      ? repos.filter((r) => options.repositoryIds?.includes(r.id))
-      : repos
+    const repos = options.repositoryIds === undefined
+      ? this.repositoryService.list()
+      : this.repositoryService.list().filter((r) => options.repositoryIds?.includes(r.id))
+    const targets = repos
     if (targets.length === 0) {
       addActivity('No repositories configured. Add a repository to begin.', 'warn')
     }
@@ -471,9 +471,9 @@ export class MonitoringService {
     return { sent: result.emailsSent ?? 0, message: result.message }
   }
 
-  listNotifications(): NotificationRecord[] {
+  listNotifications(repositoryIds?: string[]): NotificationRecord[] {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 500')
-    return rows.map((r) => ({
+    const mapped = rows.map((r) => ({
       id: String(r.id),
       repositoryId: String(r.repository_id ?? ''),
       repositoryName: String(r.repository_name ?? ''),
@@ -486,14 +486,19 @@ export class MonitoringService {
       deliveredViaEmail: Number(r.email ?? 0) === 1,
       read: Number(r.read ?? 0) === 1
     }))
+    return repositoryIds === undefined ? mapped : mapped.filter((r) => repositoryIds.includes(r.repositoryId))
   }
 
-  markNotificationRead(id: string): NotificationRecord[] {
+  markNotificationRead(id: string, repositoryIds?: string[]): NotificationRecord[] {
+    const target = this.listNotifications(repositoryIds).find((row) => row.id === id)
+    if (!target) return this.listNotifications(repositoryIds)
     this.storage.update('notification_history', { read: 1 }, 'id = ?', [id])
-    return this.listNotifications()
+    return this.listNotifications(repositoryIds)
   }
 
-  clearNotifications(): void {
-    this.storage.delete('notification_history', '1 = 1')
+  clearNotifications(repositoryIds?: string[]): void {
+    const ids = this.listNotifications(repositoryIds).map((row) => row.id)
+    if (ids.length === 0) return
+    this.storage.delete(`notification_history`, `id IN (${ids.map(() => '?').join(',')})`, ids)
   }
 }

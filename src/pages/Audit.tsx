@@ -8,7 +8,7 @@ import { timeAgo } from '../lib/format'
 export default function Audit(): JSX.Element {
   const audit = useAppStore((s) => s.audit)
   const language = useAppStore((s) => s.language)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const repositories = useAppStore((s) => s.repositories)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
@@ -25,12 +25,13 @@ export default function Audit(): JSX.Element {
     'email_config_updated', 'email_config_save_failed', 'settings_updated', 'settings_save_failed',
     'scheduler_job_ran', 'scheduler_job_failed'
   ])
-  const visibleAudit = activeRepositoryId
+  const visibleAudit = selectedRepositoryIds.length
     ? audit.filter((entry) => {
         if (globalActions.has(entry.action)) return true
         const detail = entry.detail as Record<string, unknown>
         const repository = String(detail.repository ?? detail.repositoryName ?? '')
-        return repository === activeRepositoryId || repository === repoNames.get(activeRepositoryId)
+        return selectedRepositoryIds.includes(repository) ||
+          selectedRepositoryIds.some((id) => repository === repoNames.get(id))
       })
     : audit
 

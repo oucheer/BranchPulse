@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Cloud, Eye, EyeOff, FolderGit2, GitBranch, Plus, RefreshCw, ScanLine, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, EmptyState, Toggle } from '../components/ui'
+import { Badge, Card, EmptyState } from '../components/ui'
 import { describeScanRun, timeAgo } from '../lib/format'
 import type { GitLabConnectionConfig, GitLabProject } from '@shared/types'
 
@@ -14,8 +14,11 @@ export default function Repositories(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const refresh = useAppStore((s) => s.refresh)
   const settings = useAppStore((s) => s.settings)
-  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const toggleRepositorySelection = useAppStore((s) => s.toggleRepositorySelection)
+  const selectAllRepositories = useAppStore((s) => s.selectAllRepositories)
+  const clearRepositorySelection = useAppStore((s) => s.clearRepositorySelection)
+  const [allRepositoryBranches, setAllRepositoryBranches] = useState<typeof branches>([])
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [gitlabUrl, setGitlabUrl] = useState(settings.gitlabUrl)
   const [gitlabApiKey, setGitlabApiKey] = useState('')
@@ -24,6 +27,22 @@ export default function Repositories(): JSX.Element {
   const [gitlabProjects, setGitlabProjects] = useState<GitLabProject[]>([])
   const [gitlabMessage, setGitlabMessage] = useState<string | null>(null)
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (repositories.length === 0) {
+      setAllRepositoryBranches([])
+      return
+    }
+    void window.gitmanager.listBranches(repositories.map((repository) => repository.id)).then((rows) => {
+      if (!cancelled) setAllRepositoryBranches(rows)
+    }).catch(() => {
+      if (!cancelled) setAllRepositoryBranches([])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [repositories, branches])
 
   useEffect(() => {
     if (!gitlabApiKeyTouched) setGitlabApiKey(settings.gitlabApiKey ?? '')
@@ -97,20 +116,20 @@ export default function Repositories(): JSX.Element {
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(300px,1fr)]">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <label className="label mb-1.5" htmlFor="active-repository">当前仓库</label>
-            <select
-              id="active-repository"
-              className="input"
-              value={activeRepositoryId ?? ''}
-              onChange={(e) => void setActiveRepositoryId(e.target.value || null)}
-            >
-              <option value="">全部仓库</option>
-              {repositories.map((repo) => (
-                <option key={repo.id} value={repo.id}>{repo.name}</option>
-              ))}
-            </select>
+            <div className="text-sm font-semibold text-canvas-fg">勾选仓库范围</div>
+            <div className="mt-1 text-xs text-muted">
+              {repositories.length === 0
+                ? '暂无可勾选的仓库。'
+                : selectedRepositoryIds.length === 0
+                  ? '当前未选择仓库：所有功能页显示空数据并禁用操作。'
+                  : `已勾选 ${selectedRepositoryIds.length} / ${repositories.length} 个仓库，所有功能页仅显示这些仓库的分支与统计。`}
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button className="btn" disabled={repositories.length === 0} onClick={() => void selectAllRepositories()}>全选</button>
+            <button className="btn" disabled={selectedRepositoryIds.length === 0} onClick={() => void clearRepositorySelection()}>清空</button>
           </div>
         </div>
       </Card>
@@ -135,7 +154,7 @@ export default function Repositories(): JSX.Element {
       ) : (
         <div className="space-y-3">
           {repositories.map((repo) => {
-            const repoBranches = branches.filter((b) => b.repositoryId === repo.id)
+            const repoBranches = allRepositoryBranches.filter((b) => b.repositoryId === repo.id)
             return (
               <Card key={repo.id} className="p-4">
                 <div className="flex items-center gap-3">
@@ -155,7 +174,7 @@ export default function Repositories(): JSX.Element {
                       分支
                     </div>
                     <div>
-                      <div className="font-semibold text-canvas-fg">{repoBranches.filter((b) => b.stale).length}</div>
+                      <div className="font-semibold text-canvas-fg">{repo.lastScanAt ? repoBranches.filter((b) => b.stale).length : '—'}</div>
                       已停更
                     </div>
                     <div>
@@ -164,15 +183,15 @@ export default function Repositories(): JSX.Element {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      className="no-specular h-4 w-4 shrink-0 cursor-pointer accent-[rgb(var(--primary))]"
+                      checked={selectedRepositoryIds.includes(repo.id)}
+                      title={selectedRepositoryIds.includes(repo.id) ? '取消勾选该仓库' : '勾选该仓库'}
+                      onChange={() => void toggleRepositorySelection(repo.id)}
+                    />
                     <button
-                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
-                      onClick={() => void setActiveRepositoryId(activeRepositoryId === repo.id ? null : repo.id)}
-                      title={activeRepositoryId === repo.id ? '切换到全部仓库' : '设为当前仓库'}
-                    >
-                      <FolderGit2 size={15} />
-                    </button>
-                    <button
-                      className={`btn px-2 ${activeRepositoryId === repo.id ? 'border-primary/60 text-primary' : ''}`}
+                      className="btn px-2"
                       onClick={() => void scan(repo.id)}
                       disabled={scanning}
                       title={tr('scanAll')}

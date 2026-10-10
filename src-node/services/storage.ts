@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
   fetch_enabled INTEGER NOT NULL DEFAULT 1,
   notify_target TEXT NOT NULL DEFAULT 'self',
   group_ids TEXT,
+  repository_ids_json TEXT,
   last_run_at TEXT,
   next_run_at TEXT,
   created_at TEXT NOT NULL,
@@ -132,6 +133,7 @@ CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
   title TEXT,
   repository_id TEXT,
+  repository_ids_json TEXT,
   group_ids TEXT,
   generated_at TEXT NOT NULL,
   period TEXT,
@@ -144,6 +146,7 @@ CREATE TABLE IF NOT EXISTS report_schedules (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   repository_id TEXT,
+  repository_ids_json TEXT,
   frequency TEXT NOT NULL,
   time TEXT,
   weekday INTEGER,
@@ -230,7 +233,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
   gitlab_url TEXT,
   gitlab_api_key TEXT,
   gitlab_has_key INTEGER NOT NULL DEFAULT 0,
-  active_repository_id TEXT
+  active_repository_id TEXT,
+  selected_repository_ids_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -339,6 +343,7 @@ export class StorageService {
     this.db.run(SCHEMA)
     this.migrate()
     this.seed()
+    this.normalizeLegacySelectionSnapshots()
     this.save()
     logger.info(`Storage ready at ${this.file}`)
   }
@@ -372,6 +377,7 @@ export class StorageService {
     this.ensureColumn('app_settings', 'gitlab_api_key', 'TEXT')
     this.ensureColumn('app_settings', 'gitlab_has_key', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('app_settings', 'active_repository_id', 'TEXT')
+    this.ensureColumn('app_settings', 'selected_repository_ids_json', 'TEXT')
     this.ensureColumn('app_settings', 'color_theme', "TEXT NOT NULL DEFAULT 'default'")
     this.ensureColumn('app_settings', 'background_theme', "TEXT NOT NULL DEFAULT 'dark'")
     this.ensureColumn('monitoring_rules_repo', 'enabled', 'INTEGER NOT NULL DEFAULT 1')
@@ -384,6 +390,9 @@ export class StorageService {
     this.ensureColumn('branch_naming_rules', 'repository_id', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'repository_id', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'group_ids', 'TEXT')
+    this.ensureColumn('scheduler_jobs', 'repository_ids_json', 'TEXT')
+    this.ensureColumn('reports', 'repository_ids_json', 'TEXT')
+    this.ensureColumn('report_schedules', 'repository_ids_json', 'TEXT')
     this.ensureColumn('report_schedules', 'group_ids', 'TEXT')
     this.ensureColumn('whitelist', 'repository_id', 'TEXT')
     this.ensureColumn('protected_branches', 'repository_id', 'TEXT')
@@ -516,6 +525,145 @@ export class StorageService {
     }
   }
 
+  repositoryIds(): string[] {
+    return this.all<{ id: string }>('SELECT id FROM repositories ORDER BY created_at ASC').map((row) => String(row.id))
+  }
+
+  /**
+   * The renderer and repository-scoped services use this value when no explicit
+   * scope is supplied. An empty array is a real empty scope and must never be
+   * expanded back to all repositories.
+   */
+  selectedRepositoryIds(): string[] {
+    const row = this.get<Record<string, unknown>>('SELECT selected_repository_ids_json FROM app_settings WHERE id = 1')
+    if (row?.selected_repository_ids_json == null) return this.repositoryIds()
+    const existing = new Set(this.repositoryIds())
+    return parseIdArray(row.selected_repository_ids_json).filter((id) => existing.has(id))
+  }
+
+  /**
+   * Old builds stored one nullable repository id. A null value meant "all
+   * repositories", so it is expanded once to a snapshot of the ids that exist
+   * during this migration. New rows always write the JSON array column.
+   */
+  private normalizeLegacySelectionSnapshots(): void {
+    const repositoryIds = this.repositoryIds()
+    const app = this.get<Record<string, unknown>>('SELECT * FROM app_settings WHERE id = 1')
+    if (app && app.selected_repository_ids_json == null) {
+      const legacy = String(app.active_repository_id ?? '')
+      const selected = uniqueIds(legacy ? [legacy] : repositoryIds)
+      this.update('app_settings', {
+        selected_repository_ids_json: JSON.stringify(selected),
+        active_repository_id: selected[0] ?? null
+      }, 'id = 1')
+    }
+    this.normalizeLegacyArrayColumn('scheduler_jobs', repositoryIds, false)
+    this.normalizeLegacyArrayColumn('report_schedules', repositoryIds, false)
+    this.normalizeLegacyArrayColumn('reports', repositoryIds, false)
+  }
+
+  private normalizeLegacyArrayColumn(table: string, fallbackIds: string[], deleteEmpty: boolean): void {
+    const rows = this.all<Record<string, unknown>>(`SELECT id, repository_id, repository_ids_json FROM ${table}`)
+    for (const row of rows) {
+      if (row.repository_ids_json != null) continue
+      const legacy = String(row.repository_id ?? '')
+      const ids = uniqueIds(legacy ? [legacy] : fallbackIds)
+      if (ids.length === 0 && deleteEmpty) {
+        this.delete(table, 'id = ?', [String(row.id)])
+      } else {
+        this.update(table, {
+          repository_ids_json: JSON.stringify(ids),
+          repository_id: ids[0] ?? null
+        }, 'id = ?', [String(row.id)])
+      }
+    }
+  }
+
+  removeRepositoryReferences(repositoryId: string): void {
+    if (!repositoryId) return
+
+    // Reports are generated snapshots. A report that included a removed
+    // repository can no longer be represented safely, so both its record and
+    // its file are removed rather than exposing stale data.
+    const reports = this.all<Record<string, unknown>>('SELECT id, path, repository_id, repository_ids_json FROM reports')
+    for (const report of reports) {
+      const reportScoped = report.repository_ids_json != null
+        ? parseIdArray(report.repository_ids_json)
+        : (String(report.repository_id ?? '') ? [String(report.repository_id)] : [])
+      if (!reportScoped.includes(repositoryId)) continue
+      const reportPath = String(report.path ?? '')
+      if (reportPath) {
+        try {
+          fs.rmSync(reportPath, { force: true })
+        } catch (err) {
+          logger.warn(`Failed to remove report file ${reportPath}: ${String(err)}`)
+        }
+      }
+      this.delete('reports', 'id = ?', [String(report.id)])
+    }
+
+    const backupRows = this.all<Record<string, unknown>>(
+      'SELECT id, path FROM backup_records WHERE repository_id = ?',
+      [repositoryId]
+    )
+    for (const backup of backupRows) {
+      const backupPath = String(backup.path ?? '')
+      if (backupPath) {
+        try {
+          fs.rmSync(backupPath, { recursive: true, force: true })
+        } catch (err) {
+          logger.warn(`Failed to remove backup ${backupPath}: ${String(err)}`)
+        }
+      }
+      this.delete('backup_records', 'id = ?', [String(backup.id)])
+    }
+
+    const runIds = this.all<{ run_id: string }>(
+      'SELECT DISTINCT run_id FROM scan_run_repositories WHERE repository_id = ?',
+      [repositoryId]
+    ).map((row) => String(row.run_id))
+    for (const runId of runIds) {
+      this.delete('scan_run_repositories', 'run_id = ?', [runId])
+      this.delete('scan_runs', 'id = ?', [runId])
+    }
+
+    for (const table of [
+      'branches',
+      'monitoring_rules_repo',
+      'branch_naming_rules',
+      'whitelist',
+      'protected_branches',
+      'notification_history'
+    ]) {
+      this.delete(table, 'repository_id = ?', [repositoryId])
+    }
+    this.delete('branch_snapshots', 'key LIKE ?', [`${repositoryId}|%`])
+
+    this.removeIdFromArrayColumn('scheduler_jobs', 'repository_ids_json', repositoryId, true)
+    this.removeIdFromArrayColumn('report_schedules', 'repository_ids_json', repositoryId, true)
+
+    const app = this.get<Record<string, unknown>>('SELECT selected_repository_ids_json FROM app_settings WHERE id = 1')
+    const selected = parseIdArray(app?.selected_repository_ids_json).filter((id) => id !== repositoryId)
+    this.update('app_settings', {
+      selected_repository_ids_json: JSON.stringify(selected),
+      active_repository_id: selected[0] ?? null
+    }, 'id = 1')
+  }
+
+  private removeIdFromArrayColumn(table: string, column: string, repositoryId: string, deleteEmpty: boolean): void {
+    const rows = this.all<Record<string, unknown>>(`SELECT id, ${column} FROM ${table}`)
+    for (const row of rows) {
+      const next = parseIdArray(row[column]).filter((id) => id !== repositoryId)
+      if (next.length === 0 && deleteEmpty) this.delete(table, 'id = ?', [String(row.id)])
+      else {
+        this.update(table, {
+          [column]: JSON.stringify(next),
+          repository_id: next[0] ?? null
+        }, 'id = ?', [String(row.id)])
+      }
+    }
+  }
+
   flush(): void {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
@@ -626,6 +774,21 @@ export function fromDb<T>(row: Record<string, unknown> | undefined, fields: stri
     acc[f] = row[f]
     return acc
   }, {}) as T
+}
+
+export function parseIdArray(raw: unknown): string[] {
+  if (Array.isArray(raw)) return uniqueIds(raw.map((id) => String(id)))
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? uniqueIds(parsed.map((id) => String(id))) : []
+  } catch {
+    return []
+  }
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
 }
 
 export { nowIso }

@@ -22,7 +22,8 @@ export default function Monitoring(): JSX.Element {
   const setScanning = useAppStore((s) => s.setScanning)
   const scanning = useAppStore((s) => s.scanning)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const scopedRepositoryId = selectedRepositoryIds[0] ?? null
   const repositories = useAppStore((s) => s.repositories)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
@@ -42,7 +43,7 @@ export default function Monitoring(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
+      await window.gitmanager.saveMonitoring(draft, scopedRepositoryId)
       toast(tr('saved'), 'success')
       void refresh()
     } catch (err) {
@@ -54,7 +55,7 @@ export default function Monitoring(): JSX.Element {
 
   const toggleMonitoring = async (enabled: boolean): Promise<void> => {
     try {
-      await window.gitmanager.saveMonitoring({ ...monitoring, enabled }, activeRepositoryId)
+      await window.gitmanager.saveMonitoring({ ...monitoring, enabled }, scopedRepositoryId)
       toast(enabled ? '监控已开启' : '监控已关闭', 'success')
       void refresh()
     } catch (err) {
@@ -90,13 +91,13 @@ export default function Monitoring(): JSX.Element {
     setScanning(true)
     suppressDraftSync.current = true
     try {
-      await window.gitmanager.saveMonitoring(draft, activeRepositoryId)
+      await window.gitmanager.saveMonitoring(draft, scopedRepositoryId)
       const run = await window.gitmanager.runCheckNow({
         bypassEnabledCheck: true,
         notifyTarget: draft.notificationEnabled ? draft.notifyTarget : 'none',
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
         trigger: 'manual',
-        ...(activeRepositoryId ? { repositoryIds: [activeRepositoryId] } : {}),
+        ...(selectedRepositoryIds.length > 0 ? { repositoryIds: selectedRepositoryIds } : {}),
         ...(scopeGroupIds.length > 0 ? { groupIds: scopeGroupIds } : {})
       })
       // A check that reached no repository must not read as a clean run: the
@@ -118,16 +119,25 @@ export default function Monitoring(): JSX.Element {
     }
   }
 
-  const activeRepository = repositories.find((r) => r.id === activeRepositoryId)
-  const isRemoteOnly = activeRepository ? activeRepository.source !== 'local' : repositories.length > 0 && repositories.every((r) => r.source !== 'local')
-  const lastRuns = (activeRepositoryId ? scanRuns.filter((run) => run.repositoryIds?.includes(activeRepositoryId)) : scanRuns).slice(0, 5)
+  const scopedRepositories = repositories.filter((r) => selectedRepositoryIds.includes(r.id))
+  const isRemoteOnly = scopedRepositories.length > 0
+    ? scopedRepositories.every((r) => r.source !== 'local')
+    : repositories.length > 0 && repositories.every((r) => r.source !== 'local')
+  const lastRuns = (selectedRepositoryIds.length
+    ? scanRuns.filter((run) => run.repositoryIds?.some((id) => selectedRepositoryIds.includes(id)))
+    : scanRuns
+  ).slice(0, 5)
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="flex items-center gap-3 text-lg font-bold text-canvas-fg">
           {tr('monitoring')}
-          {activeRepositoryId ? <span className="ml-2 text-sm font-medium text-muted">当前仓库配置</span> : <span className="ml-2 text-sm font-medium text-muted">全局默认配置</span>}
+          {selectedRepositoryIds.length === 0
+            ? <span className="ml-2 text-sm font-medium text-muted">全局默认配置</span>
+            : selectedRepositoryIds.length === 1
+              ? <span className="ml-2 text-sm font-medium text-muted">当前仓库配置</span>
+              : <span className="ml-2 text-sm font-medium text-muted">使用第一个勾选仓库配置</span>}
           <Badge tone={monitoring.enabled ? 'ok' : 'warn'}>
             {monitoring.enabled ? '已开启' : '已关闭'}
           </Badge>

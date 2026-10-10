@@ -11,8 +11,7 @@ export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void })
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
   const repositories = useAppStore((s) => s.repositories)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
-  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const navigate = useNavigate()
   const unread = notifications.filter((n) => !n.read).length
 
@@ -33,18 +32,17 @@ export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void })
       <div className="ml-auto flex items-center gap-2">
         <div className="flex min-w-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm" style={{ boxShadow: shadow.sm }}>
           <FolderGit2 size={14} className="shrink-0 text-muted" />
-          <select
-            className="max-w-[11rem] cursor-pointer bg-transparent text-sm text-canvas-fg outline-none"
-            value={activeRepositoryId ?? ''}
+          <button
+            type="button"
+            className="max-w-[11rem] cursor-pointer truncate bg-transparent text-sm text-canvas-fg outline-none"
+            onClick={() => navigate('/repositories')}
             disabled={repositories.length === 0}
-            onChange={(event) => void setActiveRepositoryId(event.target.value || null)}
-            aria-label={language === 'zh' ? '切换仓库' : 'Switch repository'}
+            title={language === 'zh' ? '管理勾选仓库范围' : 'Manage selected repositories'}
           >
-            <option value="">{language === 'zh' ? '全部仓库' : 'All repositories'}</option>
-            {repositories.map((repo) => (
-              <option key={repo.id} value={repo.id}>{repo.name}</option>
-            ))}
-          </select>
+            {selectedRepositoryIds.length === 0
+              ? (language === 'zh' ? '未选择仓库' : 'No repositories')
+              : (language === 'zh' ? `已选 ${selectedRepositoryIds.length} / ${repositories.length}` : `${selectedRepositoryIds.length} / ${repositories.length} selected`)}
+          </button>
         </div>
         {scanning ? (
           <span className="chip bg-primary/10 text-primary">

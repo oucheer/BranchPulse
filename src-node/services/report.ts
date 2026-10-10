@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { BranchSummary, ReportRecord, ReportSummary, ScanRun } from '@shared/types'
 import { parseGroupIds, resolveGroupScope } from '@shared/groups'
+import { parseIdArray } from './storage'
 import type { StorageService } from './storage'
 import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
@@ -56,7 +57,7 @@ export class ReportService {
     return rows.map((r) => ({
       id: String(r.id),
       title: String(r.title ?? 'GitManager Report'),
-      repositoryId: (r.repository_id as string | null) ?? null,
+      repositoryIds: parseIdArray(r.repository_ids_json),
       groupIds: parseGroupIds(r.group_ids),
       generatedAt: String(r.generated_at),
       period: String(r.period ?? ''),
@@ -94,9 +95,8 @@ export class ReportService {
     }
   }
 
-  getSummaryEmailData(repositoryId?: string | null): EmailSummaryData {
-    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
-    const branches = this.scopeBranches(resolvedRepositoryId).branches
+  getSummaryEmailData(repositoryIds?: string[]): EmailSummaryData {
+    const branches = this.scopeBranches(repositoryIds).branches
     const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
     return {
       total: branches.length,
@@ -110,8 +110,7 @@ export class ReportService {
     }
   }
 
-  private recentRuns(repositoryId?: string | null): ScanRun[] {
-    void repositoryId
+  private recentRuns(repositoryIds?: string[]): ScanRun[] {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT 30')
     return rows.map((r) => ({
       id: String(r.id),
@@ -133,9 +132,9 @@ export class ReportService {
     }))
   }
 
-  private notifications(repositoryId?: string | null): Array<Record<string, unknown>> {
+  private notifications(repositoryIds?: string[]): Array<Record<string, unknown>> {
     const rows = this.storage.all<Record<string, unknown>>('SELECT * FROM notification_history ORDER BY created_at DESC LIMIT 200')
-    return rows.map((r) => ({
+    return rows.filter((r) => repositoryIds === undefined || repositoryIds.includes(String(r.repository_id ?? ''))).map((r) => ({
       repository: String(r.repository_name ?? ''),
       branch: String(r.branch ?? ''),
       type: String(r.type ?? ''),
@@ -149,10 +148,9 @@ export class ReportService {
    * 生成报告。`groupIds` 非空时只统计这些分组（按分支创始人命中组员）覆盖的分支，
    * 这样定时报告可以只覆盖某个组，而不是把整仓数据发给它。
    */
-  async generateReport(period: string, format = 'html', repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord> {
-    const resolvedRepositoryId = repositoryId ?? (this.storage.get<Record<string, unknown>>('SELECT active_repository_id FROM app_settings WHERE id = 1')?.active_repository_id as string | null) ?? null
-    const repos = this.repositoryService.list().filter((repo) => !resolvedRepositoryId || repo.id === resolvedRepositoryId)
-    const scope = this.scopeBranches(resolvedRepositoryId, groupIds)
+  async generateReport(period: string, format = 'html', groupIds?: string[], repositoryIds?: string[]): Promise<ReportRecord> {
+    const repos = this.repositoryService.list().filter((repo) => repositoryIds === undefined || repositoryIds.includes(repo.id))
+    const scope = this.scopeBranches(repositoryIds, groupIds)
     const { groups: scopeGroups, branches } = scope
     if (scope.missing) {
       this.audit.record('report_group_scope_missing', { groups: groupIds }, 'failure')
@@ -161,8 +159,8 @@ export class ReportService {
       ? repos.filter((repo) => branches.some((branch) => branch.repositoryId === repo.id)).length
       : repos.length
     const summary = this.buildSummary(branches, repositoryCount)
-    const runs = this.recentRuns(resolvedRepositoryId)
-    const notifications = this.notifications(resolvedRepositoryId)
+    const runs = this.recentRuns(repositoryIds)
+    const notifications = this.notifications(repositoryIds)
     const scopeLabel = scopeGroups.length ? ` · 分组：${scopeGroups.map((group) => group.name).join('、')}` : ''
     const title = `Git Branch Health Report (${period}${scopeLabel})`
     const generatedAt = new Date().toISOString()
@@ -175,7 +173,7 @@ export class ReportService {
     const record: ReportRecord = {
       id: newId(),
       title,
-      repositoryId: resolvedRepositoryId,
+      repositoryIds: repositoryIds ?? [],
       groupIds: scopeGroups.map((group) => group.id),
       generatedAt,
       period,
@@ -186,7 +184,8 @@ export class ReportService {
     this.storage.insert('reports', {
       id: record.id,
       title,
-      repository_id: resolvedRepositoryId,
+      repository_id: repositoryIds?.[0] ?? null,
+      repository_ids_json: JSON.stringify(repositoryIds ?? []),
       group_ids: JSON.stringify(record.groupIds),
       generated_at: generatedAt,
       period,
@@ -203,15 +202,15 @@ export class ReportService {
     return record
   }
 
-  async exportReport(id: string, format: string): Promise<ReportRecord> {
+  async exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord> {
     const report = this.listReports().find((r) => r.id === id)
     if (!report) throw new Error('Report not found.')
-    return this.generateReport(report.period, format, report.repositoryId, report.groupIds)
+    return this.generateReport(report.period, format, report.groupIds, repositoryIds ?? report.repositoryIds)
   }
 
   /** 按仓库 + 分组收窄分支集合；`groupIds` 为空表示不按分组限制。 */
-  private scopeBranches(repositoryId: string | null, groupIds?: string[]): ReturnType<typeof resolveGroupScope> {
-    const branches = this.branchService.listBranches().filter((branch) => !repositoryId || branch.repositoryId === repositoryId)
+  private scopeBranches(repositoryIds?: string[], groupIds?: string[]): ReturnType<typeof resolveGroupScope> {
+    const branches = this.branchService.listBranches(repositoryIds)
     return resolveGroupScope(this.groups?.list() ?? [], groupIds, branches)
   }
 

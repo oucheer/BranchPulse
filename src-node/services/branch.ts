@@ -654,10 +654,10 @@ export class BranchService {
     }
   }
 
-  listBranches(): BranchSummary[] {
+  listBranches(repositoryIds?: string[]): BranchSummary[] {
     const repos = new Map(this.repositoryService.list().map((r) => [r.id, r.name]))
     const rows = this.storage.all<Record<string, unknown>>('SELECT data_json, repository_id FROM branches ORDER BY name ASC')
-    return rows.map((row) => {
+    const branches = rows.map((row) => {
       try {
         const repositoryId = String(row.repository_id ?? '')
         const parsed = JSON.parse(String(row.data_json)) as BranchSummary
@@ -668,12 +668,15 @@ export class BranchService {
         return null
       }
     }).filter((b): b is BranchSummary => b !== null)
+    return repositoryIds === undefined ? branches : branches.filter((branch) => repositoryIds.includes(branch.repositoryId))
   }
 
-  async getBranch(criteria: BranchCriteria): Promise<BranchSummary | null> {
+  async getBranch(criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null> {
     const key = `${criteria.repositoryId}|${criteria.type}|${criteria.name}`
     const row = this.storage.get<Record<string, unknown>>('SELECT data_json, repository_id FROM branches WHERE key = ?', [key])
     if (!row) return null
+    const allowed = repositoryIds === undefined || repositoryIds.includes(criteria.repositoryId)
+    if (!allowed) return null
     const repo = this.repositoryService.get(criteria.repositoryId)
     const parsed = JSON.parse(String(row.data_json)) as BranchSummary
     parsed.repositoryName = repo?.name ?? ''

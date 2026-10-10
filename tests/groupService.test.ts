@@ -73,7 +73,9 @@ function buildService(groups: EmailGroup[], sent: EmailSummaryData[]): {
       return { ok: true, message: 'sent', emailsSent: 1, recipients }
     }
   } as unknown as EmailService
-  const branchStub = { listBranches: () => BRANCHES } as unknown as BranchService
+  const branchStub = {
+    listBranches: (repositoryIds?: string[]) => repositoryIds === undefined ? BRANCHES : BRANCHES.filter((branch) => repositoryIds.includes(branch.repositoryId))
+  } as unknown as BranchService
   const service = new GroupService(storage, branchStub, emailStub, new AuditService(storage))
   return { service, email: emailStub }
 }
@@ -116,7 +118,7 @@ describe('GroupService branch ownership', () => {
 
   it('narrows the scope when a repository is selected', () => {
     const { service } = buildService([group()], [])
-    expect(service.branchesFor('group-1', 'repo-2').branches.map((item) => item.name)).toEqual(['feature/foreign'])
+    expect(service.branchesFor('group-1', ['repo-2']).branches.map((item) => item.name)).toEqual(['feature/foreign'])
   })
 
   it('reports stats per group', () => {

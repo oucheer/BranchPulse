@@ -59,7 +59,7 @@ export default function Settings(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const branches = useAppStore((s) => s.branches)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const toast = useAppStore((s) => s.toast)
@@ -196,7 +196,7 @@ export default function Settings(): JSX.Element {
   const exportGroup = async (group: EmailGroup, format: 'html' | 'csv'): Promise<void> => {
     setGroupBusy(group.id + ':' + format)
     try {
-      const report = await window.gitmanager.exportGroupBranches(group.id, format, activeRepositoryId)
+      const report = await window.gitmanager.exportGroupBranches(group.id, format, selectedRepositoryIds)
       toast('已导出「' + group.name + '」分支数据（' + format.toUpperCase() + '）：' + report.summary.totalBranches + ' 个分支', 'success')
       void refresh()
     } catch (err) {
@@ -210,7 +210,7 @@ export default function Settings(): JSX.Element {
   const emailGroupMembers = async (group: EmailGroup): Promise<void> => {
     setGroupBusy(group.id + ':mail')
     try {
-      const result = await window.gitmanager.emailGroupBranches(group.id, activeRepositoryId)
+      const result = await window.gitmanager.emailGroupBranches(group.id, selectedRepositoryIds)
       toast(result.message, result.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) {

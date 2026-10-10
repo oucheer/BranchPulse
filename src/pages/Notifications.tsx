@@ -8,15 +8,17 @@ export default function Notifications(): JSX.Element {
   const notifications = useAppStore((s) => s.notifications)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
 
-  const scoped = activeRepositoryId ? notifications.filter((n) => n.repositoryId === activeRepositoryId) : notifications
+  const scoped = selectedRepositoryIds.length
+    ? notifications.filter((n) => selectedRepositoryIds.includes(n.repositoryId))
+    : notifications
   const list = (filter === 'unread' ? scoped.filter((n) => !n.read) : scoped).filter((n) => n.type !== 'merged')
 
   const markRead = async (id: string): Promise<void> => {
     try {
-      await window.gitmanager.markNotificationRead(id)
+      await window.gitmanager.markNotificationRead(id, selectedRepositoryIds)
       void refresh()
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
@@ -25,7 +27,7 @@ export default function Notifications(): JSX.Element {
 
   const clearAll = async (): Promise<void> => {
     try {
-      await window.gitmanager.clearNotifications()
+      await window.gitmanager.clearNotifications(selectedRepositoryIds)
       toast(tr('clearAll'), 'success')
       void refresh()
     } catch (err) {

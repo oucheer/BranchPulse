@@ -45,7 +45,7 @@ interface AppState {
   branches: BranchSummary[]
   scanRuns: ScanRun[]
   notifications: NotificationRecord[]
-  activeRepositoryId: string | null
+  selectedRepositoryIds: string[]
   settings: AppSettings
   monitoring: MonitoringConfig
   jobs: SchedulerJob[]
@@ -65,7 +65,10 @@ interface AppState {
   refresh: () => Promise<void>
   setLanguage: (language: Language) => void
   setEffectSettings: (partial: Partial<EffectSettings>) => void
-  setActiveRepositoryId: (repositoryId: string | null) => Promise<void>
+  setSelectedRepositoryIds: (repositoryIds: string[]) => Promise<void>
+  toggleRepositorySelection: (repositoryId: string) => Promise<void>
+  selectAllRepositories: () => Promise<void>
+  clearRepositorySelection: () => Promise<void>
   exportConfig: (filePath?: string) => Promise<ConfigExportResult>
   importConfig: (filePath: string) => Promise<ConfigImportResult>
   setScanning: (scanning: boolean) => void
@@ -93,7 +96,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   branches: [],
   scanRuns: [],
   notifications: [],
-  activeRepositoryId: null,
+  selectedRepositoryIds: [],
   settings: {
     theme: 'dark',
     colorTheme: 'default',
@@ -107,7 +110,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     fetchPolicy: 'auto',
     gitlabUrl: '',
     hasGitlabApiKey: false,
-    activeRepositoryId: null
+    selectedRepositoryIds: []
   },
   monitoring: {
     enabled: true,
@@ -142,19 +145,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         return
       }
       const snapshot = await window.gitmanager.init()
-      const activeId = snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null
+      const selected = snapshot.selectedRepositoryIds ?? snapshot.settings.selectedRepositoryIds ?? []
       const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups, appVersion] = await Promise.all([
-        window.gitmanager.listJobs(),
-        window.gitmanager.calendarRuns(),
-        window.gitmanager.listReports(),
-        window.gitmanager.listReportSchedules(),
+        window.gitmanager.listJobs(selected),
+        window.gitmanager.calendarRuns(selected),
+        window.gitmanager.listReports(selected),
+        window.gitmanager.listReportSchedules(selected),
         window.gitmanager.listAudit(),
-        window.gitmanager.listNamingRules(activeId),
-        window.gitmanager.listWhitelist(activeId),
-        window.gitmanager.listProtected(activeId),
+        window.gitmanager.listNamingRules(selected[0] ?? null),
+        window.gitmanager.listWhitelist(selected[0] ?? null),
+        window.gitmanager.listProtected(selected[0] ?? null),
         window.gitmanager.getEmailConfig(),
         window.gitmanager.listEmailGroups(),
-        window.gitmanager.listBackups(),
+        window.gitmanager.listBackups(selected),
         window.gitmanager.getAppVersion()
       ])
       set({
@@ -164,7 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         branches: snapshot.branches,
         scanRuns: snapshot.scanRuns,
         notifications: snapshot.notifications,
-        activeRepositoryId: snapshot.activeRepositoryId ?? snapshot.settings.activeRepositoryId ?? null,
+        selectedRepositoryIds: selected,
         settings: snapshot.settings,
         monitoring: snapshot.monitoring,
         jobs,
@@ -197,16 +200,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ effectSettings: next })
   },
 
-  setActiveRepositoryId: async (repositoryId) => {
+  setSelectedRepositoryIds: async (repositoryIds) => {
+    const next = [...new Set(repositoryIds)]
     const settings = get().settings
-    const nextSettings = { ...settings, activeRepositoryId: repositoryId }
-    set({ activeRepositoryId: repositoryId, settings: nextSettings })
+    const nextSettings = { ...settings, selectedRepositoryIds: next }
+    set({ selectedRepositoryIds: next, settings: nextSettings })
     try {
       await window.gitmanager.saveSettings(nextSettings)
       await get().refresh()
     } catch (err) {
       get().toast(err instanceof Error ? err.message : String(err), 'error')
     }
+  },
+
+  toggleRepositorySelection: async (repositoryId) => {
+    const current = get().selectedRepositoryIds
+    await get().setSelectedRepositoryIds(
+      current.includes(repositoryId) ? current.filter((id) => id !== repositoryId) : [...current, repositoryId]
+    )
+  },
+
+  selectAllRepositories: async () => {
+    await get().setSelectedRepositoryIds(get().repositories.map((repository) => repository.id))
+  },
+
+  clearRepositorySelection: async () => {
+    await get().setSelectedRepositoryIds([])
   },
 
   setScanning: (scanning) => set({ scanning }),

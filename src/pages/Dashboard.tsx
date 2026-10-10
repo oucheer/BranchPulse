@@ -430,7 +430,7 @@ export default function Dashboard(): JSX.Element {
   const branches = useAppStore((s) => s.branches)
   const repositories = useAppStore((s) => s.repositories)
   const scanRuns = useAppStore((s) => s.scanRuns)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const language = useAppStore((s) => s.language)
   const refresh = useAppStore((s) => s.refresh)
   const toast = useAppStore((s) => s.toast)
@@ -438,10 +438,12 @@ export default function Dashboard(): JSX.Element {
   const zh = language === 'zh'
   const [refreshing, setRefreshing] = useState(false)
 
-  const visibleBranches = activeRepositoryId ? branches.filter((b) => b.repositoryId === activeRepositoryId) : branches
+  const visibleBranches = selectedRepositoryIds.length
+    ? branches.filter((b) => selectedRepositoryIds.includes(b.repositoryId))
+    : branches
   const visibleScanRuns = useMemo(
-    () => (activeRepositoryId ? scanRuns.filter((r) => r.repositoryIds?.includes(activeRepositoryId)) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
-    [scanRuns, activeRepositoryId]
+    () => (selectedRepositoryIds.length ? scanRuns.filter((r) => r.repositoryIds?.some((id) => selectedRepositoryIds.includes(id))) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
+    [scanRuns, selectedRepositoryIds]
   )
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
   const lastRun = visibleScanRuns[0]
@@ -779,14 +781,14 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Repository Overview (compact, only if repo exists) ── */}
-      {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).length > 0 ? (
+      {(selectedRepositoryIds.length ? repositories.filter((r) => selectedRepositoryIds.includes(r.id)) : repositories).length > 0 ? (
         <Card className="p-3.5">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
             <button onClick={() => navigate('/repositories')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
           </div>
           <div className="space-y-1.5">
-            {(activeRepositoryId ? repositories.filter((r) => r.id === activeRepositoryId) : repositories).slice(0, 4).map((r) => (
+            {(selectedRepositoryIds.length ? repositories.filter((r) => selectedRepositoryIds.includes(r.id)) : repositories).slice(0, 4).map((r) => (
               <div key={r.id} className="flex items-center gap-3 rounded-md border border-line px-3 py-2 text-sm">
                 <FolderGit2 size={15} className="shrink-0 text-muted" />
                 <span className="min-w-0 flex-1 truncate font-medium text-canvas-fg">{r.name}</span>

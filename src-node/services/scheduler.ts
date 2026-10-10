@@ -5,6 +5,7 @@ import type { AuditService } from './audit'
 import { newId } from '../utils/ids'
 import { logger } from '../utils/logger'
 import { parseGroupIds } from '@shared/groups'
+import { parseIdArray } from './storage'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -16,9 +17,10 @@ function rowToJob(row: Record<string, unknown>): SchedulerJob {
   } catch {
     days = []
   }
+  const repositoryIds = parseIdArray(row.repository_ids_json)
   return {
     id: String(row.id),
-    repositoryId: (row.repository_id as string | null) ?? null,
+    repositoryIds,
     name: String(row.name),
     kind: (row.kind === 'calendar' ? 'calendar' : 'interval') as SchedulerJob['kind'],
     enabled: Number(row.enabled ?? 1) === 1,
@@ -79,9 +81,10 @@ export class SchedulerService {
 
   saveJob(job: Partial<SchedulerJob> & { id?: string }): SchedulerJob[] {
     const existing = job.id ? this.listJobs().find((j) => j.id === job.id) : undefined
+    const repositoryIds = job.repositoryIds ?? existing?.repositoryIds ?? []
     const merged: SchedulerJob = {
       id: existing?.id ?? newId(),
-      repositoryId: job.repositoryId ?? existing?.repositoryId ?? null,
+      repositoryIds,
       name: job.name ?? existing?.name ?? 'Monitoring job',
       kind: job.kind ?? existing?.kind ?? 'interval',
       enabled: job.enabled ?? existing?.enabled ?? true,
@@ -116,7 +119,8 @@ export class SchedulerService {
           end_date: merged.endDate,
           email_policy: merged.emailPolicy,
           fetch_enabled: merged.fetchEnabled ? 1 : 0,
-          repository_id: merged.repositoryId ?? null,
+          repository_id: merged.repositoryIds[0] ?? null,
+          repository_ids_json: JSON.stringify(merged.repositoryIds),
           notify_target: merged.notifyTarget,
           group_ids: JSON.stringify(merged.groupIds),
           last_run_at: merged.lastRunAt,
@@ -128,7 +132,8 @@ export class SchedulerService {
     } else {
       this.storage.insert('scheduler_jobs', {
         id: merged.id,
-        repository_id: merged.repositoryId ?? null,
+        repository_id: merged.repositoryIds[0] ?? null,
+        repository_ids_json: JSON.stringify(merged.repositoryIds),
         name: merged.name,
         kind: merged.kind,
         enabled: merged.enabled ? 1 : 0,
@@ -177,18 +182,25 @@ export class SchedulerService {
     return this.listJobs()
   }
 
-  private monitoringEnabled(repositoryId?: string | null): boolean {
-    const row = repositoryId
-      ? (this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId])
-        ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1'))
-      : this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
-    return Number(row?.enabled ?? 1) === 1
+  private monitoringEnabled(repositoryIds: string[]): boolean {
+    if (repositoryIds.length === 0) {
+      const row = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+      return Number(row?.enabled ?? 1) === 1
+    }
+    return repositoryIds.every((repositoryId) => {
+      const row = this.storage.get<Record<string, unknown>>(
+        'SELECT * FROM monitoring_rules_repo WHERE repository_id = ?',
+        [repositoryId]
+      )
+        ?? this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1')
+      return Number(row?.enabled ?? 1) === 1
+    })
   }
 
   async runSchedulerJob(id: string): Promise<ScanRun> {
     const job = this.listJobs().find((j) => j.id === id)
     if (!job) throw new Error('Scheduler job not found.')
-    if (!this.monitoringEnabled(job.repositoryId)) {
+    if (!this.monitoringEnabled(job.repositoryIds)) {
       throw new Error('Monitoring is disabled.')
     }
     const now = new Date()
@@ -197,7 +209,7 @@ export class SchedulerService {
       fetch: job.fetchEnabled,
       emailPolicy: job.emailPolicy,
       notifyTarget: job.notifyTarget,
-      ...(job.repositoryId ? { repositoryIds: [job.repositoryId] } : {}),
+      repositoryIds: job.repositoryIds,
       ...(job.groupIds.length > 0 ? { groupIds: job.groupIds } : {})
     })
     this.storage.update(
@@ -238,7 +250,7 @@ export class SchedulerService {
     const now = Date.now()
     for (const job of this.listJobs()) {
       if (!job.enabled) continue
-      if (!this.monitoringEnabled(job.repositoryId)) continue
+      if (!this.monitoringEnabled(job.repositoryIds)) continue
       if (job.startDate && new Date(job.startDate).getTime() > now) continue
       if (job.endDate && new Date(job.endDate).getTime() < now) continue
       const next = job.nextRunAt ? new Date(job.nextRunAt).getTime() : 0
@@ -254,10 +266,22 @@ export class SchedulerService {
     }
   }
 
-  calendarRuns(): { date: string; status: ScanRun['status']; runs: number }[] {
-    const rows = this.storage.all<Record<string, unknown>>('SELECT started_at, status FROM scan_runs ORDER BY started_at ASC')
+  calendarRuns(repositoryIds?: string[]): { date: string; status: ScanRun['status']; runs: number }[] {
+    if (repositoryIds?.length === 0) return []
+    const runIds = repositoryIds === undefined
+      ? null
+      : new Set(
+        this.storage.all<Record<string, unknown>>(
+          `SELECT DISTINCT run_id FROM scan_run_repositories WHERE repository_id IN (${repositoryIds.map(() => '?').join(',')})`,
+          repositoryIds
+        ).map((row) => String(row.run_id))
+      )
+    const calendarRows = this.storage.all<Record<string, unknown>>(
+      runIds ? `SELECT id, started_at, status FROM scan_runs WHERE id IN (${Array.from(runIds).map(() => '?').join(',')}) ORDER BY started_at ASC` : 'SELECT id, started_at, status FROM scan_runs ORDER BY started_at ASC',
+      runIds ? Array.from(runIds) : []
+    )
     const map = new Map<string, { status: ScanRun['status']; runs: number }>()
-    for (const row of rows) {
+    for (const row of calendarRows) {
       const date = String(row.started_at).slice(0, 10)
       const status = (row.status as ScanRun['status']) ?? 'completed'
       const existing = map.get(date) ?? { status: status as ScanRun['status'], runs: 0 }

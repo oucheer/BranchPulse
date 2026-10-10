@@ -12,8 +12,8 @@ const statusTone = (status: BackupRecord['status']): 'ok' | 'warn' | 'danger' =>
 export default function Backups(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const backups = useAppStore((s) => s.backups)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
-  const setActiveRepositoryId = useAppStore((s) => s.setActiveRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const setSelectedRepositoryIds = useAppStore((s) => s.setSelectedRepositoryIds)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const [folderPath, setFolderPath] = useState('')
@@ -24,7 +24,7 @@ export default function Backups(): JSX.Element {
   const startBackup = async (): Promise<void> => {
     setBusy(true)
     try {
-      const record = await window.gitmanager.startBackup({ repositoryId: activeRepositoryId, folderPath })
+      const record = await window.gitmanager.startBackup({ repositoryIds: selectedRepositoryIds, folderPath })
       toast(record.status === 'success' ? '备份完成' : record.status === 'failed' ? record.error ?? '备份失败' : '备份进行中', record.status === 'failed' ? 'error' : 'success')
       void refresh()
     } catch (err) {
@@ -80,7 +80,8 @@ export default function Backups(): JSX.Element {
         <div className="grid gap-3 md:grid-cols-[minmax(180px,240px)_1fr_auto] md:items-end">
           <div>
             <div className="label mb-1.5">仓库</div>
-            <select className="input" value={activeRepositoryId ?? ''} onChange={(e) => void setActiveRepositoryId(e.target.value || null)}>
+            <select className="input" value={selectedRepositoryIds[0] ?? ''} onChange={(e) => void setSelectedRepositoryIds(e.target.value ? [e.target.value] : [])}>
+              <option value="">请选择唯一仓库</option>
               {repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}
             </select>
           </div>
@@ -93,7 +94,7 @@ export default function Backups(): JSX.Element {
               </button>
             </div>
           </div>
-          <button className="btn btn-primary" disabled={busy || repositories.length === 0} onClick={() => void startBackup()}>
+          <button className="btn btn-primary" disabled={busy || selectedRepositoryIds.length !== 1} onClick={() => void startBackup()}>
             <FolderDown size={14} /> 开始备份
           </button>
         </div>

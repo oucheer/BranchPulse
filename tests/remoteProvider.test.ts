@@ -90,7 +90,7 @@ describe('report schedule timing', () => {
   const base = {
     id: 'schedule-1',
     name: 'report',
-    repositoryId: null,
+    repositoryIds: [],
     time: '09:00',
     weekday: 1,
     dayOfMonth: 1,

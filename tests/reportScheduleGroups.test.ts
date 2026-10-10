@@ -69,7 +69,7 @@ function harness(recipients: string, groups: EmailGroup[] = [GROUP]): Harness {
       return {
         id: 'report-1',
         title: 'report',
-        repositoryId: null,
+        repositoryIds: [],
         groupIds: [],
         generatedAt: '2026-09-17T00:00:00.000Z',
         period: 'daily',

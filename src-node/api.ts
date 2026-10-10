@@ -99,8 +99,8 @@ export interface GitManagerApi {
   listRepositories(): Promise<Repository[]>
   scanRepository(id: string, fetch?: boolean): Promise<ScanRun>
   runCheckNow(options?: RunCheckOptions): Promise<ScanRun>
-  listBranches(): Promise<BranchSummary[]>
-  getBranch(criteria: BranchCriteria): Promise<BranchSummary | null>
+  listBranches(repositoryIds?: string[]): Promise<BranchSummary[]>
+  getBranch(criteria: BranchCriteria, repositoryIds?: string[]): Promise<BranchSummary | null>
   notifyBranch(branch: BranchSummary): Promise<NotificationRecord[]>
   notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
   notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }>
@@ -124,39 +124,39 @@ export interface GitManagerApi {
   listEmailGroups(): Promise<EmailGroup[]>
   saveEmailGroup(group: Partial<EmailGroup> & { id?: string }): Promise<EmailGroup[]>
   deleteEmailGroup(id: string): Promise<EmailGroup[]>
-  exportGroupBranches(groupId: string, format: string, repositoryId?: string | null): Promise<ReportRecord>
-  emailGroupBranches(groupId: string, repositoryId?: string | null): Promise<{ sent: number; message: string }>
+  exportGroupBranches(groupId: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
+  emailGroupBranches(groupId: string, repositoryIds?: string[]): Promise<{ sent: number; message: string }>
 
-  listJobs(): Promise<SchedulerJob[]>
+  listJobs(repositoryIds?: string[]): Promise<SchedulerJob[]>
   saveJob(job: Partial<SchedulerJob> & { id?: string }): Promise<SchedulerJob[]>
   deleteJob(id: string): Promise<SchedulerJob[]>
   deleteAllJobs(): Promise<SchedulerJob[]>
   runSchedulerJob(id: string): Promise<ScanRun>
-  listRuns(): Promise<ScanRun[]>
-  calendarRuns(): Promise<{ date: string; status: ScanRun['status']; runs: number }[]>
+  listRuns(repositoryIds?: string[]): Promise<ScanRun[]>
+  calendarRuns(repositoryIds?: string[]): Promise<{ date: string; status: ScanRun['status']; runs: number }[]>
 
-  listNotifications(): Promise<NotificationRecord[]>
-  markNotificationRead(id: string): Promise<NotificationRecord[]>
-  clearNotifications(): Promise<void>
+  listNotifications(repositoryIds?: string[]): Promise<NotificationRecord[]>
+  markNotificationRead(id: string, repositoryIds?: string[]): Promise<NotificationRecord[]>
+  clearNotifications(repositoryIds?: string[]): Promise<void>
 
   getEmailConfig(): Promise<EmailConfig>
   saveEmailConfig(config: EmailConfigDraft): Promise<EmailConfig>
   testEmailConnection(config?: EmailConfigDraft): Promise<EmailSendResult>
   sendTestEmail(config?: EmailConfigDraft): Promise<EmailSendResult>
 
-  listReports(): Promise<ReportRecord[]>
-  generateReport(period: string, format?: string, repositoryId?: string | null, groupIds?: string[]): Promise<ReportRecord>
-  exportReport(id: string, format: string): Promise<ReportRecord>
-  deleteReport(id: string): Promise<ReportRecord[]>
+  listReports(repositoryIds?: string[]): Promise<ReportRecord[]>
+  generateReport(period: string, format?: string, groupIds?: string[], repositoryIds?: string[]): Promise<ReportRecord>
+  exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
+  deleteReport(id: string, repositoryIds?: string[]): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
   openReportFile(id: string): Promise<void>
 
-  listReportSchedules(): Promise<ReportSchedule[]>
+  listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
 
-  listBackups(): Promise<BackupRecord[]>
-  startBackup(options?: { repositoryId?: string | null; folderPath?: string }): Promise<BackupRecord>
+  listBackups(repositoryIds?: string[]): Promise<BackupRecord[]>
+  startBackup(options?: { repositoryIds?: string[]; folderPath?: string }): Promise<BackupRecord>
   deleteBackup(id: string): Promise<void>
   selectBackupFolder(): Promise<string>
   openBackupFolder(backupPath: string): Promise<void>
@@ -214,16 +214,16 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
   let progressSink = options.onProgress ?? ((): void => {})
 
-  function listScanRuns(repositoryId?: string | null, limit = 50): ScanRun[] {
-    const rows = repositoryId
+  function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {
+    const rows = repositoryIds?.length
       ? storage.all<Record<string, unknown>>(
         `SELECT sr.* FROM scan_runs sr
          WHERE EXISTS (
            SELECT 1 FROM scan_run_repositories srr
-           WHERE srr.run_id = sr.id AND srr.repository_id = ?
+           WHERE srr.run_id = sr.id AND srr.repository_id IN (${repositoryIds.map(() => '?').join(',')})
          )
          ORDER BY sr.started_at DESC LIMIT ?`,
-        [repositoryId, limit]
+        [...repositoryIds, limit]
       )
       : storage.all<Record<string, unknown>>('SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?', [limit])
     const runIds = rows.map((row) => String(row.id))
@@ -305,16 +305,16 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
     async init(): Promise<DashboardSnapshot> {
       const currentSettings = settings.get()
-      const activeRepositoryId = currentSettings.activeRepositoryId
-      const scanRuns = listScanRuns(activeRepositoryId, 50)
+      const selectedRepositoryIds = currentSettings.selectedRepositoryIds
+      const scanRuns = selectedRepositoryIds.length === 0 ? [] : listScanRuns(selectedRepositoryIds, 50)
       return {
         repositories: repository.list(),
-        branches: branch.listBranches(),
+        branches: branch.listBranches(selectedRepositoryIds.length === 0 ? [] : undefined),
         scanRuns,
-        notifications: monitoring.listNotifications(),
+        notifications: selectedRepositoryIds.length === 0 ? [] : monitoring.listNotifications(selectedRepositoryIds),
         settings: settings.get(),
-        monitoring: await getMonitoring(activeRepositoryId),
-        activeRepositoryId
+        monitoring: await getMonitoring(selectedRepositoryIds[0] ?? null),
+        selectedRepositoryIds
       }
     },
 
@@ -351,8 +351,8 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         throw err
       }
     },
-    listBranches: async () => branch.listBranches(),
-    getBranch: (criteria) => branch.getBranch(criteria),
+    listBranches: async (repositoryIds) => branch.listBranches(repositoryIds),
+    getBranch: (criteria, repositoryIds) => branch.getBranch(criteria, repositoryIds),
     notifyBranch: (bs) => monitoring.notifyBranch(bs),
     notifyBranchesEmail: (bs) => monitoring.notifyBranchesEmail(bs),
     notifySelfEmail: (bs) => monitoring.notifySelfEmail(bs),
@@ -437,24 +437,27 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     listEmailGroups: async () => email.listGroups(),
     saveEmailGroup: async (group) => email.saveGroup(group),
     deleteEmailGroup: async (id) => email.deleteGroup(id),
-    exportGroupBranches: (groupId, format, repositoryId) => groups.exportBranches(groupId, format, repositoryId),
-    emailGroupBranches: (groupId, repositoryId) => groups.emailBranches(groupId, repositoryId),
+    exportGroupBranches: (groupId, format, repositoryIds) => groups.exportBranches(groupId, format, repositoryIds),
+    emailGroupBranches: (groupId, repositoryIds) => groups.emailBranches(groupId, repositoryIds),
 
     getMonitoring: (repositoryId) => getMonitoring(repositoryId),
     saveMonitoring: (config, repositoryId) => saveMonitoring(config, repositoryId),
 
-    listJobs: async () => scheduler.listJobs(),
+    listJobs: async (repositoryIds) => {
+      const jobs = scheduler.listJobs()
+      return repositoryIds === undefined ? jobs : jobs.filter((job) => job.repositoryIds.some((id) => repositoryIds.includes(id)))
+    },
     saveJob: async (job) => scheduler.saveJob(job),
     deleteJob: async (id) => scheduler.deleteJob(id),
     deleteAllJobs: async () => scheduler.deleteAllJobs(),
     runSchedulerJob: (id) => scheduler.runSchedulerJob(id),
-    listRuns: async () => listScanRuns(null, 100),
-    calendarRuns: async () => scheduler.calendarRuns(),
+    listRuns: async (repositoryIds) => repositoryIds?.length === 0 ? [] : listScanRuns(repositoryIds, 100),
+    calendarRuns: async (repositoryIds) => scheduler.calendarRuns(repositoryIds),
 
-    listNotifications: async () => monitoring.listNotifications(),
-    markNotificationRead: async (id) => {
+    listNotifications: async (repositoryIds) => monitoring.listNotifications(repositoryIds),
+    markNotificationRead: async (id, repositoryIds) => {
       try {
-        const notifications = monitoring.markNotificationRead(id)
+        const notifications = monitoring.markNotificationRead(id, repositoryIds)
         audit.record('notification_marked_read', { id })
         return notifications
       } catch (err) {
@@ -462,10 +465,10 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         throw err
       }
     },
-    clearNotifications: async () => {
+    clearNotifications: async (repositoryIds) => {
       try {
-        monitoring.clearNotifications()
-        audit.record('notifications_cleared', { count: monitoring.listNotifications().length })
+        monitoring.clearNotifications(repositoryIds)
+        audit.record('notifications_cleared', { count: monitoring.listNotifications(repositoryIds).length })
       } catch (err) {
         audit.record('notifications_clear_failed', { error: err instanceof Error ? err.message : String(err) }, 'failure')
         throw err
@@ -491,18 +494,27 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     testEmailConnection: (config) => email.testConnection(config),
     sendTestEmail: (config) => email.sendTestEmail(config),
 
-    listReports: async () => report.listReports(),
-    generateReport: (period, format, repositoryId, groupIds) => report.generateReport(period, format, repositoryId, groupIds),
-    exportReport: (id, format) => report.exportReport(id, format),
+    listReports: async (repositoryIds) => {
+      const reports = report.listReports()
+      return repositoryIds === undefined ? reports : reports.filter((report) => report.repositoryIds.some((id) => repositoryIds.includes(id)))
+    },
+    generateReport: (period, format, groupIds, repositoryIds) => report.generateReport(period, format, groupIds, repositoryIds),
+    exportReport: (id, format, repositoryIds) => report.exportReport(id, format, repositoryIds),
     deleteReport: async (id) => report.deleteReport(id),
     openReportFolder: () => report.openReportFolder(),
     openReportFile: (id) => report.openReportFile(id),
 
-    listReportSchedules: async () => reportSchedules.list(),
+    listReportSchedules: async (repositoryIds) => {
+      const schedules = reportSchedules.list()
+      return repositoryIds === undefined ? schedules : schedules.filter((schedule) => schedule.repositoryIds.some((id) => repositoryIds.includes(id)))
+    },
     saveReportSchedule: async (schedule) => reportSchedules.save(schedule),
     deleteReportSchedule: async (id) => reportSchedules.delete(id),
 
-    listBackups: async () => backup.list(),
+    listBackups: async (repositoryIds) => {
+      const records = backup.list()
+      return repositoryIds === undefined ? records : records.filter((record) => repositoryIds.includes(record.repositoryId))
+    },
     startBackup: (backupOptions = {}) => backup.start(backupOptions),
     deleteBackup: async (id) => backup.delete(id),
     // The web build has no native directory dialog: the in-page folder picker
@@ -570,7 +582,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
           launchMinimized: saved.launchMinimized,
           startWithWindows: saved.startWithWindows,
           gitPath: saved.gitPath,
-          activeRepositoryId: saved.activeRepositoryId
+          selectedRepositoryIds: saved.selectedRepositoryIds
         })
         options.onSettingsSaved?.(saved)
         return saved

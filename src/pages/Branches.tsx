@@ -284,7 +284,7 @@ export default function Branches(): JSX.Element {
   const repositories = useAppStore((s) => s.repositories)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
-  const activeRepositoryId = useAppStore((s) => s.activeRepositoryId)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const settings = useAppStore((s) => s.settings)
   const emailConfig = useAppStore((s) => s.emailConfig)
   const emailGroups = useAppStore((s) => s.emailGroups)
@@ -295,7 +295,6 @@ export default function Branches(): JSX.Element {
   const zh = language === 'zh'
 
   const [search, setSearch] = useState('')
-  const [repoFilter, setRepoFilter] = useState('')
   const [issueFilter, setIssueFilter] = useState<IssueFilter>('')
   const [creatorFilter, setCreatorFilter] = useState('')
   const [groupFilter, setGroupFilter] = useState('')
@@ -305,12 +304,14 @@ export default function Branches(): JSX.Element {
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  const effectiveRepo = repoFilter || activeRepositoryId || ''
+  const effectiveRepos = selectedRepositoryIds.length
+    ? selectedRepositoryIds
+    : repositories.map((repository) => repository.id)
 
   // 人员下拉的候选来自「当前仓库范围内」的分支，切仓库后能选的人随之变化。
   const scoped = useMemo(
-    () => (effectiveRepo ? branches.filter((b) => b.repositoryId === effectiveRepo) : branches),
-    [branches, effectiveRepo]
+    () => branches.filter((b) => effectiveRepos.includes(b.repositoryId)),
+    [branches, effectiveRepos]
   )
   const people = useMemo(() => creatorOptions(scoped), [scoped])
   const activePerson = people.find((option) => creatorOptionKey(option) === creatorFilter)
@@ -320,6 +321,13 @@ export default function Branches(): JSX.Element {
   useEffect(() => {
     if (groupFilter && !emailGroups.some((group) => group.id === groupFilter)) setGroupFilter('')
   }, [emailGroups, groupFilter])
+
+  useEffect(() => {
+    setSelectedIds((prev) => new Set([...prev].filter((key) => {
+      const branch = branches.find((b) => b.id + '-' + b.type === key)
+      return !branch || effectiveRepos.includes(branch.repositoryId)
+    })))
+  }, [branches, effectiveRepos])
 
   const filtered = useMemo(() => {
     let list = scoped
@@ -408,7 +416,7 @@ export default function Branches(): JSX.Element {
     if (!activeGroup) return
     if (!emailConfig?.enabled) { toast('邮件发送未启用，请先在设置中开启。', 'warn'); return }
     try {
-      const result = await window.gitmanager.emailGroupBranches(activeGroup.id, effectiveRepo || null)
+      const result = await window.gitmanager.emailGroupBranches(activeGroup.id, effectiveRepos)
       toast(result.message, result.sent > 0 ? 'success' : 'warn')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -417,7 +425,7 @@ export default function Branches(): JSX.Element {
   const exportActiveGroup = async (): Promise<void> => {
     if (!activeGroup) return
     try {
-      const report = await window.gitmanager.exportGroupBranches(activeGroup.id, 'csv', effectiveRepo || null)
+      const report = await window.gitmanager.exportGroupBranches(activeGroup.id, 'csv', effectiveRepos)
       toast('已导出「' + activeGroup.name + '」分支数据：' + report.summary.totalBranches + ' 个分支', 'success')
       void refresh()
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
@@ -435,7 +443,7 @@ export default function Branches(): JSX.Element {
         name: branch.name,
         type: branch.type,
         remote: branch.remote
-      })
+      }, effectiveRepos)
       if (detail) {
         setSelectedBranch((prev) => (prev?.repositoryId === detail.repositoryId && prev?.name === detail.name ? detail : prev))
       }
@@ -498,14 +506,6 @@ export default function Branches(): JSX.Element {
 
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <select
-          value={effectiveRepo}
-          onChange={(e) => setRepoFilter(e.target.value)}
-          className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-canvas-fg outline-none transition-colors focus:border-primary/50"
-        >
-          <option value="">{zh ? '所有仓库' : 'All repositories'}</option>
-          {repositories.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
         <div className="relative flex-1 min-w-40" style={{ maxWidth: 280 }}>
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <input
