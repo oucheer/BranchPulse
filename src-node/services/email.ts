@@ -54,6 +54,12 @@ export interface EmailSummaryData {
 
 export type EmailLang = 'en' | 'zh'
 
+export interface EmailReportPartition {
+  repositoryId: string
+  repositoryName: string
+  data: EmailSummaryData
+}
+
 export function readEmailLang(storage: StorageService): EmailLang {
   const row = storage.get<Record<string, unknown>>('SELECT language FROM app_settings WHERE id = 1')
   return row?.language === 'zh' ? 'zh' : 'en'
@@ -316,7 +322,14 @@ function stackedSvg(segments: Array<{ label: string; value: number; color: strin
   return `<svg viewBox="0 0 ${width} 42" role="img" aria-label="占比条形图">${rects}</svg>`
 }
 
-export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
+/** 单个仓库（或单次汇总）的正文内容；报告邮件按仓库分区复用这里。 */
+function branchEmailBody(
+  data: EmailSummaryData,
+  lang: EmailLang,
+  kind: 'summary' | 'report' = 'summary',
+  compact = false,
+  includeCreatorReview = true
+): { title: string; meta: string; body: string } {
   const t = lang === 'zh'
     ? {
         title: kind === 'report' ? '分支健康报告' : '分支治理汇总',
@@ -467,7 +480,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     ])}</div>
     ${data.thresholdHint ? `<div style="color:#6b7280;font-size:12px">${escapeHtml(data.thresholdHint)}</div>` : ''}
     <div style="height:10px;background:#eef2f6;border-radius:5px;overflow:hidden;margin:10px 0 4px"><div style="width:${stalePercent}%;height:100%;background:#c4320a"></div></div>`)
-  sections.push(`
+  if (!compact) sections.push(`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px">
       <div style="border:1px solid #e2e6ea;border-radius:8px;padding:14px">
         <h3 style="font-size:14px;margin:0 0 10px">${t.chart}</h3>
@@ -484,11 +497,18 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         <p style="color:#6b7280;font-size:11px;margin:8px 0 0">${lang === 'zh' ? `合规 ${Math.max(0, data.total - data.namingInvalid)} 个 · 不规范 ${data.namingInvalid} 个` : `Compliant ${data.total - data.namingInvalid} · Non-compliant ${data.namingInvalid}`}</p>
       </div>
     </div>`)
-  if (creatorReviewRows.length) {
+  if (includeCreatorReview && creatorReviewRows.length) {
     sections.push(`<div style="margin-top:14px;border:1px solid #f2c94c;background:#fff9e6;border-radius:6px;padding:10px 12px;color:#7a5b00;font-size:12px">
       <strong>${lang === 'zh' ? '分支创始人需要确认' : 'Creator confirmation required'}</strong>
       <ul style="margin:6px 0 0 18px;padding:0">${creatorReviewRows.map((row) => `<li>${escapeHtml(row.repository)} / ${escapeHtml(row.branch)}：${lang === 'zh' ? `无法找到该分支创始人，最后提交人是${row.lastAuthor || '未获取'}，请其确认该分支情况` : `The branch creator could not be found; the last author is ${row.lastAuthor || 'unavailable'}. Please ask them to confirm this branch.`}</li>`).join('')}</ul>
     </div>`)
+  }
+  if (compact) {
+    return {
+      title: t.title,
+      meta: `${data.repositories} ${t.repositories} · ${data.generatedAt ? `${t.generatedAt} ${formatDateTime(data.generatedAt, lang)}` : ''}`,
+      body: sections.join('')
+    }
   }
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
@@ -500,18 +520,87 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
     ${groupedTables(allIssues, lang, [t.branch, t.creator, t.lastAuthor, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], ['20%', '11%', '11%', '14%', '9%', '9%', '7%', '9%', '10%'], allCells)}`)
 
+  return {
+    title: t.title,
+    meta: `${data.repositories} ${t.repositories} · ${t.generatedAt} ${formatDateTime(data.generatedAt, lang)}`,
+    body: sections.join('')
+  }
+}
+
+function emailDocument(title: string, metaHtml: string, body: string, lang: EmailLang): string {
   return `<!DOCTYPE html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
 <body style="font-family:'Microsoft YaHei','Segoe UI',Arial,sans-serif;color:#20242a;background:#f4f6f8;margin:0;padding:16px">
   <div style="max-width:860px;margin:0 auto;background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:20px 24px">
-    <h2 style="font-size:18px;margin:0 0 4px">${t.title}${data.scopeLabel ? ' · ' + escapeHtml(data.scopeLabel) : ''}</h2>
-    <div style="color:#6b7280;font-size:12px">${data.repositories} ${t.repositories} · ${t.generatedAt} ${escapeHtml(formatDateTime(data.generatedAt, lang))}</div>
-    ${sections.join('')}
+    <h2 style="font-size:18px;margin:0 0 4px">${title}</h2>
+    <div style="color:#6b7280;font-size:12px">${metaHtml}</div>
+    ${body}
     ${processingDeadlineNotice(lang)}
     <hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">
     <div style="color:#98a2b3;font-size:11px">${lang === 'zh' ? '由 GitManager 自动发送' : 'Sent by GitManager'} · ${escapeHtml(formatDateTime(new Date().toISOString(), lang))}</div>
   </div>
 </body></html>`
+}
+
+export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, kind: 'summary' | 'report' = 'summary'): string {
+  const { title, meta, body } = branchEmailBody(data, lang, kind)
+  return emailDocument(escapeHtml(title), escapeHtml(meta), body, lang)
+}
+
+/** 多仓库报告正文：逐仓独立分区，最后给出所选范围的总汇总。 */
+export function buildPartitionedReportHtml(
+  input: { title: string; generatedAt: string; partitions: EmailReportPartition[]; overall: EmailSummaryData },
+  lang: EmailLang,
+  compact = false
+): string {
+  const repositoryLabel = lang === 'zh' ? '仓库' : 'Repository'
+  const partitionHtml = input.partitions
+    .map((partition) => {
+      const built = branchEmailBody(partition.data, lang, 'report', compact, false)
+      return `
+  <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:16px 18px">
+    <h2 style="font-size:16px;margin:0 0 4px">${escapeHtml(repositoryLabel)}：${escapeHtml(partition.repositoryName || partition.repositoryId)}</h2>
+    <div style="color:#6b7280;font-size:12px">${escapeHtml(built.meta)}</div>
+    ${built.body}
+  </section>`
+    })
+    .join('')
+  const overall = branchEmailBody(input.overall, lang, 'report', compact, true)
+  const overviewTitle = lang === 'zh' ? '管理总览' : 'Executive overview'
+  const repositoryRows = input.partitions.map(({ repositoryName, repositoryId, data }) => [
+    escapeHtml(repositoryName || repositoryId),
+    String(data.total),
+    String(data.stale),
+    String(data.namingInvalid),
+    String(data.cleanupCandidates)
+  ])
+  const overviewTable = emailTable(
+    lang === 'zh' ? ['仓库', '分支总数', '已停更', '命名不规范', '清理候选'] : ['Repository', 'Branches', 'Stale', 'Naming issues', 'Cleanup candidates'],
+    repositoryRows
+  )
+  const overview = `<section style="margin-top:18px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 16px">
+    <h2 style="font-size:16px;margin:0 0 10px">${overviewTitle}</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px">${[
+      { value: input.overall.total, label: lang === 'zh' ? '总分支' : 'Branches' },
+      { value: input.overall.stale, label: lang === 'zh' ? '已停更' : 'Stale', color: '#b42318' },
+      { value: input.overall.namingInvalid, label: lang === 'zh' ? '命名不规范' : 'Naming issues', color: '#b54708' },
+      { value: input.overall.cleanupCandidates, label: lang === 'zh' ? '清理候选' : 'Cleanup candidates', color: '#c4320a' }
+    ].map((item) => `<div style="flex:1;border:1px solid #e2e6ea;border-radius:6px;padding:9px;text-align:center"><strong style="font-size:20px;color:${item.color ?? '#20242a'}">${item.value}</strong><div style="font-size:11px;color:#6b7280">${item.label}</div></div>`).join('')}</div>
+    ${overviewTable}
+    <div style="margin-top:12px">${overall.body}</div>
+    <p style="font-size:11px;color:#6b7280;margin:8px 0 0">${lang === 'zh' ? `覆盖 ${input.partitions.length} 个勾选仓库；下方为整体图表及逐仓详情。` : `Covers ${input.partitions.length} selected repositories; portfolio charts and repository details follow.`}</p>
+  </section>`
+  const meta = input.partitions.length
+    ? `${escapeHtml(input.title)} · ${escapeHtml(formatDateTime(input.generatedAt, lang))}`
+    : escapeHtml(overall.meta)
+  return emailDocument(
+    escapeHtml(input.title),
+    meta,
+    `${overview}
+  <h2 style="font-size:18px;margin:24px 0 8px">${lang === 'zh' ? '仓库详细情况' : 'Repository details'}</h2>
+  ${partitionHtml}`,
+    lang
+  )
 }
 
 type CreatorEmailScenario = 'stale' | 'naming'
@@ -544,6 +633,100 @@ function repositoryContext(rows: EmailIssueRow[], lang: EmailLang): string {
   if (names.length === 0) return ''
   const list = names.map((name) => `「${escapeHtml(name)}」`).join('、')
   return zh ? `（仓库：${list}）` : ` (repositories: ${names.map((name) => escapeHtml(name)).join(', ')})`
+}
+
+/** 一个创始人对应一封邮件：停更与命名问题合并，避免同一人多封通知。 */
+export function creatorDigestEmail(
+  rows: EmailIssueRow[],
+  lang: EmailLang,
+  thresholdHint?: string
+): { subject: string; html: string } {
+  const zh = lang === 'zh'
+  const stale = [...rows].filter((row) => row.state === 'stale').sort((a, b) => b.inactiveDays - a.inactiveDays)
+  const naming = [...rows].filter((row) => row.namingStatus === 'invalid').sort((a, b) => b.inactiveDays - a.inactiveDays)
+  const subject = zh
+    ? `【GitManager】分支异常汇总：${stale.length} 个停更，${naming.length} 个命名不规范`
+    : `GitManager branch issues: ${stale.length} stale, ${naming.length} naming`
+  const staleSection = stale.length
+    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `已停更分支（${stale.length}）` : `Stale branches (${stale.length})`}</h2>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(stale, lang, 'stale')}`
+    : ''
+  const namingSection = naming.length
+    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `命名不规范分支（${naming.length}）` : `Naming issues (${naming.length})`}</h2><p>${zh ? '请按仓库命名规范修改后重新推送。' : 'Rename these branches to match the repository rules and push again.'}</p>${scenarioRowsTable(naming, lang, 'naming')}`
+    : ''
+  const repositories = [...new Set(rows.map((row) => row.repository).filter(Boolean))]
+  const intro = zh
+    ? `您在 ${repositories.length} 个勾选仓库中有 ${rows.length} 个分支需要处理。异常已合并在本邮件中。`
+    : `You have ${rows.length} branches requiring attention across ${repositories.length} selected repositories. All issues are combined in this email.`
+  return { subject, html: htmlEmailShell(subject, `<p>${escapeHtml(intro)}</p>${staleSection}${namingSection}`, lang) }
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** 报告/汇总邮件的创始人收件人：去重后放进同一封邮件，而不是逐人逐分支重复发送。 */
+export function collectCreatorAddresses(rows: EmailIssueRow[]): { to: string[]; missing: string[]; fallback: string[] } {
+  const to: string[] = []
+  const missing: string[] = []
+  const fallbackAddresses: string[] = []
+  const seenAddr = new Set<string>()
+  const seenMissing = new Set<string>()
+  for (const row of rows) {
+    const creatorKnown = Boolean(row.creator && row.creator !== 'Unknown')
+    const creatorAddress = String(row.creatorEmail ?? '').trim()
+    const fallbackAddress = String(row.lastAuthorEmail ?? '').trim()
+    const address = creatorKnown ? creatorAddress : fallbackAddress
+    const key = address.toLowerCase()
+    if (address && EMAIL_PATTERN.test(address)) {
+      if (!seenAddr.has(key)) {
+        seenAddr.add(key)
+        to.push(address)
+        if (!creatorKnown) fallbackAddresses.push(address)
+      }
+      continue
+    }
+    const name = String(row.creator ?? '').trim()
+    const missingLabel = creatorKnown
+      ? (name || address || '未知创始人')
+      : `${row.lastAuthor || '未获取最后提交人'}（无法找到创始人）`
+    if (!seenMissing.has(missingLabel)) {
+      seenMissing.add(missingLabel)
+      missing.push(missingLabel)
+    }
+  }
+  return { to, missing, fallback: fallbackAddresses }
+}
+
+/** 报告邮件里的「创始人通知范围」区块：说明同一封邮件覆盖了谁、跳过了谁。 */
+export function creatorNotificationSection(
+  addresses: string[],
+  missing: string[],
+  lang: EmailLang,
+  fallbackAddresses: string[] = []
+): string {
+  if (addresses.length === 0 && missing.length === 0 && fallbackAddresses.length === 0) return ''
+  const zh = lang === 'zh'
+  const title = zh ? '分支创始人通知范围' : 'Branch creators notified'
+  const noted = addresses.length
+    ? zh
+      ? `<p style="font-size:12px;margin:6px 0 0">本邮件已密送以下 ${addresses.length} 位分支创始人：${escapeHtml(addresses.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0">This email BCCs ${addresses.length} branch creator(s): ${escapeHtml(addresses.join(', '))}</p>`
+    : ''
+  const skipped = missing.length
+    ? zh
+      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">因缺少有效邮箱未通知（请补充邮箱后重试）：${escapeHtml(missing.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">Not notified (missing email): ${escapeHtml(missing.join(', '))}</p>`
+    : ''
+  const fallback = fallbackAddresses.length
+    ? zh
+      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">因无法找到分支创始人，以下最后提交人邮箱作为回退收件人：${escapeHtml(fallbackAddresses.join('、'))}。邮件正文已标明需其确认分支情况。</p>`
+      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">The creator could not be found, so these last-author addresses were used as fallback recipients: ${escapeHtml(fallbackAddresses.join(', '))}. The email identifies the branches that need confirmation.</p>`
+    : ''
+  return `
+  <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 18px">
+    <h3 style="font-size:14px;margin:0">${title}</h3>
+    ${noted}
+    ${fallback}
+    ${skipped}
+  </section>`
 }
 
 function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScenario, lang: EmailLang, thresholdHint?: string): { subject: string; html: string } {
@@ -742,14 +925,18 @@ export class EmailService {
   private async deliverMail(
     transport: Transporter,
     cfg: EmailConfig,
-    input: { to: string[]; subject: string; html?: string; attachments?: string[] }
+    input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; html?: string; attachments?: string[] }
   ): Promise<void> {
     const recipients = validRecipients(input.to)
     if (recipients.length === 0) throw new Error('收件人为空。')
+    const cc = validRecipients(input.cc ?? [])
+    const bcc = validRecipients(input.bcc ?? [])
     const attachments = (input.attachments ?? []).filter((file) => file && fs.existsSync(file))
     await transport.sendMail({
       from: this.fromAddress(cfg),
       to: recipients,
+      ...(cc.length > 0 ? { cc } : {}),
+      ...(bcc.length > 0 ? { bcc } : {}),
       subject: input.subject,
       ...(input.html ? { html: input.html } : {}),
       ...(attachments.length > 0 ? { attachments: attachments.map((file) => ({ path: file })) } : {})
@@ -758,6 +945,8 @@ export class EmailService {
 
   private async sendWithSmtp(input: {
     to: string[]
+    cc?: string[]
+    bcc?: string[]
     subject: string
     body: string
     html?: string
@@ -770,6 +959,8 @@ export class EmailService {
     try {
       await this.deliverMail(transport, cfg, {
         to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
         subject: input.subject,
         html: input.html ?? textToHtml(input.subject, input.body, input.lang),
         attachments: input.attachments
@@ -898,28 +1089,22 @@ export class EmailService {
             : `${first.lastAuthor || '未获取最后提交人'}（无法找到创始人且最后提交人无有效邮箱）`)
           continue
         }
-        const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [
-          ['stale', branchRows.filter((row) => row.state === 'stale')],
-          ['naming', branchRows.filter((row) => row.namingStatus === 'invalid')]
-        ]
-        for (const [scenario, scenarioBranchRows] of scenarios) {
-          if (scenarioBranchRows.length === 0) continue
-          const sortedRows = [...scenarioBranchRows].sort((a, b) => b.inactiveDays - a.inactiveDays)
-          const email = creatorScenarioEmail(sortedRows, scenario, lang, options?.thresholdHint)
-          try {
-            await this.deliverMail(transport, cfg, {
-              to: [to],
-              subject: email.subject,
-              html: email.html
-            })
-            recipients.push(to)
-            sent += 1
-          } catch (err) {
-            failed += 1
-            const message = err instanceof Error ? err.message : String(err)
-            failures.push(`${to}: ${message}`)
-            logger.warn(`creator email send failed: ${to} ${message}`)
-          }
+        const issueRows = branchRows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid')
+        if (issueRows.length === 0) continue
+        const email = creatorDigestEmail(issueRows, lang, options?.thresholdHint)
+        try {
+          await this.deliverMail(transport, cfg, {
+            to: [to],
+            subject: email.subject,
+            html: email.html
+          })
+          recipients.push(to)
+          sent += 1
+        } catch (err) {
+          failed += 1
+          const message = err instanceof Error ? err.message : String(err)
+          failures.push(`${to}: ${message}`)
+          logger.warn(`creator email send failed: ${to} ${message}`)
         }
       }
     } finally {
@@ -951,6 +1136,8 @@ export class EmailService {
 
   async sendReportEmail(input: {
     to: string[]
+    cc?: string[]
+    bcc?: string[]
     subject: string
     body: string
     html?: string
@@ -962,17 +1149,32 @@ export class EmailService {
       if (!fs.existsSync(input.attachmentPath)) throw new Error(`Report file not found: ${input.attachmentPath}`)
       await this.sendWithSmtp({
         to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
         subject: input.subject,
         body: input.body,
         html: input.html,
         attachments: [input.attachmentPath]
       })
-      this.audit.record('email_report_sent', { recipients: input.to, report: path.basename(input.attachmentPath) }, 'success')
+      this.audit.record(
+        'email_report_sent',
+        {
+          recipients: input.to,
+          cc: input.cc ?? [],
+          bcc: input.bcc ?? [],
+          report: path.basename(input.attachmentPath)
+        },
+        'success'
+      )
       return { ok: true, message: '报告邮件发送成功。', recipients: input.to, emailsSent: input.to.length }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error('Report email failed', message)
-      this.audit.record('email_report_sent', { recipients: input.to, error: message }, 'failure')
+      this.audit.record(
+        'email_report_sent',
+        { recipients: input.to, cc: input.cc ?? [], bcc: input.bcc ?? [], error: message },
+        'failure'
+      )
       return { ok: false, message: '报告邮件发送失败。', technical: message, emailsSent: 0 }
     }
   }

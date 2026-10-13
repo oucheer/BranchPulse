@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Trash2 } from 'lucide-react'
+import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Send, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
@@ -7,6 +7,7 @@ import GroupScopePicker from '../components/GroupScopePicker'
 import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import { downloadReportFile } from '../lib/download'
+import { repositoryScopeLabel } from '../lib/scope'
 import type { ReportScheduleFrequency } from '@shared/types'
 
 const formats = ['html', 'csv']
@@ -33,6 +34,7 @@ const emptySchedule = () => ({
 })
 
 export default function Reports(): JSX.Element {
+  const repositories = useAppStore((s) => s.repositories)
   const allReports = useAppStore((s) => s.reports)
   const reportSchedules = useAppStore((s) => s.reportSchedules)
   const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
@@ -42,15 +44,23 @@ export default function Reports(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
+  const [bulkRecipients, setBulkRecipients] = useState('self')
+  const [sendingAll, setSendingAll] = useState(false)
+  const [reportMode, setReportMode] = useState<'send' | 'schedule'>('send')
   const [generateGroupIds, setGenerateGroupIds] = useState<string[]>([])
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
+  const noSelection = selectedRepositoryIds.length === 0
 
   const reports = selectedRepositoryIds.length
     ? allReports.filter((report) => report.repositoryIds.some((id) => selectedRepositoryIds.includes(id)))
     : allReports
 
   const generate = async (): Promise<void> => {
+    if (noSelection) {
+      toast('未选择仓库：请先在仓库页勾选要汇总的仓库。', 'warn')
+      return
+    }
     setGenerating(true)
     try {
       const report = await window.gitmanager.generateReport('manual', format, generateGroupIds, selectedRepositoryIds)
@@ -60,6 +70,30 @@ export default function Reports(): JSX.Element {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const sendSelectedRepositories = async (): Promise<void> => {
+    if (sendingAll || noSelection) return
+    setSendingAll(true)
+    try {
+      const result = await window.gitmanager.sendSelectedRepositoriesReport(
+        'manual',
+        bulkRecipients,
+        selectedRepositoryIds,
+        generateGroupIds
+      )
+      const recipientText = result.recipients?.length ? `：${result.recipients.join(', ')}` : ''
+      if (result.ok) {
+        toast(`勾选仓库汇总已发送${recipientText}`, 'success')
+      } else {
+        toast(`${result.message}${result.technical ? `：${result.technical}` : ''}`, 'error')
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setSendingAll(false)
+      void refresh()
     }
   }
 
@@ -175,10 +209,19 @@ export default function Reports(): JSX.Element {
               {formats.map((f) => <option key={f} value={f}>{f.toUpperCase()}</option>)}
             </select>
           </div>
-          <button className="btn btn-primary" disabled={generating} onClick={() => void generate()}>
+          <button
+            className="btn btn-primary"
+            disabled={generating || noSelection}
+            title={noSelection ? '未选择仓库' : undefined}
+            onClick={() => void generate()}
+          >
             <Plus size={14} /> {tr('generate')}
           </button>
-          <div className="text-xs text-muted">立即生成的报告使用当前选中的仓库范围。</div>
+          <div className="text-xs text-muted">
+            {noSelection
+              ? '未选择仓库：请先在仓库页勾选要汇总的仓库。'
+              : `报告按仓库分区汇总当前勾选的 ${selectedRepositoryIds.length} 个仓库。`}
+          </div>
         </div>
         <div className="mt-3 max-w-xl">
           <GroupScopePicker
@@ -192,70 +235,112 @@ export default function Reports(): JSX.Element {
       </Card>
 
       <Card className="p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
-          <CalendarClock size={15} className="text-primary" /> 定时发送报告
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-canvas-fg">报告邮件</div>
+          <div className="inline-flex rounded-md border border-line p-0.5" role="tablist" aria-label="报告邮件模式">
+            <button type="button" role="tab" aria-selected={reportMode === 'send'} className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${reportMode === 'send' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`} onClick={() => setReportMode('send')}>
+              <Send size={13} /> 立即发送
+            </button>
+            <button type="button" role="tab" aria-selected={reportMode === 'schedule'} className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${reportMode === 'schedule' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`} onClick={() => setReportMode('schedule')}>
+              <CalendarClock size={14} /> 定时发送
+            </button>
+          </div>
         </div>
-        <div className="grid gap-3 lg:grid-cols-4">
-          <div>
-            <div className="label mb-1.5">任务名称</div>
-            <input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        {reportMode === 'send' ? <>
+          <div className="mb-3 text-xs text-muted">
+            对当前勾选的仓库生成一份按仓库分区的分支汇总，并通过邮件一次发送；仓库较多时无需逐个发送。
+            勾选「通知分支创始人」后，范围内需要处理分支的创始人会加入同一封邮件的密送，而不是逐人逐封发送。
           </div>
-          <div>
-            <div className="label mb-1.5">频率</div>
-            <select className="input" value={draft.frequency} onChange={(e) => setDraft({ ...draft, frequency: e.target.value as ReportScheduleFrequency })}>
-              {frequencies.map((f) => <option key={f} value={f}>{frequencyLabel(f)}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="label mb-1.5">{draft.frequency === 'once' ? '执行时间' : '每日时间'}</div>
-            <input
-              className="input"
-              type={draft.frequency === 'once' ? 'datetime-local' : 'time'}
-              value={draft.frequency === 'once' ? draft.runAt : draft.time}
-              onChange={(e) => setDraft(draft.frequency === 'once' ? { ...draft, runAt: e.target.value } : { ...draft, time: e.target.value })}
-            />
-          </div>
-          <div className="lg:col-span-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
             <RecipientPicker
-              value={draft.recipients}
-              onChange={(value) => setDraft({ ...draft, recipients: value })}
+              value={bulkRecipients}
+              onChange={setBulkRecipients}
               groups={emailGroups}
               selfEmail={emailConfig?.selfEmail ?? ''}
               disabled={emailDisabled}
               allowSelf
-              manualPlaceholder="多个邮箱或分支组用逗号、分号或换行分隔"
-              rows={5}
+              allowCreator
+              creatorHint="勾选后把范围内需要处理分支的创始人加入同一封汇总邮件的密送，不会逐人逐封发送"
+              label="勾选仓库汇总收件人"
+              manualPlaceholder="不填写时默认发送到我的个人邮箱"
+              rows={3}
             />
+            <button
+              className="btn btn-primary h-fit"
+              disabled={sendingAll || emailDisabled || noSelection}
+              title={noSelection ? '未选择仓库' : emailDisabled ? '邮件发送未启用' : undefined}
+              onClick={() => void sendSelectedRepositories()}
+            >
+              <Send size={14} /> {sendingAll ? '发送中...' : '发送勾选仓库汇总'}
+            </button>
           </div>
-          <div className="lg:col-span-4">
-            <GroupScopePicker
-              value={draft.groupIds}
-              onChange={(ids) => setDraft({ ...draft, groupIds: ids })}
-              groups={emailGroups}
-              emptyHint="不选则统计当前仓库范围内的全部分支。选组只收窄统计范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
-            />
+          {emailDisabled ? <div className="mt-2 text-xs text-warn">邮件发送未启用，请先在设置中配置邮箱。</div> : null}
+          {noSelection ? <div className="mt-2 text-xs text-warn">未选择仓库：请先在仓库页勾选要汇总的仓库。</div> : null}
+        </> : <>
+          <div className="grid gap-3 lg:grid-cols-4">
+            <div>
+              <div className="label mb-1.5">任务名称</div>
+              <input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </div>
+            <div>
+              <div className="label mb-1.5">频率</div>
+              <select className="input" value={draft.frequency} onChange={(e) => setDraft({ ...draft, frequency: e.target.value as ReportScheduleFrequency })}>
+                {frequencies.map((f) => <option key={f} value={f}>{frequencyLabel(f)}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="label mb-1.5">{draft.frequency === 'once' ? '执行时间' : '每日时间'}</div>
+              <input
+                className="input"
+                type={draft.frequency === 'once' ? 'datetime-local' : 'time'}
+                value={draft.frequency === 'once' ? draft.runAt : draft.time}
+                onChange={(e) => setDraft(draft.frequency === 'once' ? { ...draft, runAt: e.target.value } : { ...draft, time: e.target.value })}
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <RecipientPicker
+                value={draft.recipients}
+                onChange={(value) => setDraft({ ...draft, recipients: value })}
+                groups={emailGroups}
+                selfEmail={emailConfig?.selfEmail ?? ''}
+                disabled={emailDisabled}
+                allowSelf
+                allowCreator
+                creatorHint="定时报告同样只发一封：创始人加入密送，不会逐人逐封发送"
+                manualPlaceholder="多个邮箱或分支组用逗号、分号或换行分隔"
+                rows={5}
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <GroupScopePicker
+                value={draft.groupIds}
+                onChange={(ids) => setDraft({ ...draft, groupIds: ids })}
+                groups={emailGroups}
+                emptyHint="不选则统计当前仓库范围内的全部分支。选组只收窄统计范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
+              />
+            </div>
           </div>
-        </div>
-        {draft.frequency === 'weekly' ? (
-          <div className="mt-3 max-w-xs">
-            <div className="label mb-1.5">星期几</div>
-            <select className="input" value={draft.weekday} onChange={(e) => setDraft({ ...draft, weekday: Number(e.target.value) })}>
-              {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map((label, index) => (
-                <option key={label} value={index}>{label}</option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {draft.frequency === 'monthly' ? (
-          <div className="mt-3 max-w-xs">
-            <div className="label mb-1.5">每月几号</div>
-            <input className="input" type="number" min={1} max={31} value={draft.dayOfMonth} onChange={(e) => setDraft({ ...draft, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value) || 1)) })} />
-          </div>
-        ) : null}
-        <button className="btn btn-primary mt-4" onClick={() => void saveSchedule()}>
-          <Plus size={14} /> 保存定时任务
-        </button>
-        <div className="mt-2 text-xs text-muted">{frequencyHint(draft.frequency)}</div>
+          {draft.frequency === 'weekly' ? (
+            <div className="mt-3 max-w-xs">
+              <div className="label mb-1.5">星期几</div>
+              <select className="input" value={draft.weekday} onChange={(e) => setDraft({ ...draft, weekday: Number(e.target.value) })}>
+                {['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map((label, index) => (
+                  <option key={label} value={index}>{label}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {draft.frequency === 'monthly' ? (
+            <div className="mt-3 max-w-xs">
+              <div className="label mb-1.5">每月几号</div>
+              <input className="input" type="number" min={1} max={31} value={draft.dayOfMonth} onChange={(e) => setDraft({ ...draft, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value) || 1)) })} />
+            </div>
+          ) : null}
+          <button className="btn btn-primary mt-4" onClick={() => void saveSchedule()}>
+            <Plus size={14} /> 保存定时任务
+          </button>
+          <div className="mt-2 text-xs text-muted">{frequencyHint(draft.frequency)}</div>
+        </>}
 
         {reportSchedules.length > 0 ? (
           <div className="mt-4 space-y-2">

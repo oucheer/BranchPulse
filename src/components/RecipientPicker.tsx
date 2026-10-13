@@ -11,6 +11,7 @@ interface RecipientPickerProps {
   disabled?: boolean
   allowSelf?: boolean
   allowCreator?: boolean
+  creatorHint?: string
   label?: string
   manualPlaceholder?: string
   rows?: number
@@ -24,6 +25,7 @@ export default function RecipientPicker({
   disabled = false,
   allowSelf = false,
   allowCreator = false,
+  creatorHint = '勾选后已停更的分支将邮件通知对应创始人',
   label = '收件邮箱 / 分支组',
   manualPlaceholder = 'you@example.com, team@example.com',
   rows = 4
@@ -123,7 +125,7 @@ export default function RecipientPicker({
             <UserRound size={13} className="text-secondary" />
             <div>
               <div className="text-sm text-canvas-fg">通知分支创始人</div>
-              <div className="text-xs text-muted">勾选后已停更的分支将邮件通知对应创始人</div>
+              <div className="text-xs text-muted">{creatorHint}</div>
             </div>
           </div>
           <Toggle checked={creator} onChange={(next) => apply({ creator: next })} />

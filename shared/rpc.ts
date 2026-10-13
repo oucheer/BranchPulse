@@ -60,6 +60,7 @@ export const EXPOSED_METHODS = [
   'listReportSchedules',
   'saveReportSchedule',
   'deleteReportSchedule',
+  'sendSelectedRepositoriesReport',
   'listBackups',
   'startBackup',
   'deleteBackup',

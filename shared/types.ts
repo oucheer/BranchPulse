@@ -300,6 +300,8 @@ export interface ReportRecord {
   period: string
   format: string
   path: string
+  /** 邮件正文用的精简 HTML；完整报告仍保存在 path。 */
+  emailPath?: string
   summary: ReportSummary
 }
 
@@ -543,6 +545,8 @@ export interface BranchApi {
   listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
+  /** 立即发送当前勾选仓库的报告汇总；创始人加入同一封邮件的密送。 */
+  sendSelectedRepositoriesReport(period: string, recipients?: string, repositoryIds?: string[], groupIds?: string[]): Promise<EmailSendResult>
 
   listAudit(): Promise<AuditEntry[]>
   exportAuditLogs(format: 'csv' | 'json' | 'txt', directory?: string): Promise<AuditExportResult>

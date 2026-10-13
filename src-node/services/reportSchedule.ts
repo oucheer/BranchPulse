@@ -1,13 +1,80 @@
 import fs from 'node:fs'
-import type { ReportSchedule, ReportScheduleFrequency } from '@shared/types'
+import type { EmailSendResult, ReportSchedule, ReportScheduleFrequency } from '@shared/types'
 import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
 import type { AuditService } from './audit'
-import { parseNotifyTarget, resolveRecipients } from './email'
+import type { MonitoringService } from './monitoring'
+import {
+  collectCreatorAddresses,
+  creatorNotificationSection,
+  parseNotifyTarget,
+  readEmailLang,
+  resolveRecipients,
+  type EmailIssueRow
+} from './email'
 import { groupRecipients, parseGroupIds, partitionRecipientTokens } from '@shared/groups'
 import { newId } from '../utils/ids'
 import { parseIdArray } from './storage'
+
+function reportCreatorRows(rows: EmailIssueRow[]): EmailIssueRow[] {
+  return rows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid' || Boolean(row.cleanupCandidate))
+}
+
+interface CreatorRecipients {
+  addresses: string[]
+  missing: string[]
+  fallback: string[]
+}
+
+function toCreatorRecipients(collected: { to: string[]; missing: string[]; fallback?: string[] }): CreatorRecipients {
+  return { addresses: collected.to, missing: collected.missing, fallback: collected.fallback ?? [] }
+}
+
+function withCreatorNotes(
+  message: string,
+  creators: CreatorRecipients,
+  creatorsAsTo: boolean
+): string {
+  const notes: string[] = []
+  if (creators.addresses.length > 0) {
+    notes.push(creatorsAsTo
+      ? `创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`
+      : `同一封邮件已密送 ${creators.addresses.length} 位分支创始人`)
+  }
+  if (creators.missing.length > 0) notes.push(`缺少有效邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
+  if (creators.fallback.length > 0) notes.push(`创始人未找到，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
+  return notes.length > 0 ? `${message}（${notes.join('；')}）` : message
+}
+
+const REPORT_FOOTER_MARKER = '<hr style="border:none;border-top:1px solid #e2e6ea;margin:18px 0 10px">'
+
+function appendCreatorSection(
+  html: string,
+  creators: CreatorRecipients,
+  storage: StorageService
+): string {
+  if (creators.addresses.length === 0 && creators.missing.length === 0) return html
+  let section = ''
+  try {
+    section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage), creators.fallback)
+  } catch {
+    return html
+  }
+  if (!section) return html
+  const at = html.lastIndexOf(REPORT_FOOTER_MARKER)
+  return at < 0 ? html + section : `${html.slice(0, at)}${section}\n  ${html.slice(at)}`
+}
+
+function coversRepositoryIds(scope: string[], requested: string[]): boolean {
+  const allowed = new Set(scope)
+  return requested.every((id) => allowed.has(id))
+}
+
+function readEmailBody(report: { path: string; emailPath?: string }): Promise<string> {
+  const emailPath = report.emailPath && fs.existsSync(report.emailPath) ? report.emailPath : report.path
+  return fs.promises.readFile(emailPath, 'utf8')
+}
 
 function scheduleFromRow(row: Record<string, unknown>): ReportSchedule {
   return {
@@ -64,7 +131,8 @@ export class ReportScheduleService {
     private readonly storage: StorageService,
     private readonly reportService: ReportService,
     private readonly emailService: EmailService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly monitoring?: MonitoringService
   ) {}
 
   list(): ReportSchedule[] {
@@ -123,6 +191,120 @@ export class ReportScheduleService {
     return this.list()
   }
 
+  /**
+   * 汇总发送：报告只发一封；勾选创始人时，范围内需要处理分支的创始人放进密送，
+   * 而不是按人拆成多封邮件。普通收件人与组名收件人保持当前 Web 版行为。
+   */
+  async sendSelectedRepositoriesReport(
+    period = 'manual',
+    recipients = 'self',
+    repositoryIds?: string[],
+    groupIds?: string[]
+  ): Promise<EmailSendResult> {
+    const scope = repositoryIds ?? []
+    if (scope.length === 0) {
+      this.audit.record('report_selected_repositories_sent', { reason: 'no_repository_selected' }, 'failure')
+      return { ok: false, message: '未选择仓库：请先在仓库页勾选要汇总的仓库。', emailsSent: 0 }
+    }
+    const emailConfig = this.emailService.getConfig()
+    if (!emailConfig.enabled) {
+      this.audit.record('report_selected_repositories_sent', { reason: 'email_disabled', repositoryIds: scope }, 'failure')
+      return { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
+    }
+
+    try {
+      const refreshed = await this.monitoring?.runCheckNow({
+        repositoryIds: [...new Set(scope)],
+        fetch: false,
+        emailPolicy: 'none',
+        notifyTarget: 'none',
+        trigger: 'scan_repository',
+        bypassEnabledCheck: true
+      })
+      const requestedScope = new Set(scope)
+      if (refreshed && (refreshed.status === 'failed' || !refreshed.repositoryIds
+        || refreshed.repositoryIds.some((id) => !requestedScope.has(id))
+        || refreshed.repositoryIds.length !== requestedScope.size)) {
+        throw new Error(refreshed.error || '部分勾选仓库扫描失败，已停止发送，避免报告混入旧数据。')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.audit.record('report_selected_repositories_sent', { repositoryIds: scope, error: message }, 'failure')
+      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
+    }
+
+    const parsedNotify = parseNotifyTarget(recipients || 'self')
+    const plainGroups = parsedNotify.recipients || ''
+    const { matched: groupTargets, plain } = partitionRecipientTokens(plainGroups, this.emailService.listGroups())
+    const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
+    const to: string[] = []
+    if (parsedNotify.self && selfAddress) to.push(selfAddress)
+    if (plain) to.push(...resolveRecipients(plain, []))
+    const resolvedRecipients = [...new Set(to.map((recipient) => recipient.trim()).filter(Boolean))]
+    const creators = parsedNotify.creator
+      ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(scope).branches)))
+      : { addresses: [], missing: [], fallback: [] }
+    const creatorsAsTo = resolvedRecipients.length === 0
+    const mainRecipients = creatorsAsTo ? creators.addresses : resolvedRecipients
+    if (mainRecipients.length === 0 && creators.missing.length > 0) {
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { reason: 'creators_without_email', input: recipients, repositoryIds: scope, missing: creators.missing },
+        'failure'
+      )
+      return {
+        ok: false,
+        message: `范围内的分支创始人都没有有效邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
+        emailsSent: 0
+      }
+    }
+    if (mainRecipients.length === 0 && groupTargets.length === 0) {
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { reason: 'recipients_empty', input: recipients, repositoryIds: scope },
+        'failure'
+      )
+      return { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
+    }
+
+    try {
+      const report = await this.reportService.generateReport(period, 'html', groupIds, scope)
+      const reportHtml = await readEmailBody(report)
+      const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
+      const result = await this.emailService.sendReportEmail({
+        to: mainRecipients,
+        bcc: creatorsAsTo ? [] : creators.addresses,
+        subject: `【分支健康汇总】${month}`,
+        body: '',
+        html: appendCreatorSection(reportHtml, creators, this.storage),
+        attachmentPath: report.path
+      })
+      const message = withCreatorNotes(result.message, creators, creatorsAsTo)
+      this.audit.record(
+        'report_selected_repositories_sent',
+        {
+          report: report.id,
+          repositoryIds: scope,
+          ...(groupIds?.length ? { groupIds } : {}),
+          recipients: result.recipients ?? mainRecipients,
+          creatorRecipients: creatorsAsTo ? [] : creators.addresses,
+          creatorsWithoutEmail: creators.missing,
+          ok: result.ok
+        },
+        result.ok ? 'success' : 'failure'
+      )
+      return { ...result, message }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.audit.record(
+        'report_selected_repositories_sent',
+        { recipients: mainRecipients, repositoryIds: scope, error: message },
+        'failure'
+      )
+      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
+    }
+  }
+
   start(): void {
     if (this.timer) return
     this.timer = setInterval(() => void this.tick(), 30_000)
@@ -142,10 +324,29 @@ export class ReportScheduleService {
       const due = this.list().filter((s) => s.enabled && s.nextRunAt && new Date(s.nextRunAt) <= now)
       for (const schedule of due) {
         try {
+          const refreshed = await this.monitoring?.runCheckNow({
+            repositoryIds: [...new Set(schedule.repositoryIds)],
+            fetch: false,
+            emailPolicy: 'none',
+            notifyTarget: 'none',
+            trigger: 'scan_repository',
+            bypassEnabledCheck: true
+          })
+          const scheduledScope = new Set(schedule.repositoryIds)
+          if (refreshed && (refreshed.status === 'failed' || !refreshed.repositoryIds
+            || refreshed.repositoryIds.some((id) => !scheduledScope.has(id))
+            || refreshed.repositoryIds.length !== scheduledScope.size)) {
+            throw new Error(refreshed.error || '部分报告仓库扫描失败，已跳过发送，避免报告混入旧数据。')
+          }
           const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.groupIds, schedule.repositoryIds)
           const emailConfig = this.emailService.getConfig()
           const parsedNotify = parseNotifyTarget(schedule.recipients)
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
+          const creators = parsedNotify.creator
+            ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(
+                this.reportService.getSummaryEmailData(schedule.repositoryIds).branches
+              )))
+            : { addresses: [] as string[], missing: [] as string[], fallback: [] as string[] }
           const targetRecipients: string[] = []
           if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
           // 组名 token 表示「这份报告也发给这个组的组员」：内容与发给普通收件人的报告
@@ -161,9 +362,14 @@ export class ReportScheduleService {
           }
           const resolvedRecipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
           // 未选择任何收件人时才默认发给自己；只勾了组名时不该再给配置邮箱发一份整仓报告。
-          const recipients = resolvedRecipients.length > 0 || groupTargets.length > 0
-            ? resolvedRecipients
-            : selfAddress ? [selfAddress] : []
+          // 只勾创始人时，创始人就是主收件人；选了普通收件人或组时创始人仍放入密送。
+          const creatorsAsTo = resolvedRecipients.length === 0 && groupTargets.length === 0
+            && creators.addresses.length > 0
+          const recipients = creatorsAsTo
+            ? creators.addresses
+            : resolvedRecipients.length > 0 || groupTargets.length > 0
+              ? resolvedRecipients
+              : selfAddress ? [selfAddress] : []
 
           if (!emailConfig.enabled) {
             this.audit.record('report_schedule_email_skipped', {
@@ -179,14 +385,15 @@ export class ReportScheduleService {
               }, 'failure')
             }
             if (recipients.length > 0 || groupTargets.length > 0) {
-              const reportHtml = await fs.promises.readFile(report.path, 'utf8')
+              const reportHtml = await readEmailBody(report)
               const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
               const send = async (to: string[]): Promise<void> => {
                 await this.emailService.sendReportEmail({
                   to,
+                  bcc: creatorsAsTo ? [] : creators.addresses,
                   subject: `【分支健康月报】${month}`,
                   body: '',
-                  html: reportHtml,
+                  html: appendCreatorSection(reportHtml, creators, this.storage),
                   attachmentPath: report.path
                 })
               }

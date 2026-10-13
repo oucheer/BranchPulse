@@ -9,7 +9,8 @@ import type { RepositoryService } from './repository'
 import type { AuditService } from './audit'
 import type { GroupService } from './groups'
 import type { EmailSummaryData } from './email'
-import { buildBranchEmailHtml, toEmailIssueRow } from './email'
+import type { EmailReportPartition } from './email'
+import { buildPartitionedReportHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
 import { openPath, showItemInFolder } from '../utils/open'
@@ -63,6 +64,7 @@ export class ReportService {
       period: String(r.period ?? ''),
       format: String(r.format ?? 'html'),
       path: String(r.path ?? ''),
+      emailPath: String(r.path ?? '').endsWith('.html') ? `${String(r.path)}.email.html` : undefined,
       summary: safeJson<ReportSummary>(r.summary_json, emptySummary())
     }))
   }
@@ -166,9 +168,48 @@ export class ReportService {
     const generatedAt = new Date().toISOString()
     const filename = `gitmanager-${period}-${generatedAt.slice(0, 19).replace(/[:T]/g, '-')}.${format}`
     const filePath = path.join(reportsDir(), filename)
-
     const safeFormat = (['html', 'csv'].includes(format) ? format : 'html') as string
-    await this.writeFile(safeFormat, filePath, title, generatedAt, period, summary, branches, runs, notifications)
+    const emailPath = safeFormat === 'html' ? `${filePath}.email.html` : undefined
+
+    const reposById = new Map(repos.map((repo) => [repo.id, repo]))
+    const partitions: EmailReportPartition[] = [...new Set(branches.map((branch) => branch.repositoryId))]
+      .map((repositoryId) => {
+        const repositoryBranches = branches.filter((branch) => branch.repositoryId === repositoryId)
+        const repositoryName = reposById.get(repositoryId)?.name || repositoryBranches[0]?.repositoryName || repositoryId
+        const repositorySummary = this.buildSummary(repositoryBranches, 1)
+        return {
+          repositoryId,
+          repositoryName,
+          data: {
+            ...repositorySummary,
+            total: repositoryBranches.length,
+            stale: countStale(repositoryBranches),
+            namingInvalid: repositorySummary.invalidBranches,
+            merged: countMerged(repositoryBranches),
+            cleanupCandidates: repositorySummary.cleanupCandidates,
+            repositories: 1,
+            generatedAt,
+            branches: repositoryBranches.map(toEmailIssueRow),
+            thresholdHint: `统计范围 ${period}`
+          } as EmailSummaryData
+        }
+      })
+    const overall: EmailSummaryData = {
+      total: summary.totalBranches,
+      stale: summary.stale,
+      namingInvalid: summary.namingViolations,
+      merged: summary.merged,
+      cleanupCandidates: summary.cleanupCandidates,
+      repositories: repositoryCount,
+      generatedAt,
+      branches: branches.map(toEmailIssueRow),
+      thresholdHint: `统计范围 ${period}${scopeLabel}`
+    }
+
+    await this.writeFile(safeFormat, filePath, title, generatedAt, period, summary, branches, runs, notifications, partitions, overall, false)
+    if (emailPath) {
+      await this.writeFile('html', emailPath, title, generatedAt, period, summary, branches, runs, notifications, partitions, overall, true)
+    }
 
     const record: ReportRecord = {
       id: newId(),
@@ -179,6 +220,7 @@ export class ReportService {
       period,
       format: safeFormat,
       path: filePath,
+      emailPath,
       summary
     }
     this.storage.insert('reports', {
@@ -191,6 +233,7 @@ export class ReportService {
       period,
       format: safeFormat,
       path: filePath,
+      email_path: emailPath ?? null,
       summary_json: JSON.stringify(summary)
     })
     this.audit.record('report_generated', {
@@ -219,6 +262,7 @@ export class ReportService {
     if (report) {
       try {
         if (report.path && fs.existsSync(report.path)) fs.unlinkSync(report.path)
+        if (report.emailPath && fs.existsSync(report.emailPath)) fs.unlinkSync(report.emailPath)
       } catch (err) {
         this.audit.record('report_deleted', { id, error: err instanceof Error ? err.message : String(err) }, 'failure')
       }
@@ -245,13 +289,16 @@ export class ReportService {
   private async writeFile(
     format: string,
     filePath: string,
-    _title: string,
+    title: string,
     generatedAt: string,
     period: string,
     summary: ReportSummary,
     branches: BranchSummary[],
     runs: ScanRun[],
-    notifications: Array<Record<string, unknown>>
+    notifications: Array<Record<string, unknown>>,
+    partitions: EmailReportPartition[],
+    overall: EmailSummaryData,
+    compact = false
   ): Promise<void> {
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     if (format === 'csv') {
@@ -275,18 +322,7 @@ export class ReportService {
       fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
       return
     }
-    const data: EmailSummaryData = {
-      total: summary.totalBranches,
-      stale: summary.stale,
-      namingInvalid: summary.namingViolations,
-      merged: summary.merged,
-      cleanupCandidates: summary.cleanupCandidates,
-      repositories: summary.repositories,
-      generatedAt,
-      branches: branches.map(toEmailIssueRow),
-      thresholdHint: `统计范围 ${period}`
-    }
-    fs.writeFileSync(filePath, buildBranchEmailHtml(data, 'zh', 'report'), 'utf8')
+    fs.writeFileSync(filePath, buildPartitionedReportHtml({ title, generatedAt, partitions, overall }, 'zh', compact), 'utf8')
   }
 
   private renderHtml(
@@ -465,4 +501,12 @@ function emptySummary(): ReportSummary {
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c)
+}
+
+function countStale(branches: BranchSummary[]): number {
+  return branches.filter((branch) => branch.stale).length
+}
+
+function countMerged(branches: BranchSummary[]): number {
+  return branches.filter((branch) => branch.merged).length
 }

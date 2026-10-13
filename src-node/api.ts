@@ -154,6 +154,7 @@ export interface GitManagerApi {
   listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
+  sendSelectedRepositoriesReport(period: string, recipients?: string, repositoryIds?: string[], groupIds?: string[]): Promise<EmailSendResult>
 
   listBackups(repositoryIds?: string[]): Promise<BackupRecord[]>
   startBackup(options?: { repositoryIds?: string[]; folderPath?: string }): Promise<BackupRecord>
@@ -510,6 +511,8 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     },
     saveReportSchedule: async (schedule) => reportSchedules.save(schedule),
     deleteReportSchedule: async (id) => reportSchedules.delete(id),
+    sendSelectedRepositoriesReport: (period, recipients, repositoryIds, groupIds) =>
+      reportSchedules.sendSelectedRepositoriesReport(period, recipients, repositoryIds, groupIds),
 
     listBackups: async (repositoryIds) => {
       const records = backup.list()
