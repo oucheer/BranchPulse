@@ -605,7 +605,7 @@ export class EmailService {
     let encrypted = String(this.storage.get<Record<string, unknown>>('SELECT password_encrypted FROM email_config WHERE id = 1')?.password_encrypted ?? '')
     if (config.password) {
       encrypted = this.encrypt(config.password)
-    } else if (current.hasPassword && !encrypted) {
+    } else if (!current.hasPassword) {
       encrypted = this.encrypt('')
     }
     this.storage.update(
@@ -707,6 +707,9 @@ export class EmailService {
     }
     const username = String(cfg.username ?? '').trim()
     const password = config?.password ?? this.getPassword()
+    // Open relays accept mail without credentials; sending an empty AUTH would
+    // make the server reject the connection before the message even starts.
+    const auth = username && password ? { user: username, pass: password } : undefined
     return nodemailer.createTransport({
       host,
       port: Math.max(1, Number(cfg.port) || 587),
@@ -714,7 +717,7 @@ export class EmailService {
       // asks the server to upgrade a plain connection through STARTTLS.
       secure: Boolean(cfg.secure),
       requireTLS: !cfg.secure && Boolean(cfg.tls),
-      auth: username ? { user: username, pass: password } : undefined,
+      auth,
       connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
       greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
       socketTimeout: SMTP_SOCKET_TIMEOUT_MS

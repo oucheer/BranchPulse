@@ -103,6 +103,13 @@ describe('SMTP transport', () => {
     expect(mailer.transports[0].auth).toBeUndefined()
   })
 
+  it('omits auth when no password is configured for an open relay', async () => {
+    const { service: svc } = service({ password_encrypted: '', tls: 0 })
+    await svc.testConnection()
+    expect(mailer.transports[0].auth).toBeUndefined()
+    expect(mailer.transports[0]).toMatchObject({ host: 'smtp.example.com', port: 587, secure: false, requireTLS: false })
+  })
+
   it('reports a missing server instead of opening a socket', async () => {
     const { service: svc, audit: log } = service({ server: '' })
     const result = await svc.testConnection()
@@ -147,6 +154,24 @@ describe('sending through the configured mailbox', () => {
     const { service: svc } = service({ from_address: '' })
     await svc.sendTestEmail()
     expect(mailer.messages[0].from).toBe('notify@example.com')
+  })
+
+  it('keeps the stored password when saving without retyping it', async () => {
+    const rows: Record<string, Record<string, unknown>> = {
+      email_config: {
+        server: 'smtp.example.com', port: 587, username: 'notify@example.com',
+        password_encrypted: encode('stored-secret'), from_address: '', secure: 0, tls: 1,
+        test_recipient: 'owner@example.com', self_email: '', enabled: 1
+      }
+    }
+    const stored: Array<Record<string, unknown>> = []
+    const storageSvc = {
+      get: (query: string) => Object.keys(rows).find((name) => query.includes(name)) ? rows.email_config : undefined,
+      update: (_table: string, values: Record<string, unknown>, _where: string) => { stored.push(values) }
+    } as unknown as StorageService
+    const svc = new EmailService(storageSvc, audit() as never)
+    svc.saveConfig({ ...svc.getConfig(), password: '' })
+    expect(stored[0].password_encrypted).toBe(encode('stored-secret'))
   })
 
   it('refuses to send a summary while email is disabled', async () => {
