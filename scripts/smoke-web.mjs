@@ -118,9 +118,6 @@ function launchBrowser(browser, profileDir) {
       `--remote-debugging-port=${CDP_PORT}`,
       `--user-data-dir=${profileDir}`,
       '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-extensions',
-      '--disable-gpu',
       '--window-size=1440,900',
       'about:blank'
     ],
@@ -131,7 +128,12 @@ function launchBrowser(browser, profileDir) {
 async function connectCdp() {
   const target = await waitFor(async () => {
     const list = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json())
-    return list.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl) ?? null
+    // Edge can expose a background extension page before the blank tab, so
+    // only accept the actual blank tab; otherwise navigation silently lands
+    // on a page we cannot drive.
+    return list.find((entry) => entry.type === 'page'
+      && entry.webSocketDebuggerUrl
+      && (entry.url === 'about:blank' || entry.url === 'chrome://newtab/')) ?? null
   }, 'the CDP page target')
 
   const socket = new WebSocket(target.webSocketDebuggerUrl)

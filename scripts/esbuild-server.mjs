@@ -11,9 +11,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
  *
  * The backend is bundled to CommonJS on purpose: `src-node/utils/paths.ts`
  * probes `import.meta` and falls back to `__dirname`, and the sql.js wasm
- * lookup in `storage.ts` tries `__dirname` first. `sql.js` and `vite` stay
- * external — sql.js resolves its wasm asset from its own package directory,
- * and vite is only imported when the server runs in `--dev` mode.
+ * lookup in `storage.ts` tries `__dirname` first. `sql.js` is bundled so the
+ * production `dist/server/index.cjs` runs without `node_modules`; `vite` stays
+ * external because it is only imported when the server runs in `--dev` mode.
  */
 export const serverBuildOptions = {
   absWorkingDir: root,
@@ -23,7 +23,7 @@ export const serverBuildOptions = {
   format: 'cjs',
   bundle: true,
   sourcemap: true,
-  external: ['sql.js', 'vite'],
+  external: ['vite'],
   alias: {
     '@shared': path.join(root, 'shared')
   },

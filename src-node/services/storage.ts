@@ -316,21 +316,23 @@ export class StorageService {
   }
 
   async init(): Promise<void> {
-    // Resolve the wasm binary from the installed package first; fall back to a
-    // copy placed next to the compiled output (used by the bundled runtime).
-    const require = createRequire(path.join(appRoot(), 'package.json'))
+    // Check local copies first so offline deployments (no `node_modules`)
+    // resolve immediately; `require.resolve` is only the last resort.
     let wasmBinary: ArrayBuffer | null = null
-    try {
-      const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
-      wasmBinary = fs.readFileSync(wasmPath) as unknown as ArrayBuffer
-    } catch (err) {
-      logger.warn(`sql.js wasm not resolved from node_modules: ${String(err)}`)
-      for (const candidate of [path.join(__dirname, 'sql-wasm.wasm'), path.join(appRoot(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')]) {
-        if (fs.existsSync(candidate)) {
-          wasmBinary = fs.readFileSync(candidate) as unknown as ArrayBuffer
-          logger.info(`Loaded sql.js wasm from ${candidate}.`)
-          break
-        }
+    for (const candidate of [path.join(__dirname, 'sql-wasm.wasm'), path.join(appRoot(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')]) {
+      if (fs.existsSync(candidate)) {
+        wasmBinary = fs.readFileSync(candidate) as unknown as ArrayBuffer
+        logger.info(`Loaded sql.js wasm from ${candidate}.`)
+        break
+      }
+    }
+    if (!wasmBinary) {
+      try {
+        const require = createRequire(path.join(appRoot(), 'package.json'))
+        const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
+        wasmBinary = fs.readFileSync(wasmPath) as unknown as ArrayBuffer
+      } catch (err) {
+        logger.warn(`sql.js wasm not resolved from node_modules: ${String(err)}`)
       }
     }
     const SQL = await initSqlJs({ wasmBinary: wasmBinary ?? undefined })

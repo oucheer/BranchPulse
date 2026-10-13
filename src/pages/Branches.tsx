@@ -16,11 +16,12 @@ import { branchBelongsToGroup, branchMatchesCreatorOption, creatorOptionKey, cre
 type IssueFilter = '' | 'stale' | 'invalid'
 
 // The header row and every branch row share this exact column template, so the
-// values under 分支创始人 / 类别 / 未提交 / 健康分 line up instead of drifting with
-// the width of the neighbouring cell. Columns: checkbox · state dot · branch
-// name · creator · category · idle days · health · protected · actions.
+// values under 分支创始人 / 最后提交人 / 类别 / 未提交 / 健康分 line up instead of
+// drifting with the width of the neighbouring cell. Columns: checkbox · state
+// dot · branch name · creator · last author · category · idle days · health ·
+// protected · actions.
 const ROW_GRID =
-  'grid grid-cols-[0.875rem_0.375rem_minmax(0,1fr)_6rem_4.5rem_4rem_2.75rem_2.5rem_6.75rem] items-center gap-2'
+  'grid grid-cols-[0.875rem_0.375rem_minmax(0,1fr)_minmax(6rem,9rem)_minmax(5rem,8rem)_4.5rem_4rem_2.75rem_2.5rem_6.75rem] items-center gap-2'
 
 function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): boolean {
   if (issue === 'stale') return branch.stale
@@ -67,7 +68,12 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
   const zh = language === 'zh'
   const cat = branchCategory(b.name)
   const sc = stateColor(b.state)
-  const creatorName = b.creator.name && b.creator.name !== 'Unknown' ? b.creator.name : ''
+  const creatorName = b.creator.name && b.creator.name !== 'Unknown'
+    ? b.creator.name
+    : (zh ? '未能从远程获取' : 'Unavailable from remote')
+  const creatorDisplay = b.creator.name && b.creator.name !== 'Unknown'
+    ? creatorName
+    : (b.lastAuthor || (zh ? '未获取' : 'Unavailable'))
   return (
     <div
       className={`group ${ROW_GRID} cursor-pointer border-b border-line/40 px-3 py-2 text-xs transition-colors last:border-0 ${
@@ -92,10 +98,19 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
         {b.isHead ? <Badge tone="primary">HEAD</Badge> : null}
       </span>
       <span
-        className="truncate text-[10px] text-muted"
-        title={[zh ? '分支创始人' : 'Branch creator', creatorName, b.creator.email].filter(Boolean).join(' · ')}
+        className="min-w-0 truncate text-[10px] text-canvas-fg"
+        title={b.creator.confidence === 'low'
+          ? (zh ? '根据分支提交作者推断，需核实' : 'Inferred from branch commit author; verify')
+          : creatorName}
       >
-        {creatorName || '—'}
+        {b.creator.confidence === 'low' && b.creator.name !== 'Unknown'
+          ? `${creatorName} (${zh ? '推断' : 'inferred'})`
+          : b.creator.name && b.creator.name !== 'Unknown'
+            ? creatorName
+            : `${creatorDisplay} (${zh ? '最后提交人，待确认' : 'last author; verify'})`}
+      </span>
+      <span className="min-w-0 truncate text-[10px] text-muted" title={b.lastAuthor || (zh ? '未获取最后提交人' : 'Last author unavailable')}>
+        {b.lastAuthor || '—'}
       </span>
       <span className="truncate text-[10px]" style={{ color: cat.color }}>{cat.label}</span>
       <span className="tabular-nums text-muted">{b.inactiveDays}d</span>
@@ -642,6 +657,7 @@ export default function Branches(): JSX.Element {
               <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
               <span className="truncate text-[10px]">{zh ? '分支名' : 'Branch'}</span>
               <span className="truncate text-[10px]" title={zh ? '分支创始人' : 'Branch creator'}>{zh ? '分支创始人' : 'Creator'}</span>
+              <span className="truncate text-[10px]" title={zh ? '分支最后提交人' : 'Last branch author'}>{zh ? '最后提交人' : 'Last author'}</span>
               <span className="truncate text-[10px]" title={zh ? '类别标签' : 'Category tag'}>{zh ? '类别' : 'Type'}</span>
               <span className="truncate text-[10px]" title={zh ? '距最后一次提交的天数' : 'Days since last commit'}>{zh ? '未提交' : 'Idle'}</span>
               <span className="truncate text-[10px]" title={zh ? '健康度评分 (0-100)' : 'Health score (0-100)'}>{zh ? '健康分' : 'Score'}</span>

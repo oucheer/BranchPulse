@@ -19,6 +19,8 @@ export interface EmailIssueRow {
   branch: string
   creator: string
   creatorEmail: string
+  lastAuthor?: string
+  lastAuthorEmail?: string
   lastCommitDate: string
   lastCommitAt?: string | null
   inactiveDays: number
@@ -63,6 +65,8 @@ export function toEmailIssueRow(branch: BranchSummary): EmailIssueRow {
     branch: branch.displayName,
     creator: branch.creator.name,
     creatorEmail: branch.creator.email,
+    lastAuthor: branch.lastAuthor,
+    lastAuthorEmail: branch.lastAuthorEmail,
     lastCommitDate: branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : '-',
     lastCommitAt: branch.lastCommitAt,
     inactiveDays: branch.inactiveDays,
@@ -330,6 +334,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         branch: '分支',
         repository: '仓库',
         creator: '分支创始人',
+        lastAuthor: '最后提交人',
         inactive: '未提交天数',
         lastCommit: '最新提交',
         state: '状态',
@@ -359,6 +364,7 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         branch: 'Branch',
         repository: 'Repository',
         creator: 'Creator',
+        lastAuthor: 'Last author',
         inactive: 'Inactive days',
         lastCommit: 'Last commit',
         state: 'State',
@@ -394,13 +400,22 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     { label: lang === 'zh' ? '白名单保留' : 'Whitelist retained', value: whitelistedCount, color: '#9333ea' }
   ]
   const stalePercent = data.total ? Math.round((data.stale / data.total) * 100) : 0
+  const creatorLabel = (row: EmailIssueRow): string => {
+    if (row.creator && row.creator !== 'Unknown') return escapeHtml(row.creator)
+    const fallback = row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')
+    return `${escapeHtml(fallback)} (${lang === 'zh' ? '最后提交人，待确认创始人' : 'last author; creator unverified'})`
+  }
+  const creatorReviewRows = data.branches
+    .filter((row) => !row.creator || row.creator === 'Unknown')
+    .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
 
   const staleIssues = data.branches
     .filter((row) => row.state !== 'active' || row.cleanupCandidate)
     .sort((a, b) => b.inactiveDays - a.inactiveDays)
   const staleCells = (row: EmailIssueRow): string[] => [
     branchCell(row.branch),
-    escapeHtml(row.creator || '-'),
+    creatorLabel(row),
+    escapeHtml(row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')),
     String(row.inactiveDays),
     escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
     statusLabel(row)
@@ -411,7 +426,8 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     .sort((a, b) => a.branch.localeCompare(b.branch))
   const namingCells = (row: EmailIssueRow): string[] => [
     branchCell(row.branch),
-    escapeHtml(row.creator || '-'),
+    creatorLabel(row),
+    escapeHtml(row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')),
     escapeHtml(row.namingRuleName || '-'),
     escapeHtml(row.namingReason || '-')
   ]
@@ -420,7 +436,8 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
     .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
   const allCells = (row: EmailIssueRow): string[] => [
     branchCell(row.branch),
-    escapeHtml(row.creator || '-'),
+    creatorLabel(row),
+    escapeHtml(row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')),
     escapeHtml(row.creatorEmail || '-'),
     stateLabel(row.state, lang),
     namingLabel(row.namingStatus, lang),
@@ -467,15 +484,21 @@ export function buildBranchEmailHtml(data: EmailSummaryData, lang: EmailLang, ki
         <p style="color:#6b7280;font-size:11px;margin:8px 0 0">${lang === 'zh' ? `合规 ${Math.max(0, data.total - data.namingInvalid)} 个 · 不规范 ${data.namingInvalid} 个` : `Compliant ${data.total - data.namingInvalid} · Non-compliant ${data.namingInvalid}`}</p>
       </div>
     </div>`)
+  if (creatorReviewRows.length) {
+    sections.push(`<div style="margin-top:14px;border:1px solid #f2c94c;background:#fff9e6;border-radius:6px;padding:10px 12px;color:#7a5b00;font-size:12px">
+      <strong>${lang === 'zh' ? '分支创始人需要确认' : 'Creator confirmation required'}</strong>
+      <ul style="margin:6px 0 0 18px;padding:0">${creatorReviewRows.map((row) => `<li>${escapeHtml(row.repository)} / ${escapeHtml(row.branch)}：${lang === 'zh' ? `无法找到该分支创始人，最后提交人是${row.lastAuthor || '未获取'}，请其确认该分支情况` : `The branch creator could not be found; the last author is ${row.lastAuthor || 'unavailable'}. Please ask them to confirm this branch.`}</li>`).join('')}</ul>
+    </div>`)
+  }
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
-    ${staleIssues.length ? groupedTables(staleIssues, lang, [t.branch, t.creator, t.inactive, t.lastCommit, t.state], ['30%', '16%', '12%', '26%', '16%'], staleCells) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
+    ${staleIssues.length ? groupedTables(staleIssues, lang, [t.branch, t.creator, t.lastAuthor, t.inactive, t.lastCommit, t.state], ['24%', '17%', '15%', '10%', '20%', '14%'], staleCells) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
-    ${namingIssues.length ? groupedTables(namingIssues, lang, [t.branch, t.creator, t.rule, t.reason], ['26%', '16%', '22%', '36%'], namingCells) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
+    ${namingIssues.length ? groupedTables(namingIssues, lang, [t.branch, t.creator, t.lastAuthor, t.rule, t.reason], ['21%', '16%', '14%', '20%', '29%'], namingCells) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
   sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.allTitle}</h3>
-    ${groupedTables(allIssues, lang, [t.branch, t.creator, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], ['24%', '11%', '17%', '10%', '10%', '8%', '10%', '10%'], allCells)}`)
+    ${groupedTables(allIssues, lang, [t.branch, t.creator, t.lastAuthor, lang === 'zh' ? '邮箱' : 'Email', t.state, t.naming, t.health, t.inactive, t.lastCommit], ['20%', '11%', '11%', '14%', '9%', '9%', '7%', '9%', '10%'], allCells)}`)
 
   return `<!DOCTYPE html>
 <html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"></head>
@@ -496,12 +519,13 @@ type CreatorEmailScenario = 'stale' | 'naming'
 function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: CreatorEmailScenario): string {
   const zh = lang === 'zh'
   const headers = zh
-    ? ['仓库', '分支', '分支创始人', '最近提交', '未提交天数', scenario === 'naming' ? '不符合原因' : '说明']
-    : ['Repository', 'Branch', 'Creator', 'Last commit', 'Inactive days', scenario === 'naming' ? 'Reason' : 'Note']
+    ? ['仓库', '分支', '分支创始人', '最后提交人', '最近提交', '未提交天数', scenario === 'naming' ? '不符合原因' : '说明']
+    : ['Repository', 'Branch', 'Creator', 'Last author', 'Last commit', 'Inactive days', scenario === 'naming' ? 'Reason' : 'Note']
   const tableRows = rows.map((row) => [
     escapeHtml(row.repository || '-'),
     `<code>${escapeHtml(row.branch)}</code>`,
-    escapeHtml(row.creator || '-'),
+    row.creator && row.creator !== 'Unknown' ? escapeHtml(row.creator) : `${escapeHtml(row.lastAuthor || (zh ? '未获取' : 'Unavailable'))} (${zh ? '最后提交人，待确认创始人' : 'last author; creator unverified'})`,
+    escapeHtml(row.lastAuthor || (zh ? '未获取' : 'Unavailable')),
     escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
     String(row.inactiveDays),
     scenario === 'naming'
@@ -843,7 +867,9 @@ export class EmailService {
     if (!cfg.enabled) return { ok: false, message: lang === 'zh' ? '邮件发送未启用。' : 'Email sending is disabled.', emailsSent: 0 }
     const groups = new Map<string, EmailIssueRow[]>()
     for (const row of rows) {
-      const key = (row.creatorEmail || row.creator || 'unknown').trim().toLowerCase()
+      const creatorKnown = Boolean(row.creator && row.creator !== 'Unknown')
+      const target = creatorKnown ? row.creatorEmail : row.lastAuthorEmail
+      const key = (target || row.creator || row.lastAuthor || 'unknown').trim().toLowerCase()
       const list = groups.get(key) ?? []
       list.push(row)
       groups.set(key, list)
@@ -856,9 +882,12 @@ export class EmailService {
     try {
       for (const [key, branchRows] of groups) {
         const first = branchRows[0]
-        const to = String(first.creatorEmail || first.creator || '').trim()
+        const creatorKnown = Boolean(first.creator && first.creator !== 'Unknown')
+        const to = String(creatorKnown ? first.creatorEmail : first.lastAuthorEmail || '').trim()
         if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-          skipped.push(first.creator ? `${first.creator}（无有效邮箱）` : String(key))
+          skipped.push(creatorKnown
+            ? (first.creator ? `${first.creator}（无有效邮箱）` : String(key))
+            : `${first.lastAuthor || '未获取最后提交人'}（无法找到创始人且最后提交人无有效邮箱）`)
           continue
         }
         const scenarios: Array<[CreatorEmailScenario, EmailIssueRow[]]> = [

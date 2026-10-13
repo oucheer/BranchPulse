@@ -78,6 +78,7 @@ interface AnalysisFacts {
   lastCommitAt: string | null
   lastCommitSha: string
   lastAuthor: string
+  lastAuthorEmail?: string
   commitCount: number
   ahead: number
   behind: number
@@ -412,6 +413,7 @@ export class BranchService {
       lastCommitAt,
       lastCommitSha: latestCommit?.id ?? '',
       lastAuthor: latestCommit?.author_name ?? '',
+      lastAuthorEmail: latestCommit?.author_email ?? '',
       commitCount: commits.length,
       ahead: ownCommits.length,
       behind: 0,
@@ -520,6 +522,7 @@ export class BranchService {
       lastCommitAt: ref.committedAt || null,
       lastCommitSha: ref.sha,
       lastAuthor: ref.authorName,
+      lastAuthorEmail: ref.authorEmail,
       commitCount,
       ahead: aheadBehind.ahead,
       behind: aheadBehind.behind,
@@ -584,6 +587,7 @@ export class BranchService {
       lastCommitAt: facts.lastCommitAt,
       lastCommitSha: facts.lastCommitSha,
       lastAuthor: facts.lastAuthor,
+      lastAuthorEmail: facts.lastAuthorEmail,
       commitCount: facts.commitCount,
       ahead: facts.ahead,
       behind: facts.behind,
