@@ -710,6 +710,10 @@ export class EmailService {
     // Open relays accept mail without credentials; sending an empty AUTH would
     // make the server reject the connection before the message even starts.
     const auth = username && password ? { user: username, pass: password } : undefined
+    // Nodemailer upgrades a plain connection opportunistically when the server
+    // offers STARTTLS. Internal relays with incomplete cert chains fail that
+    // upgrade, so both toggles off must mean real plaintext.
+    const ignoreTLS = !cfg.secure && !cfg.tls
     return nodemailer.createTransport({
       host,
       port: Math.max(1, Number(cfg.port) || 587),
@@ -717,6 +721,7 @@ export class EmailService {
       // asks the server to upgrade a plain connection through STARTTLS.
       secure: Boolean(cfg.secure),
       requireTLS: !cfg.secure && Boolean(cfg.tls),
+      ignoreTLS,
       auth,
       connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
       greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,

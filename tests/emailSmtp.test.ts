@@ -110,6 +110,12 @@ describe('SMTP transport', () => {
     expect(mailer.transports[0]).toMatchObject({ host: 'smtp.example.com', port: 587, secure: false, requireTLS: false })
   })
 
+  it('disables STARTTLS entirely when both secure and tls are off', async () => {
+    const { service: svc } = service({ tls: 0 })
+    await svc.testConnection()
+    expect(mailer.transports[0]).toMatchObject({ secure: false, requireTLS: false, ignoreTLS: true })
+  })
+
   it('reports a missing server instead of opening a socket', async () => {
     const { service: svc, audit: log } = service({ server: '' })
     const result = await svc.testConnection()
