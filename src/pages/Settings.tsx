@@ -18,6 +18,7 @@ import {
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Modal, Toggle } from '../components/ui'
 import FolderPicker from '../components/FolderPicker'
+import { resolveSmtpPreset, type SmtpPreset } from '../lib/emailPresets'
 import type { AppSettings, BranchSummary, EmailConfig, EmailGroup, EmailGroupMember, LanguageCode } from '@shared/types'
 import { branchesForGroup, groupBranchStats, groupMemberNames } from '@shared/groups'
 
@@ -73,8 +74,8 @@ export default function Settings(): JSX.Element {
     username: '',
     hasPassword: false,
     from: '',
-    secure: true,
-    tls: false,
+    secure: false,
+    tls: true,
     testRecipient: '',
     selfEmail: '',
     enabled: false
@@ -87,6 +88,7 @@ export default function Settings(): JSX.Element {
   const [gitlabApiKey, setGitlabApiKey] = useState('')
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [showEmailPassword, setShowEmailPassword] = useState(false)
+  const [autoPreset, setAutoPreset] = useState<SmtpPreset | null>(null)
   const [groupDraft, setGroupDraft] = useState<GroupDraft>(emptyGroupDraft())
   const [groupBusy, setGroupBusy] = useState('')
   const [portPicker, setPortPicker] = useState<'export' | 'import' | null>(null)
@@ -100,8 +102,28 @@ export default function Settings(): JSX.Element {
   }, [settings.gitlabApiKey])
 
   useEffect(() => {
-    if (emailConfig) setEmailDraft(emailConfig)
+    if (emailConfig) {
+      setEmailDraft(emailConfig)
+      setAutoPreset(resolveSmtpPreset(emailConfig.username))
+    }
   }, [emailConfig])
+
+  const handleEmailUsernameChange = (value: string): void => {
+    const preset = resolveSmtpPreset(value)
+    setAutoPreset(preset)
+    setEmailDraft((prev) => {
+      if (!preset) return { ...prev, username: value }
+      return {
+        ...prev,
+        username: value,
+        server: preset.server,
+        port: preset.port,
+        secure: preset.secure,
+        tls: preset.tls,
+        ...(prev.from ? {} : { from: value })
+      }
+    })
+  }
 
   const saveApp = async (): Promise<void> => {
     setSavingApp(true)
@@ -411,7 +433,12 @@ export default function Settings(): JSX.Element {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
                 <div className="label mb-1.5">{tr('username')}</div>
-                <input className="input" value={emailDraft.username} onChange={(e) => setEmailDraft({ ...emailDraft, username: e.target.value })} placeholder="notify@example.com" autoComplete="off" />
+                <input className="input" value={emailDraft.username} onChange={(e) => handleEmailUsernameChange(e.target.value)} placeholder="abc.123@pantum.local" autoComplete="off" />
+                <p className="mt-1 text-xs text-muted">
+                  {autoPreset
+                    ? `已自动填充 ${autoPreset.server}:${autoPreset.port}（STARTTLS）`
+                    : '输入完整邮箱后自动填充服务器、端口和加密方式。'}
+                </p>
               </div>
               <div>
                 <div className="label mb-1.5">{tr('password')}</div>
