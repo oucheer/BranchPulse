@@ -256,7 +256,7 @@ export default function Settings(): JSX.Element {
     setTesting(true)
     try {
       const result = await window.gitmanager.testEmailConnection(emailDraft)
-      toast(result.message, result.ok ? 'success' : 'error')
+      toast(result.technical ? `${result.message}（${result.technical}）` : result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -265,11 +265,10 @@ export default function Settings(): JSX.Element {
   }
 
   const sendTest = async (): Promise<void> => {
-
     setTesting(true)
     try {
       const result = await window.gitmanager.sendTestEmail(emailDraft)
-      toast(result.message, result.ok ? 'success' : 'error')
+      toast(result.technical ? `${result.message}（${result.technical}）` : result.message, result.ok ? 'success' : 'error')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
