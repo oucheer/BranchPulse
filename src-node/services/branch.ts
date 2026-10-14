@@ -97,7 +97,7 @@ function refForRemote(remote: string, name: string): string {
 
 function emailForUsername(emails: Map<string, string>, username?: string): string | undefined {
   if (!username) return undefined
-  return emails.get(username.toLowerCase())
+  return emails.get(username) ?? emails.get(username.toLowerCase())
 }
 
 function safeTimestamp(value: string | null | undefined): number {
@@ -377,9 +377,10 @@ export class BranchService {
       : commitHasDate(branch.commit)
         ? branch.commit
         : commits[0] ?? branch.commit
-    // v11: invalidate the former commit-based creator attribution cache.
+    // v12: invalidate caches saved by the web build before creator email lookup
+    // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    const cacheContentKey = `v11|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    const cacheContentKey = `v12|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {

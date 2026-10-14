@@ -842,7 +842,7 @@ export class GitLabService {
         : undefined
       const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
       this.userEmailCache.set(this.userEmailKey(username), email)
-      if (email) resolved.set(username.toLowerCase(), email)
+      if (email) resolved.set(username, email)
     }
     return resolved
   }
