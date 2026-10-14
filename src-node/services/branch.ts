@@ -27,30 +27,18 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /**
  * Decide who created a remote branch.
  *
- * Order matters and both fallbacks are deliberate:
- *  1. the branch's first own commit — authoritative and carries an email;
- *  2. the forge's branch-creation event — the only signal for a branch that has
- *     no commits yet (GitLab only), but its `public_email` is often blank;
- *  3. unknown — never the base branch's latest committer. Guessing there sends
- *     creator notifications to an unrelated person.
+ * A commit author is not proof of who created a ref. Remote branch creation
+ * must come from the forge's ref-creation event; when that event is absent the
+ * creator stays unknown and the tip commit author is kept separately.
  *
  * Exported for unit tests; the attribution rules are easy to regress and hard to
  * observe end to end.
  */
 export function resolveRemoteCreator(
-  firstOwnCommit: GitLabCommitDto | null,
-  creationEvent: BranchCreatorDto | null
+  _firstOwnCommit: GitLabCommitDto | null,
+  creationEvent: BranchCreatorDto | null,
+  _branchTip: GitLabCommitDto | null = null
 ): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
-  if (firstOwnCommit) {
-    return {
-      creator: {
-        name: firstOwnCommit.author_name,
-        email: firstOwnCommit.author_email,
-        firstCommitAt: firstOwnCommit.committed_date ?? firstOwnCommit.authored_date ?? null,
-        confidence: 'high'
-      }
-    }
-  }
   if (creationEvent) {
     return {
       creator: {
@@ -105,6 +93,11 @@ function refForLocal(repoPath: string, name: string): string {
 
 function refForRemote(remote: string, name: string): string {
   return `refs/remotes/${remote}/${name}`
+}
+
+function emailForUsername(emails: Map<string, string>, username?: string): string | undefined {
+  if (!username) return undefined
+  return emails.get(username.toLowerCase())
 }
 
 function safeTimestamp(value: string | null | undefined): number {
@@ -272,17 +265,62 @@ export class BranchService {
     // created each branch. Empty for providers without that event stream.
     const branchCreators = await this.gitlab.listBranchCreators(projectId, remoteConfig)
     const analyzed: BranchSummary[] = []
+    const failedBranches: Array<{ name: string; reason: string }> = []
     const batchSize = 6
     for (let i = 0; i < branches.length; i += batchSize) {
       const batch = branches.slice(i, i + batchSize)
-      const results = await Promise.all(
+      // One flaky branch (a proxy hiccup, a 429, a slow compare) must never turn
+      // the whole repository into "0 branches": settle every branch in the batch
+      // and keep the ones that succeeded. A partial result is then refused below
+      // so stale/complete cache data is never replaced by an incomplete snapshot.
+      const results = await Promise.allSettled(
         batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, branchCreators, monitoring, fp, remoteConfig))
       )
-      analyzed.push(...results)
+      results.forEach((entry, index) => {
+        if (entry.status === 'fulfilled') {
+          analyzed.push(entry.value)
+          return
+        }
+        const reason = entry.reason instanceof Error ? entry.reason.message : String(entry.reason)
+        failedBranches.push({ name: batch[index].name, reason })
+      })
       progress(`Analyzed ${Math.min(i + batchSize, branches.length)} of ${branches.length} branches...`)
+    }
+    if (failedBranches.length > 0) {
+      const sample = failedBranches.slice(0, 3).map((item) => `${item.name}（${item.reason}）`).join('；')
+      progress(`${failedBranches.length} 个分支分析失败，已跳过：${sample}`)
+      // A partial branch set is not a trustworthy repository snapshot. Do not
+      // replace the cached complete result or let monitoring/reporting publish
+      // a branch total that depends on which operation happened to run first.
+      const failureLabel = analyzed.length === 0 ? '全部分析失败' : `${failedBranches.length} 个分支分析失败`
+      throw new Error(`${failureLabel}：${sample}`)
+    }
+
+    const missingAuthorNames = analyzed
+      .flatMap((branch) => [
+        !branch.lastAuthorEmail ? branch.lastAuthor : '',
+        branch.creator.confidence !== 'unknown' && !branch.creator.email ? branch.creator.name : ''
+      ])
+      .filter((name) => name && name !== 'Unknown')
+    if (missingAuthorNames.length > 0 && typeof this.gitlab.resolveUserEmailsByNames === 'function') {
+      const emailByName = await this.gitlab.resolveUserEmailsByNames(missingAuthorNames, remoteConfig)
+      for (const branch of analyzed) {
+        const lastAuthorEmail = branch.lastAuthorEmail || emailByName.get(branch.lastAuthor)
+        const creatorEmail = branch.creator.confidence !== 'unknown'
+          ? (branch.creator.email || emailByName.get(branch.creator.name))
+          : branch.creator.email
+        if (lastAuthorEmail || creatorEmail) {
+          branch.lastAuthorEmail = lastAuthorEmail || branch.lastAuthorEmail
+          branch.creator = { ...branch.creator, email: creatorEmail || branch.creator.email }
+        }
+      }
     }
 
     this.storage.transaction(() => {
+      // A complete remote listing is authoritative. Remove cached branches that
+      // were deleted remotely so report totals match the latest check.
+      this.storage.delete('branches', 'repository_id = ?', [repo.id])
+      this.storage.delete('branch_snapshots', 'key LIKE ?', [`${repo.id}|%`])
       for (const branch of analyzed) {
         const key = `${repo.id}|${branch.type}|${branch.name}`
         this.storage.delete('branches', 'key = ?', [key])
@@ -334,16 +372,22 @@ export class BranchService {
     const commits = await this.gitlab.listCommits(projectId, branch.name, 1, 100, config)
     // Prefer commits[0] over branch.commit: GitHub /branches does NOT return full commit objects (no dates/authors).
     const commitHasDate = (c: { committed_date?: string; authored_date?: string; created_at?: string } | undefined): boolean => Boolean(c && (c.committed_date || c.authored_date || c.created_at))
-    const latestCommit = commitHasDate(commits[0]) ? commits[0] : commitHasDate(branch.commit) ? branch.commit : commits[0] ?? branch.commit
-    // v5: the creator email is now looked up from the forge profile, so cached
-    // v4 summaries have to be rebuilt to pick up the resolved address.
-    const cacheContentKey = `v6|${latestCommit?.id ?? ''}|${fp}`
+    const latestCommit: GitLabCommitDto | undefined = commitHasDate(commits[0])
+      ? commits[0]
+      : commitHasDate(branch.commit)
+        ? branch.commit
+        : commits[0] ?? branch.commit
+    // v11: invalidate the former commit-based creator attribution cache.
+    const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
+    const cacheContentKey = `v11|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
       try {
         const cached = JSON.parse(String(existing.data_json)) as BranchSummary
-        return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
+        if (cached.lastAuthorEmail || cached.creator.email || (!cached.lastAuthor && cached.creator.name === 'Unknown')) {
+          return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
+        }
       } catch {
         /* fall through */
       }
@@ -376,20 +420,46 @@ export class BranchService {
     const ownCommits: GitLabCommitDto[] = branch.name === defaultBranch
       ? []
       : await this.gitlab.compareCommits(projectId, defaultBranch, branch.name, config)
-    const firstOwn = ownCommits[0] ?? null
+    const firstOwn = ownCommits
+      .filter((commit) => commit.author_name || commit.author_login || commit.author_email || commit.committer_name || commit.committer_login || commit.committer_email)
+      .sort((a, b) => {
+        const aTime = new Date(a.committed_date || a.authored_date || a.created_at || 0).getTime()
+        const bTime = new Date(b.committed_date || b.authored_date || b.created_at || 0).getTime()
+        return aTime - bTime
+      })[0] ?? null
     const creatorEvent = branchCreators.get(branch.name) ?? null
 
-    // Prefer the first own commit: it carries a usable author email, which the
-    // forge's branch-creation event often omits. When the branch has no commits
-    // of its own the commit APIs have nothing to report, so fall back to the
-    // creation event (GitLab only). Never fall back to the base branch author.
-    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent)
+    // A creation event is the only authoritative remote creator source. The
+    // branch-only and tip commits remain useful for age and last-author data,
+    // but must never be presented as the creator.
+    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
+    const identityNames = [
+      latestCommit?.author_login,
+      latestCommit?.committer_login,
+      creatorEvent?.username
+    ].filter((value): value is string => Boolean(value && value.trim()))
+    const emailByUsername = typeof this.gitlab.resolveUserEmails === 'function'
+      ? await this.gitlab.resolveUserEmails(identityNames, config)
+      : new Map<string, string>()
+    const creatorEmail = creator.email || emailForUsername(emailByUsername, creatorEvent?.username)
+    const resolvedCreator = creatorEmail ? { ...creator, email: creatorEmail } : creator
+    const lastAuthorEmail = latestCommit?.author_email?.trim()
+      || emailForUsername(emailByUsername, latestCommit?.author_login)
+      || emailForUsername(emailByUsername, latestCommit?.committer_login)
+      || latestCommit?.committer_email?.trim()
+
+    const lastAuthor = [
+      latestCommit?.author_name,
+      latestCommit?.author_login,
+      latestCommit?.committer_name,
+      latestCommit?.committer_login
+    ].find((value) => Boolean(value?.trim()))?.trim() ?? ''
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
     const oldestFetched = commits.length > 0
       ? (commits[commits.length - 1]?.committed_date ?? commits[commits.length - 1]?.authored_date ?? commits[commits.length - 1]?.created_at ?? null)
       : null
-    const createdAt = firstOwn?.committed_date ?? firstOwn?.authored_date ?? creatorEvent?.createdAt ?? oldestFetched ?? latestCommit?.created_at ?? null
+    const createdAt = creatorEvent?.createdAt ?? firstOwn?.committed_date ?? firstOwn?.authored_date ?? oldestFetched ?? latestCommit?.created_at ?? null
     const ref: GitRefInfo = {
       fullRef: `refs/remotes/origin/${branch.name}`,
       refType: 'remotes',
@@ -397,8 +467,8 @@ export class BranchService {
       remote: 'origin',
       sha: latestCommit?.id ?? '',
       committedAt: lastCommitAt ?? '',
-      authorName: latestCommit?.author_name ?? '',
-      authorEmail: latestCommit?.author_email ?? '',
+      authorName: lastAuthor,
+      authorEmail: lastAuthorEmail ?? '',
       subject: latestCommit?.title ?? ''
     }
     const facts: AnalysisFacts = {
@@ -408,12 +478,12 @@ export class BranchService {
       existsLocally: false,
       existsRemotely: true,
       isHead: false,
-      creator,
+      creator: resolvedCreator,
       createdAt,
       lastCommitAt,
       lastCommitSha: latestCommit?.id ?? '',
-      lastAuthor: latestCommit?.author_name ?? '',
-      lastAuthorEmail: latestCommit?.author_email ?? '',
+      lastAuthor,
+      lastAuthorEmail: lastAuthorEmail ?? '',
       commitCount: commits.length,
       ahead: ownCommits.length,
       behind: 0,
@@ -688,6 +758,12 @@ export class BranchService {
       try {
         const commits = await this.gitlab.listCommits(repo.gitlabProjectId, criteria.name, 1, 20, remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken()))
         parsed.recentCommits = commits.map((c) => this.gitLabCommitToInfo(c))
+        const latest = commits[0]
+        if (latest) {
+          parsed.lastAuthor = latest.author_name || latest.author_login || latest.author_email || ''
+          parsed.lastAuthorEmail = latest.author_email || ''
+          parsed.lastCommitAt = latest.committed_date ?? latest.authored_date ?? latest.created_at ?? parsed.lastCommitAt
+        }
         parsed.existsLocally = false
         parsed.existsRemotely = true
       } catch {
@@ -713,4 +789,8 @@ export class BranchService {
     }
   }
 
+}
+
+function creatorKeyForCache(creator: BranchCreatorDto | undefined): string {
+  return creator ? `${creator.username}|${creator.name}|${creator.email}|${creator.createdAt ?? ''}` : 'unknown'
 }

@@ -4,15 +4,12 @@ import { GitLabService } from '../src-node/services/gitlab'
 /**
  * Locks in the branch-creation attribution contract:
  *
- *  - `compareCommits` must order commits oldest-first (index 0 = the branch's
- *    first own commit), because that is what identifies the creator. GitHub
- *    returns compare results oldest-first; GitLab's compare is passed straight
- *    through.
+ *  - `compareCommits` preserves forge ordering for branch analysis. Commit
+ *    authorship is not treated as proof of who created a branch.
  *  - `listBranchCreators` must read branch creation from GitLab project events
  *    (`push_data.action = 'created'`, `ref_type = 'branch'`), including the
  *    `commit_count: 0` case where a branch has no commits at all.
- *  - it must return an empty map for providers without that event stream
- *    (GitHub), so callers fall back to "unknown" instead of guessing.
+ *  - GitHub PushEvents whose `before` SHA is all zeroes identify newly created refs.
  */
 
 const GL_URL = 'https://gitlab.example.com/group/project'
@@ -93,6 +90,8 @@ describe('GitLabService.compareCommits', () => {
           {
             sha: 'ghfirst1',
             html_url: 'https://github.com/x/y/commit/ghfirst1',
+            author: { login: 'branch-author' },
+            committer: { login: 'branch-committer' },
             commit: {
               message: 'feat: first',
               author: { name: 'GH Author', email: 'gh@example.com', date: '2026-01-05T00:00:00Z' }
@@ -111,6 +110,8 @@ describe('GitLabService.compareCommits', () => {
     expect(result).toHaveLength(1)
     expect(result[0].author_name).toBe('GH Author')
     expect(result[0].author_email).toBe('gh@example.com')
+    expect(result[0].author_login).toBe('branch-author')
+    expect(result[0].committer_login).toBe('branch-committer')
   })
 })
 
@@ -233,6 +234,68 @@ describe('GitLabService.listBranchCreators', () => {
     expect(creators.get('feature/no-commits')?.email).toBe('private@example.com')
   })
 
+  it('accepts self-hosted event payloads with top-level author fields and ignored action filters', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/events')) {
+        // Some older/self-hosted versions ignore action=pushed and expose the
+        // actor outside the nested author object.
+        if (url.includes('action=pushed')) return jsonResponse([{ action_name: 'pushed to' }])
+        return jsonResponse([{
+          action_name: 'pushed to',
+          author_name: '内网用户',
+          author_username: 'intranet-user',
+          author_email: 'intranet@example.com',
+          created_at: '2026-03-03T10:00:00.000Z',
+          push_data: { action: 'created', ref_type: 'branch', ref: 'feature/intranet', commit_count: 0 }
+        }])
+      }
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+
+    expect(creators.get('feature/intranet')?.name).toBe('内网用户')
+    expect(creators.get('feature/intranet')?.email).toBe('intranet@example.com')
+    expect(calls.some((url) => url.includes('/events?per_page=100') && !url.includes('action=pushed'))).toBe(true)
+  })
+
+  it('keeps the actor when an event has only a username and resolves its display name', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?')) return jsonResponse([{ username: 'alice', name: 'Alice Example', public_email: '' }])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'alice',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/alice' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/alice')).toMatchObject({ name: 'Alice Example', username: 'alice', source: 'event' })
+  })
+
+  it('retains an event actor name when user profile details are hidden', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?')) return jsonResponse([])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'alice',
+        author: { name: 'Alice Event Name' },
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/alice' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/alice')?.name).toBe('Alice Event Name')
+  })
+
   it('keeps the creator when the profile lookup fails', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
@@ -297,13 +360,32 @@ describe('GitLabService.listBranchCreators', () => {
     expect(userCalls).toBe(1)
   })
 
-  it('returns an empty map for GitHub, which has no branch-creation events', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+  it('reads GitHub branch-creation push events and resolves the actor profile', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/events')) return jsonResponse([
+        {
+          type: 'PushEvent',
+          actor: { login: 'octocat', name: 'Octo Cat' },
+          created_at: '2026-03-04T10:00:00Z',
+          payload: { ref: 'refs/heads/feature/ui', before: '0000000000000000000000000000000000000000' }
+        },
+        {
+          type: 'PushEvent',
+          actor: { login: 'other' },
+          payload: { ref: 'refs/heads/main', before: 'abc123' }
+        }
+      ])
+      if (url.includes('/users/octocat')) return jsonResponse({ name: 'Octocat Person', email: 'octo@example.com' })
+      return jsonResponse({ id: 1, full_name: 'octocat/Hello-World' })
+    })
     const svc = service(GH_URL)
-    const creators = await svc.listBranchCreators(0, { url: GH_URL, apiKey: 't', provider: 'github' })
-    expect(creators.size).toBe(0)
-    // Must not even call the events API for GitHub.
-    expect(fetchSpy).not.toHaveBeenCalled()
+    const creators = await svc.listBranchCreators(1, { url: GH_URL, apiKey: 't', provider: 'github' })
+    expect([...creators.keys()]).toEqual(['feature/ui'])
+    expect(creators.get('feature/ui')).toMatchObject({ name: 'Octocat Person', email: 'octo@example.com', username: 'octocat' })
+    expect(calls.some((url) => url.includes('/repos/octocat/Hello-World/events'))).toBe(true)
   })
 
   it('degrades to an empty map when the events endpoint fails', async () => {
@@ -315,5 +397,31 @@ describe('GitLabService.listBranchCreators', () => {
     const svc = service(GL_URL)
     const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
     expect(creators.size).toBe(0)
+  })
+
+  it('still reads unfiltered events when the filtered event query is rejected', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/projects/') && !url.includes('/events')) {
+        return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+      }
+      if (url.includes('/events') && url.includes('action=pushed')) {
+        return new Response('filtered events forbidden', { status: 403 })
+      }
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_username: 'zhangsan',
+        author: { name: '张三' },
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/recovered' }
+      }])
+      return jsonResponse([])
+    })
+
+    const svc = service(GL_URL)
+    const creators = await svc.listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/recovered')?.name).toBe('张三')
+    expect(calls.some((url) => url.includes('/events') && !url.includes('action=pushed'))).toBe(true)
   })
 })

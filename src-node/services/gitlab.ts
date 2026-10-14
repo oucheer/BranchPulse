@@ -57,8 +57,10 @@ export interface GitLabCommitDto {
   committed_date: string
   author_name: string
   author_email: string
+  author_login?: string
   committer_name: string
   committer_email: string
+  committer_login?: string
   web_url: string
 }
 
@@ -213,6 +215,8 @@ export class GitLabService {
   private projectPathCache = new Map<string, string>()
   /** `<host>|<username>` -> public address; empty string means "looked up, none public". */
   private userEmailCache = new Map<string, string>()
+  /** `<host>|<username>` -> display name and public address; null means "looked up, none exposed". */
+  private userProfileCache = new Map<string, { name: string; email: string } | null>()
 
   /** Cache key: the same login can exist on two hosts with different addresses. */
   private userEmailKey(username: string): string {
@@ -560,6 +564,8 @@ export class GitLabService {
   private mapGitHubCommit(row: Record<string, unknown>): GitLabCommitDto {
     const commit = (row.commit ?? {}) as Record<string, unknown>
     const author = (commit.author ?? {}) as Record<string, unknown>
+    const authorAccount = (row.author ?? {}) as Record<string, unknown>
+    const committerAccount = (row.committer ?? {}) as Record<string, unknown>
     const authorDate = String(author.date ?? '')
     return {
       id: String(row.sha ?? ''),
@@ -573,6 +579,8 @@ export class GitLabService {
       author_email: String(author.email ?? ''),
       committer_name: String(author.name ?? ''),
       committer_email: String(author.email ?? ''),
+      author_login: String(authorAccount.login ?? authorAccount.username ?? ''),
+      committer_login: String(committerAccount.login ?? committerAccount.username ?? ''),
       web_url: String(row.html_url ?? '')
     }
   }
@@ -642,47 +650,153 @@ export class GitLabService {
   ): Promise<Map<string, BranchCreatorDto>> {
     const creators = new Map<string, BranchCreatorDto>()
     const { provider } = this.resolve(config)
-    if (provider !== 'gitlab') return creators
     const projectRef = await this.projectRef(projectId, config)
-    // Newest first. Events only cover a bounded window, so older branches may
-    // simply not appear; stop early once a page comes back short.
-    for (let page = 1; page <= 5; page += 1) {
-      const qs = new URLSearchParams({ action: 'pushed', per_page: '100', page: String(page) })
-      let rows: Array<Record<string, unknown>>
+    if (provider === 'github') {
+      let events: Array<Record<string, unknown>>
       try {
-        rows = await this.request<Array<Record<string, unknown>>>(`/projects/${projectRef}/events?${qs.toString()}`, config)
+        events = await this.paginate(`/repos/${projectRef}/events?per_page=100`, config)
       } catch {
         return creators
       }
-      if (!Array.isArray(rows) || rows.length === 0) break
-      for (const row of rows) {
+      const usernames = new Set<string>()
+      for (const event of events) {
+        if (event.type !== 'PushEvent') continue
+        const payload = (event.payload ?? {}) as Record<string, unknown>
+        const ref = String(payload.ref ?? '')
+        if (!ref.startsWith('refs/heads/') || !/^0+$/.test(String(payload.before ?? ''))) continue
+        const branch = ref.slice('refs/heads/'.length)
+        const actor = (event.actor ?? {}) as Record<string, unknown>
+        const username = String(actor.login ?? '').trim()
+        const name = String(actor.name ?? '').trim() || username
+        if (!branch || !name || creators.has(branch)) continue
+        creators.set(branch, {
+          name,
+          email: '',
+          username,
+          createdAt: typeof event.created_at === 'string' ? event.created_at : null,
+          source: 'event'
+        })
+        if (username) usernames.add(username)
+      }
+      await Promise.all([...usernames].map(async (username) => {
+        try {
+          const profile = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(username)}`, config)
+          for (const creator of creators.values()) {
+            if (creator.username !== username) continue
+            creator.name = String(profile.name ?? '').trim() || creator.name
+            creator.email = String(profile.email ?? '').trim()
+          }
+        } catch {
+          // The event actor remains usable when profile access is restricted.
+        }
+      }))
+      return creators
+    }
+    if (provider !== 'gitlab') return creators
+    // Newest first. Events only cover a bounded window, so older branches may
+    // simply not appear. Some self-hosted GitLab versions ignore `action` or
+    // expose the author fields in a slightly different shape; query both forms
+    // so a partially filtered result cannot hide creation events for other refs.
+    const eventPages = async (withAction: boolean): Promise<Array<Record<string, unknown>>> => {
+      const collected: Array<Record<string, unknown>> = []
+      for (let page = 1; page <= 20; page += 1) {
+        const qs = new URLSearchParams()
+        if (withAction) qs.set('action', 'pushed')
+        qs.set('per_page', '100')
+        qs.set('page', String(page))
+        const rows = await this.request<Array<Record<string, unknown>>>(`/projects/${projectRef}/events?${qs.toString()}`, config)
+        if (!Array.isArray(rows) || rows.length === 0) break
+        collected.push(...rows)
+        if (rows.length < 100) break
+      }
+      return collected
+    }
+
+    let rows: Array<Record<string, unknown>> = []
+    try {
+      rows = await eventPages(true)
+    } catch (error) {
+      logger.warn(`Could not read filtered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const parseEvents = (events: Array<Record<string, unknown>>): void => {
+      for (const row of events) {
         const push = (row.push_data ?? {}) as Record<string, unknown>
-        if (push.action !== 'created' || push.ref_type !== 'branch') continue
-        const branch = String(push.ref ?? '').trim()
+        const action = String(push.action ?? row.action ?? '').toLowerCase()
+        const refType = String(push.ref_type ?? row.ref_type ?? row.target_type ?? '').toLowerCase()
+        const actionName = String(row.action_name ?? '').toLowerCase()
+        const isCreation = action === 'created' || actionName === 'pushed new'
+        if (!isCreation || refType !== 'branch') continue
+        const rawRef = String(push.ref ?? row.ref ?? row.target_title ?? '').trim()
+        const branch = rawRef.replace(/^refs\/heads\//, '')
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
-        const name = String(author.name ?? '').trim() || String(row.author_username ?? '').trim()
+        const username = String(author.username ?? row.author_username ?? '').trim()
+        const name = String(author.name ?? '').trim()
+          || String(row.author_name ?? '').trim()
+          || username
+          || (author.id ?? row.author_id ? `GitLab user ${String(author.id ?? row.author_id)}` : '')
         if (!name) continue
         creators.set(branch, {
           name,
-          email: String(author.public_email ?? '').trim(),
-          username: String(row.author_username ?? '').trim(),
-          createdAt: (row.created_at as string | null) ?? null,
+          email: String(author.public_email ?? author.email ?? row.author_email ?? '').trim(),
+          username,
+          createdAt: typeof row.created_at === 'string' ? row.created_at : null,
           source: 'event'
         })
       }
-      if (rows.length < 100) break
     }
-    const missing = [...creators.values()].filter((creator) => !creator.email && creator.username)
-    if (missing.length > 0) {
-      const emails = await this.resolveUserEmails(missing.map((creator) => creator.username), config)
+    parseEvents(rows)
+    try {
+      parseEvents(await eventPages(false))
+    } catch (error) {
+      logger.warn(`Could not read unfiltered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const usersToResolve = [...creators.values()].filter((creator) => creator.username)
+    if (usersToResolve.length > 0) {
+      const profiles = await this.resolveGitLabUsers(usersToResolve.map((creator) => creator.username), config)
       for (const creator of creators.values()) {
-        if (creator.email || !creator.username) continue
-        const email = emails.get(creator.username)
-        if (email) creator.email = email
+        if (!creator.username) continue
+        const profile = profiles.get(creator.username.toLowerCase())
+        if (!profile) continue
+        creator.name = profile.name || creator.name
+        if (!creator.email) creator.email = profile.email
       }
     }
     return creators
+  }
+
+  private async resolveGitLabUsers(
+    usernames: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, { name: string; email: string }>> {
+    const profiles = new Map<string, { name: string; email: string }>()
+    const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
+      .filter((username) => {
+        const cached = this.userProfileCache.get(this.userEmailKey(username))
+        if (cached === undefined) return true
+        if (cached) profiles.set(username.toLowerCase(), cached)
+        return false
+      })
+      .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
+    for (const username of pending) {
+      const qs = new URLSearchParams({ username })
+      try {
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const match = Array.isArray(rows)
+          ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
+          : undefined
+        this.userProfileCache.set(this.userEmailKey(username), match ? {
+          name: String(match.name ?? '').trim(),
+          email: String(match.public_email ?? '').trim() || String(match.email ?? '').trim()
+        } : null)
+        if (match) {
+          profiles.set(username.toLowerCase(), this.userProfileCache.get(this.userEmailKey(username))!)
+        }
+      } catch {
+        // Event identity remains valid even when profile access is restricted.
+      }
+    }
+    return profiles
   }
 
   /**
@@ -708,8 +822,10 @@ export class GitLabService {
     const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
       .filter((username) => {
         const cached = this.userEmailCache.get(this.userEmailKey(username))
-        if (cached === undefined) return true
-        if (cached) resolved.set(username, cached)
+        // Empty misses may come from a transient or permission-filtered
+        // directory response and must remain retryable.
+        if (!cached) return true
+        resolved.set(username.toLowerCase(), cached)
         return false
       })
       .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
@@ -726,7 +842,33 @@ export class GitLabService {
         : undefined
       const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
       this.userEmailCache.set(this.userEmailKey(username), email)
-      if (email) resolved.set(username, email)
+      if (email) resolved.set(username.toLowerCase(), email)
+    }
+    return resolved
+  }
+
+  /** Resolve commit identities when the commit API exposes a name but no login/email. */
+  async resolveUserEmailsByNames(
+    names: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>()
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return resolved
+    for (const rawName of [...new Set(names.map((name) => name.trim()).filter(Boolean))].slice(0, MAX_CREATOR_EMAIL_LOOKUPS)) {
+      try {
+        const qs = new URLSearchParams({ search: rawName, per_page: '20' })
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const normalized = rawName.toLowerCase()
+        const match = Array.isArray(rows)
+          ? rows.find((row) => String(row.name ?? '').trim().toLowerCase() === normalized)
+            ?? rows.find((row) => String(row.username ?? '').trim().toLowerCase() === normalized)
+          : undefined
+        const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
+        if (email) resolved.set(rawName, email)
+      } catch {
+        // Missing directory access must not make an otherwise valid scan fail.
+      }
     }
     return resolved
   }
