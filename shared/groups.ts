@@ -64,6 +64,17 @@ export function groupRecipients(group: Pick<EmailGroup, 'members' | 'recipients'
   return uniqueEmails([...groupMemberEmails(group), ...splitGroupTokens(group.recipients)])
 }
 
+/** 把命中的组按用途拆开：to 组并成一封收件人，cc 组合并进抄送。 */
+export function splitRecipientGroupsByDelivery(groups: EmailGroup[]): {
+  to: EmailGroup[]
+  cc: EmailGroup[]
+} {
+  return {
+    to: groups.filter((group) => (group.deliveryMode ?? 'to') === 'to'),
+    cc: groups.filter((group) => group.deliveryMode === 'cc')
+  }
+}
+
 function uniqueEmails(values: string[]): string[] {
   const out: string[] = []
   const seen = new Set<string>()

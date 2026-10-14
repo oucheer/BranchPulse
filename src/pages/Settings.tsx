@@ -25,12 +25,13 @@ import { branchesForGroup, groupBranchStats, groupMemberNames } from '@shared/gr
 interface GroupDraft {
   id?: string
   name: string
+  deliveryMode: 'to' | 'cc'
   recipients: string
   members: EmailGroupMember[]
 }
 
 function emptyGroupDraft(): GroupDraft {
-  return { name: '', recipients: '', members: [{ name: '', email: '' }] }
+  return { name: '', deliveryMode: 'to', recipients: '', members: [{ name: '', email: '' }] }
 }
 
 /**
@@ -177,6 +178,7 @@ export default function Settings(): JSX.Element {
       await window.gitmanager.saveEmailGroup({
         ...(groupDraft.id ? { id: groupDraft.id } : {}),
         name: groupDraft.name,
+        deliveryMode: groupDraft.deliveryMode,
         recipients: groupDraft.recipients,
         members: groupDraft.members.filter((member) => member.name.trim() || member.email.trim())
       })
@@ -197,6 +199,7 @@ export default function Settings(): JSX.Element {
     setGroupDraft({
       id: group.id,
       name: group.name,
+      deliveryMode: group.deliveryMode ?? 'to',
       recipients: group.recipients,
       members: group.members.length > 0 ? group.members.map((member) => ({ ...member })) : [{ name: '', email: '' }]
     })
@@ -547,6 +550,19 @@ export default function Settings(): JSX.Element {
               />
             </div>
 
+            <div className="mt-3 max-w-xs">
+              <div className="label mb-1.5">邮件用途</div>
+              <select
+                className="input"
+                value={groupDraft.deliveryMode}
+                onChange={(e) => setGroupDraft({ ...groupDraft, deliveryMode: e.target.value as 'to' | 'cc' })}
+              >
+                <option value="to">收件人</option>
+                <option value="cc">抄送</option>
+              </select>
+              <p className="mt-1 text-xs text-muted">填写组名作收件人时，该组组员按这里的用途加入邮件。</p>
+            </div>
+
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="label">组员（人名用于匹配分支创始人）</span>
@@ -604,6 +620,9 @@ export default function Settings(): JSX.Element {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-canvas-fg">{group.name}</span>
                           <Badge tone="default">{group.members.length} 位组员</Badge>
+                          <Badge tone={group.deliveryMode === 'cc' ? 'info' : 'default'}>
+                            {group.deliveryMode === 'cc' ? '抄送' : '收件人'}
+                          </Badge>
                         </div>
                         <div className="mt-0.5 break-all text-xs text-muted">
                           {names.length > 0 ? names.join('、') : '未配置人名'}

@@ -707,8 +707,8 @@ export function creatorNotificationSection(
   const title = zh ? '分支创始人通知范围' : 'Branch creators notified'
   const noted = addresses.length
     ? zh
-      ? `<p style="font-size:12px;margin:6px 0 0">本邮件已密送以下 ${addresses.length} 位分支创始人：${escapeHtml(addresses.join('、'))}</p>`
-      : `<p style="font-size:12px;margin:6px 0 0">This email BCCs ${addresses.length} branch creator(s): ${escapeHtml(addresses.join(', '))}</p>`
+      ? `<p style="font-size:12px;margin:6px 0 0">本邮件已发送给以下 ${addresses.length} 位分支创始人：${escapeHtml(addresses.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0">This email is addressed to ${addresses.length} branch creator(s): ${escapeHtml(addresses.join(', '))}</p>`
     : ''
   const skipped = missing.length
     ? zh
@@ -823,6 +823,7 @@ export class EmailService {
     return this.storage.all<Record<string, unknown>>('SELECT * FROM email_groups ORDER BY created_at ASC').map((r) => ({
       id: String(r.id),
       name: String(r.name),
+      deliveryMode: String(r.delivery_mode ?? 'to') === 'cc' ? 'cc' : 'to',
       recipients: String(r.recipients ?? ''),
       members: parseGroupMembers(r.members_json),
       createdAt: String(r.created_at)
@@ -834,6 +835,7 @@ export class EmailService {
     const existing = group.id ? this.storage.get<Record<string, unknown>>('SELECT * FROM email_groups WHERE id = ?', [group.id]) : undefined
     const id = existing ? String(existing.id) : newId()
     const name = String(group.name ?? existing?.name ?? '').trim()
+    const deliveryMode = group.deliveryMode === 'cc' || String(existing?.delivery_mode ?? '') === 'cc' ? 'cc' : 'to'
     const recipients = String(group.recipients ?? existing?.recipients ?? '').trim()
     const members = group.members !== undefined
       ? parseGroupMembers(group.members)
@@ -845,11 +847,12 @@ export class EmailService {
     this.storage.upsert('email_groups', {
       id,
       name,
+      delivery_mode: deliveryMode,
       recipients,
       members_json: serializeGroupMembers(members),
       created_at: existing ? String(existing.created_at) : now
     })
-    this.audit.record(existing ? 'email_group_updated' : 'email_group_saved', { id, name, recipients, members: members.length })
+    this.audit.record(existing ? 'email_group_updated' : 'email_group_saved', { id, name, deliveryMode, recipients, members: members.length })
     return this.listGroups()
   }
 

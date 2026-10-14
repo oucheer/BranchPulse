@@ -101,7 +101,7 @@ describe('sendSelectedRepositoriesReport', () => {
     expect(sendReportEmail).not.toHaveBeenCalled()
   })
 
-  it('sends one summary email and puts creators in BCC', async () => {
+  it('sends one summary email and puts creators in recipients', async () => {
     const { reports, sendReportEmail } = service({
       recipients: [
         row({ creatorEmail: 'zhangsan@example.com' }),
@@ -112,18 +112,16 @@ describe('sendSelectedRepositoriesReport', () => {
     expect(result.ok).toBe(true)
     expect(sendReportEmail).toHaveBeenCalledTimes(1)
     expect(sendReportEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: ['self@example.com'],
-      bcc: ['zhangsan@example.com', 'lisi@example.com'],
+      to: ['self@example.com', 'zhangsan@example.com', 'lisi@example.com'],
       subject: expect.stringContaining('分支健康汇总')
     }))
   })
 
-  it('uses creators as primary recipients when only creator notification is selected', async () => {
+  it('uses creators as recipients when only creator notification is selected', async () => {
     const { reports, sendReportEmail } = service({ recipients: [row({})] })
     await reports.sendSelectedRepositoriesReport('manual', 'creator', ['repo-1'])
     expect(sendReportEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: ['zhangsan@example.com'],
-      bcc: []
+      to: ['zhangsan@example.com']
     }))
   })
 })

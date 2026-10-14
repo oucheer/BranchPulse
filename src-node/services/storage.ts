@@ -364,6 +364,7 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'notify_target', "TEXT NOT NULL DEFAULT 'self'")
     this.ensureColumn('scheduler_jobs', 'interval_minutes', 'INTEGER NOT NULL DEFAULT 1440')
     this.ensureColumn('email_groups', 'members_json', 'TEXT')
+    this.ensureColumn('email_groups', 'delivery_mode', "TEXT NOT NULL DEFAULT 'to'")
     this.ensureColumn('scan_runs', 'health_avg', 'REAL')
     this.ensureColumn('scan_runs', 'health_best', 'REAL')
     this.ensureColumn('scan_runs', 'health_worst', 'REAL')

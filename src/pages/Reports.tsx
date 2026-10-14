@@ -249,7 +249,7 @@ export default function Reports(): JSX.Element {
         {reportMode === 'send' ? <>
           <div className="mb-3 text-xs text-muted">
             对当前勾选的仓库生成一份按仓库分区的分支汇总，并通过邮件一次发送；仓库较多时无需逐个发送。
-            勾选「通知分支创始人」后，范围内需要处理分支的创始人会加入同一封邮件的密送，而不是逐人逐封发送。
+            勾选「通知分支创始人」后，范围内需要处理分支的创始人会加入同一封邮件的收件人，而不是逐人逐封发送。
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
             <RecipientPicker
@@ -260,7 +260,7 @@ export default function Reports(): JSX.Element {
               disabled={emailDisabled}
               allowSelf
               allowCreator
-              creatorHint="勾选后把范围内需要处理分支的创始人加入同一封汇总邮件的密送，不会逐人逐封发送"
+              creatorHint="勾选后把范围内需要处理分支的创始人加入同一封汇总邮件的收件人，不会逐人逐封发送"
               label="勾选仓库汇总收件人"
               manualPlaceholder="不填写时默认发送到我的个人邮箱"
               rows={3}
@@ -306,7 +306,7 @@ export default function Reports(): JSX.Element {
                 disabled={emailDisabled}
                 allowSelf
                 allowCreator
-                creatorHint="定时报告同样只发一封：创始人加入密送，不会逐人逐封发送"
+                creatorHint="定时报告同样只发一封：创始人加入收件人，不会逐人逐封发送"
                 manualPlaceholder="多个邮箱或分支组用逗号、分号或换行分隔"
                 rows={5}
               />

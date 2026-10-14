@@ -21,6 +21,7 @@ let previousUserData: string | undefined
 const GROUP: EmailGroup = {
   id: 'group-1',
   name: '支付组',
+  deliveryMode: 'to',
   recipients: 'payment@example.com',
   members: [{ name: '张三', email: 'zhangsan@example.com' }],
   createdAt: '2026-01-01T00:00:00.000Z'
@@ -48,11 +49,13 @@ function scheduleRow(recipients: string): Record<string, unknown> {
 interface Harness {
   service: ReportScheduleService
   reportEmails: string[][]
+  reportInputs: Array<{ to: string[]; cc?: string[] }>
   auditRecords: Array<{ action: string; status?: string }>
 }
 
 function harness(recipients: string, groups: EmailGroup[] = [GROUP]): Harness {
   const reportEmails: string[][] = []
+  const reportInputs: Array<{ to: string[]; cc?: string[] }> = []
   const auditRecords: Array<{ action: string; status?: string }> = []
 
   const storage = {
@@ -88,8 +91,9 @@ function harness(recipients: string, groups: EmailGroup[] = [GROUP]): Harness {
   const email = {
     getConfig: () => ({ enabled: true, selfEmail: 'owner@example.com', testRecipient: '', username: 'notify@example.com' }),
     listGroups: () => groups,
-    sendReportEmail: async (input: { to: string[] }): Promise<unknown> => {
+    sendReportEmail: async (input: { to: string[]; cc?: string[] }): Promise<unknown> => {
       reportEmails.push(input.to)
+      reportInputs.push(input)
       return { ok: true, message: 'sent', emailsSent: 1 }
     }
   } as unknown as EmailService
@@ -101,6 +105,7 @@ function harness(recipients: string, groups: EmailGroup[] = [GROUP]): Harness {
   return {
     service: new ReportScheduleService(storage, report, email, audit),
     reportEmails,
+    reportInputs,
     auditRecords
   }
 }
@@ -123,15 +128,14 @@ async function tick(service: ReportScheduleService): Promise<void> {
 }
 
 describe('scheduled report with a group recipient', () => {
-  it('sends the same report to plain addresses and to the group members', async () => {
+  it('merges to-delivery group members into one email with plain addresses', async () => {
     const h = harness('支付组, boss@example.com')
     await tick(h.service)
-    // 普通收件人一份；组员另发一份（内容相同，只是收件人不同，避免组间互相看到邮箱）。
-    expect(h.reportEmails).toEqual([['boss@example.com'], ['zhangsan@example.com', 'payment@example.com']])
+    expect(h.reportEmails).toEqual([['boss@example.com', 'zhangsan@example.com', 'payment@example.com']])
     expect(h.auditRecords.some((item) => item.action === 'report_schedule_group_email_sent')).toBe(true)
   })
 
-  it('does not default to the configured mailbox when only a group is selected', async () => {
+  it('does not default to the configured mailbox when only a to-delivery group is selected', async () => {
     const h = harness('支付组')
     await tick(h.service)
     // 只勾组名时不该再给配置邮箱发一份报告，但组员仍要收到。
@@ -151,5 +155,19 @@ describe('scheduled report with a group recipient', () => {
     expect(h.reportEmails).toHaveLength(0)
     const skipped = h.auditRecords.find((item) => item.action === 'report_schedule_group_email_skipped')
     expect(skipped?.status).toBe('failure')
+  })
+
+  it('delivers a cc-only report through the recipient header when no recipient exists', async () => {
+    const h = harness('领导组', [{ ...GROUP, name: '领导组', deliveryMode: 'cc' }])
+    await tick(h.service)
+    expect(h.reportEmails).toEqual([['zhangsan@example.com', 'payment@example.com']])
+    expect(h.reportInputs[0]?.cc).toEqual([])
+  })
+
+  it('puts cc-delivery group members into the cc header beside regular recipients', async () => {
+    const h = harness('领导组, boss@example.com', [{ ...GROUP, name: '领导组', deliveryMode: 'cc' }])
+    await tick(h.service)
+    expect(h.reportEmails).toEqual([['boss@example.com']])
+    expect(h.reportInputs[0]?.cc).toEqual(['zhangsan@example.com', 'payment@example.com'])
   })
 })

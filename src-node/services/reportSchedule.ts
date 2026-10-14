@@ -13,7 +13,7 @@ import {
   resolveRecipients,
   type EmailIssueRow
 } from './email'
-import { groupRecipients, parseGroupIds, partitionRecipientTokens } from '@shared/groups'
+import { groupRecipients, parseGroupIds, partitionRecipientTokens, splitRecipientGroupsByDelivery } from '@shared/groups'
 import { newId } from '../utils/ids'
 import { parseIdArray } from './storage'
 
@@ -33,14 +33,11 @@ function toCreatorRecipients(collected: { to: string[]; missing: string[]; fallb
 
 function withCreatorNotes(
   message: string,
-  creators: CreatorRecipients,
-  creatorsAsTo: boolean
+  creators: CreatorRecipients
 ): string {
   const notes: string[] = []
   if (creators.addresses.length > 0) {
-    notes.push(creatorsAsTo
-      ? `创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`
-      : `同一封邮件已密送 ${creators.addresses.length} 位分支创始人`)
+    notes.push(`创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`)
   }
   if (creators.missing.length > 0) notes.push(`缺少有效邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
   if (creators.fallback.length > 0) notes.push(`创始人未找到，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
@@ -192,7 +189,7 @@ export class ReportScheduleService {
   }
 
   /**
-   * 汇总发送：报告只发一封；勾选创始人时，范围内需要处理分支的创始人放进密送，
+   * 汇总发送：报告只发一封；勾选创始人时，范围内需要处理分支的创始人放进收件人，
    * 而不是按人拆成多封邮件。普通收件人与组名收件人保持当前 Web 版行为。
    */
   async sendSelectedRepositoriesReport(
@@ -235,7 +232,8 @@ export class ReportScheduleService {
 
     const parsedNotify = parseNotifyTarget(recipients || 'self')
     const plainGroups = parsedNotify.recipients || ''
-    const { matched: groupTargets, plain } = partitionRecipientTokens(plainGroups, this.emailService.listGroups())
+    const { matched: allGroupTargets, plain } = partitionRecipientTokens(plainGroups, this.emailService.listGroups())
+    const { to: groupToTargets, cc: groupCcTargets } = splitRecipientGroupsByDelivery(allGroupTargets)
     const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
     const to: string[] = []
     if (parsedNotify.self && selfAddress) to.push(selfAddress)
@@ -244,8 +242,13 @@ export class ReportScheduleService {
     const creators = parsedNotify.creator
       ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(scope).branches)))
       : { addresses: [], missing: [], fallback: [] }
-    const creatorsAsTo = resolvedRecipients.length === 0
-    const mainRecipients = creatorsAsTo ? creators.addresses : resolvedRecipients
+    const groupToRecipients = [
+      ...new Set(groupToTargets.flatMap((group) => groupRecipients(group)))
+    ]
+    const mainRecipients = [
+      ...new Set([...resolvedRecipients, ...creators.addresses, ...groupToRecipients])
+    ]
+    const groupCcRecipients = [...new Set(groupCcTargets.flatMap((group) => groupRecipients(group)))]
     if (mainRecipients.length === 0 && creators.missing.length > 0) {
       this.audit.record(
         'report_selected_repositories_sent',
@@ -258,7 +261,7 @@ export class ReportScheduleService {
         emailsSent: 0
       }
     }
-    if (mainRecipients.length === 0 && groupTargets.length === 0) {
+    if (mainRecipients.length === 0 && groupCcRecipients.length === 0) {
       this.audit.record(
         'report_selected_repositories_sent',
         { reason: 'recipients_empty', input: recipients, repositoryIds: scope },
@@ -266,28 +269,31 @@ export class ReportScheduleService {
       )
       return { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
     }
+    const toHeader = mainRecipients.length > 0 ? mainRecipients : groupCcRecipients
+    const ccHeader = mainRecipients.length > 0 ? groupCcRecipients : []
 
     try {
       const report = await this.reportService.generateReport(period, 'html', groupIds, scope)
       const reportHtml = await readEmailBody(report)
       const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
       const result = await this.emailService.sendReportEmail({
-        to: mainRecipients,
-        bcc: creatorsAsTo ? [] : creators.addresses,
+        to: toHeader,
+        cc: ccHeader,
         subject: `【分支健康汇总】${month}`,
         body: '',
         html: appendCreatorSection(reportHtml, creators, this.storage),
         attachmentPath: report.path
       })
-      const message = withCreatorNotes(result.message, creators, creatorsAsTo)
+      const message = withCreatorNotes(result.message, creators)
       this.audit.record(
         'report_selected_repositories_sent',
         {
           report: report.id,
           repositoryIds: scope,
           ...(groupIds?.length ? { groupIds } : {}),
-          recipients: result.recipients ?? mainRecipients,
-          creatorRecipients: creatorsAsTo ? [] : creators.addresses,
+          recipients: result.recipients ?? toHeader,
+          creatorRecipients: creators.addresses,
+          ...(ccHeader.length > 0 ? { cc: ccHeader } : {}),
           creatorsWithoutEmail: creators.missing,
           ok: result.ok
         },
@@ -298,7 +304,7 @@ export class ReportScheduleService {
       const message = err instanceof Error ? err.message : String(err)
       this.audit.record(
         'report_selected_repositories_sent',
-        { recipients: mainRecipients, repositoryIds: scope, error: message },
+        { recipients: toHeader, repositoryIds: scope, error: message },
         'failure'
       )
       return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
@@ -340,7 +346,7 @@ export class ReportScheduleService {
           }
           const report = await this.reportService.generateReport(schedule.frequency, 'html', schedule.groupIds, schedule.repositoryIds)
           const emailConfig = this.emailService.getConfig()
-          const parsedNotify = parseNotifyTarget(schedule.recipients)
+          const parsedNotify = parseNotifyTarget(schedule.recipients || 'self')
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
           const creators = parsedNotify.creator
             ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(
@@ -352,31 +358,32 @@ export class ReportScheduleService {
           // 组名 token 表示「这份报告也发给这个组的组员」：内容与发给普通收件人的报告
           // 完全一致（都受「分组范围」收窄）。要让组员只收到本组数据，请把该组填进
           // 定时任务的「分组范围」，那时生成的报告本身就只含该组分支。
-          // 每个组单独发信，避免组与组之间互相看到对方的成员邮箱。
-          const { matched: groupTargets, plain } = partitionRecipientTokens(
+          // 收件人用途的组并入同一封报告邮件；抄送用途的组合并进抄送。
+          const { matched: allGroupTargets, plain } = partitionRecipientTokens(
             parsedNotify.recipients,
             this.emailService.listGroups()
           )
+          const { to: groupToTargets, cc: groupCcTargets } = splitRecipientGroupsByDelivery(allGroupTargets)
           if (plain) {
             targetRecipients.push(...resolveRecipients(plain, []))
           }
           const resolvedRecipients = [...new Set(targetRecipients.map((recipient) => recipient.trim()).filter(Boolean))]
           // 未选择任何收件人时才默认发给自己；只勾了组名时不该再给配置邮箱发一份整仓报告。
-          // 只勾创始人时，创始人就是主收件人；选了普通收件人或组时创始人仍放入密送。
-          const creatorsAsTo = resolvedRecipients.length === 0 && groupTargets.length === 0
-            && creators.addresses.length > 0
-          const recipients = creatorsAsTo
-            ? creators.addresses
-            : resolvedRecipients.length > 0 || groupTargets.length > 0
-              ? resolvedRecipients
-              : selfAddress ? [selfAddress] : []
+          // 创始人始终进入收件人，收件人用途的组也并入同一封报告邮件。
+          const groupToRecipients = [
+            ...new Set(groupToTargets.flatMap((group) => groupRecipients(group)))
+          ]
+          const recipients = [
+            ...new Set([...resolvedRecipients, ...creators.addresses, ...groupToRecipients])
+          ]
+          const groupCcRecipients = [...new Set(groupCcTargets.flatMap((group) => groupRecipients(group)))]
 
           if (!emailConfig.enabled) {
             this.audit.record('report_schedule_email_skipped', {
               id: schedule.id, name: schedule.name, reason: 'email_disabled'
             }, 'failure')
           } else {
-            if (recipients.length === 0 && groupTargets.length === 0) {
+            if (recipients.length === 0 && groupCcRecipients.length === 0) {
               this.audit.record('report_schedule_email_skipped', {
                 id: schedule.id,
                 name: schedule.name,
@@ -384,39 +391,39 @@ export class ReportScheduleService {
                 input: schedule.recipients
               }, 'failure')
             }
-            if (recipients.length > 0 || groupTargets.length > 0) {
+            const auditedGroups = [
+              ...groupToTargets.map((group) => ({ group, delivery: 'to' as const })),
+              ...groupCcTargets.map((group) => ({ group, delivery: 'cc' as const }))
+            ]
+            for (const { group, delivery } of auditedGroups) {
+              if (groupRecipients(group).length === 0) {
+                this.audit.record('report_schedule_group_email_skipped', {
+                  id: schedule.id, group: group.name, delivery, reason: 'group_members_missing'
+                }, 'failure')
+              }
+            }
+            if (recipients.length > 0 || groupCcRecipients.length > 0) {
               const reportHtml = await readEmailBody(report)
               const month = `${report.generatedAt.slice(0, 4)}-${report.generatedAt.slice(5, 7)}`
-              const send = async (to: string[]): Promise<void> => {
+              const send = async (to: string[], cc: string[] = []): Promise<void> => {
                 await this.emailService.sendReportEmail({
                   to,
-                  bcc: creatorsAsTo ? [] : creators.addresses,
+                  cc,
                   subject: `【分支健康月报】${month}`,
                   body: '',
                   html: appendCreatorSection(reportHtml, creators, this.storage),
                   attachmentPath: report.path
                 })
               }
-              if (recipients.length > 0) await send(recipients)
-              for (const group of groupTargets) {
+              const toHeader = recipients.length > 0 ? recipients : groupCcRecipients
+              const ccHeader = recipients.length > 0 ? groupCcRecipients : []
+              await send(toHeader, ccHeader)
+              for (const { group, delivery } of auditedGroups) {
                 const members = groupRecipients(group)
-                if (members.length === 0) {
-                  this.audit.record('report_schedule_group_email_skipped', {
-                    id: schedule.id, group: group.name, reason: 'group_members_missing'
-                  }, 'failure')
-                  continue
-                }
-                try {
-                  await send(members)
-                  this.audit.record('report_schedule_group_email_sent', {
-                    id: schedule.id, group: group.name, sent: members.length
-                  }, 'success')
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : String(err)
-                  this.audit.record('report_schedule_group_email_skipped', {
-                    id: schedule.id, group: group.name, reason: 'send_failed', message
-                  }, 'failure')
-                }
+                if (members.length === 0) continue
+                this.audit.record('report_schedule_group_email_sent', {
+                  id: schedule.id, group: group.name, delivery, sent: members.length
+                }, 'success')
               }
             }
           }

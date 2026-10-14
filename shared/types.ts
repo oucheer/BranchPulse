@@ -241,6 +241,8 @@ export interface EmailGroupMember {
 export interface EmailGroup {
   id: string
   name: string
+  /** 收件人里的组按用途分发：to 进入收件人，cc 进入抄送。 */
+  deliveryMode?: 'to' | 'cc'
   recipients: string
   /** 组员名单，人名为空时只作为收件邮箱使用。 */
   members: EmailGroupMember[]
@@ -269,6 +271,7 @@ export interface EmailSendResult {
   technical?: string
   emailsSent?: number
   recipients?: string[]
+  cc?: string[]
 }
 
 export type ThresholdUnit = 'minutes' | 'hours' | 'days' | 'weeks'
