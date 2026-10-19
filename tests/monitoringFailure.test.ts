@@ -26,6 +26,7 @@ function setup(scan: (id: string) => Promise<unknown[]>): {
 
   const storage = {
     get: (query: string) => (query.includes('monitoring_rules') ? { enabled: 1 } : undefined),
+    selectedRepositoryIds: () => ['repo-1', 'repo-2'],
     all: () => [],
     insert: vi.fn(),
     update: vi.fn(),

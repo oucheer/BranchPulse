@@ -97,6 +97,7 @@ function buildService(groups: EmailGroup[] = [GROUP]): {
   const reportRows: Array<Record<string, unknown>> = []
   const storage = {
     get: () => ({ active_repository_id: null }),
+    selectedRepositoryIds: () => REPOS.map((repo) => repo.id),
     all: (query: string) => (query.includes('reports') ? reportRows : []),
     insert: vi.fn((table: string, row: Record<string, unknown>) => {
       if (table === 'reports') reportRows.push(row)
@@ -106,7 +107,11 @@ function buildService(groups: EmailGroup[] = [GROUP]): {
   } as unknown as StorageService
   const service = new ReportService(
     storage,
-    { listBranches: () => BRANCHES } as unknown as BranchService,
+    {
+      listBranches: (ids?: string[]) => ids === undefined
+        ? BRANCHES
+        : BRANCHES.filter((item) => ids.includes(item.repositoryId))
+    } as unknown as BranchService,
     { list: () => REPOS } as unknown as RepositoryService,
     {
       record: (action: string, detail: Record<string, unknown>, status?: string) =>
@@ -145,6 +150,8 @@ describe('ReportService group scope', () => {
     const { service, audits } = buildService()
     const report = await service.generateReport('manual', 'csv', undefined, undefined)
     expect(report.summary.totalBranches).toBe(3)
+    expect(report.summary.repositories).toBe(2)
+    expect(report.repositoryIds).toEqual(['repo-1', 'repo-2'])
     expect(report.groupIds).toEqual([])
     expect(audits.some((item) => item.action === 'report_group_scope_missing')).toBe(false)
   })
@@ -157,6 +164,21 @@ describe('ReportService group scope', () => {
     }))
     const exported = await service.exportReport(report.id, 'html')
     expect(exported.groupIds).toEqual(['group-1'])
+  })
+
+  it('keeps an explicit multi-repository report inside only the selected repositories', async () => {
+    const { service } = buildService()
+    const report = await service.generateReport('manual', 'csv', undefined, ['repo-1'])
+    const csv = fs.readFileSync(report.path, 'utf8')
+
+    expect(report.repositoryIds).toEqual(['repo-1'])
+    expect(report.summary.repositories).toBe(1)
+    expect(report.summary.totalBranches).toBe(2)
+    expect(csv).toContain('feature/login')
+    expect(csv).toContain('bugfix/crash')
+    expect(csv).not.toContain('feature/foreign')
+    expect(service.listReports(['repo-1']).map((item) => item.id)).toEqual([report.id])
+    expect(service.listReports(['repo-2'])).toEqual([])
   })
 
   it('records a failure when every selected group id is unknown', async () => {

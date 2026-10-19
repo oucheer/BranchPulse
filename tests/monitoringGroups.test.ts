@@ -79,6 +79,7 @@ function setup(notifyTarget: NotifyTarget, emailPolicy: EmailPolicy = 'none'): {
       query.includes('monitoring_rules')
         ? { enabled: 1, email_policy: emailPolicy, notify_target: notifyTarget, notification_enabled: 0 }
         : undefined,
+    selectedRepositoryIds: () => ['repo-1'],
     all: () => [],
     insert: vi.fn(),
     update: vi.fn(),

@@ -5,6 +5,7 @@ import type {
   NotificationRecord,
   NotifyTarget,
   NotificationType,
+  Repository,
   RunCheckOptions,
   ScanProgress,
   ScanRun
@@ -56,11 +57,8 @@ export class MonitoringService {
   }
 
   private readMonitoringRow(repositoryId?: string | null): Record<string, unknown> | null {
-    if (repositoryId) {
-      const row = this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId]) ?? null
-      if (row) return row
-    }
-    return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules WHERE id = 1') ?? null
+    if (!repositoryId) return null
+    return this.storage.get<Record<string, unknown>>('SELECT * FROM monitoring_rules_repo WHERE repository_id = ?', [repositoryId]) ?? null
   }
 
   /**
@@ -77,13 +75,18 @@ export class MonitoringService {
     groupTargets: EmailGroup[]
     data: EmailSummaryData
     recipients: string[]
+    allowDefaultRecipient: boolean
     addActivity: (message: string, level?: ActivityItem['level']) => void
   }): Promise<{ ok: boolean; message: string; sent: number }> {
     let sent = 0
     let ok = false
     let message = 'Email is disabled or no recipient is configured.'
-    if (input.recipients.length > 0) {
-      const result = await this.email.sendSummaryEmail(input.data, undefined, input.recipients)
+    if (input.recipients.length > 0 || (input.allowDefaultRecipient && input.groupTargets.length === 0)) {
+      const result = await this.email.sendSummaryEmail(
+        input.data,
+        undefined,
+        input.recipients.length > 0 ? input.recipients : undefined
+      )
       if (result.ok) {
         sent += result.emailsSent ?? 0
         ok = true
@@ -122,6 +125,37 @@ export class MonitoringService {
     return `${base}；按前缀覆盖：${detail}`
   }
 
+  /** Merge the per-repository mail intent because one email covers every scanned repository. */
+  private mergeNotifyTargets(repos: Repository[], rowOf: (repositoryId: string) => Record<string, unknown> | null): NotifyTarget {
+    const keywords = new Set<string>()
+    const recipients: string[] = []
+    for (const repo of repos) {
+      const parsed = parseNotifyTarget(String(rowOf(repo.id)?.notify_target ?? 'self'))
+      if (parsed.self) keywords.add('self')
+      if (parsed.creator) keywords.add('creator')
+      if (parsed.recipients) recipients.push(parsed.recipients)
+    }
+    return [...keywords, ...recipients].join(', ') || 'none'
+  }
+
+  private mergeEmailPolicies(repos: Repository[], rowOf: (repositoryId: string) => Record<string, unknown> | null): Set<EmailPolicy> {
+    const merged = new Set<EmailPolicy>()
+    for (const repo of repos) {
+      const policy = String(rowOf(repo.id)?.email_policy ?? 'none') as EmailPolicy
+      if (policy !== 'none') merged.add(policy)
+    }
+    return merged
+  }
+
+  /** State the shared threshold or name each repository's own threshold. */
+  private scopedThresholdHint(repos: Repository[], rowOf: (repositoryId: string) => Record<string, unknown> | null): string {
+    if (repos.length === 0) return this.thresholdHint(null)
+    if (repos.length === 1) return this.thresholdHint(rowOf(repos[0].id))
+    const perRepo = repos.map((repo) => ({ name: repo.name, hint: this.thresholdHint(rowOf(repo.id)) }))
+    const distinct = new Set(perRepo.map((item) => item.hint))
+    if (distinct.size === 1) return this.thresholdHint(rowOf(repos[0].id))
+    return perRepo.map((item) => `${item.name}：${item.hint}`).join('；')
+  }
   async runCheckNow(options: RunCheckOptions = {}): Promise<ScanRun> {
     const runId = newId()
     const startedAt = new Date().toISOString()
@@ -133,25 +167,32 @@ export class MonitoringService {
     addActivity('Starting monitoring check.')
     this.emitProgress(runId, activity)
 
-    const repos = options.repositoryIds === undefined
-      ? this.repositoryService.list()
-      : this.repositoryService.list().filter((r) => options.repositoryIds?.includes(r.id))
-    const targets = repos
-    if (targets.length === 0) {
-      addActivity('No repositories configured. Add a repository to begin.', 'warn')
+    const repos = this.repositoryService.list()
+    // An explicit empty array means "nothing selected" and must not mean "all repositories".
+    const requestedIds = options.repositoryIds ?? this.storage.selectedRepositoryIds()
+    const requested = repos.filter((repo) => requestedIds.includes(repo.id))
+    if (requested.length === 0) {
+      addActivity('未选择仓库：请先在仓库页勾选要检查的仓库。', 'warn')
     }
 
-    const monitoringRow = this.readMonitoringRow(options.repositoryIds?.length ? options.repositoryIds[0] : null)
-    if (!options.bypassEnabledCheck && Number(monitoringRow?.enabled ?? 1) !== 1) {
-      throw new Error('Monitoring is disabled. Turn monitoring on to run a check.')
+    // Every repository is gated by its own monitoring row. The first repository
+    // must not decide fetch, notifications or mail delivery for all the others.
+    const rowOf = (repositoryId: string): Record<string, unknown> | null => this.readMonitoringRow(repositoryId)
+    let targets = requested
+    if (!options.bypassEnabledCheck) {
+      targets = requested.filter((repo) => Number(rowOf(repo.id)?.enabled ?? 1) === 1)
+      if (requested.length > 0 && targets.length === 0) {
+        throw new Error('Monitoring is disabled. Turn monitoring on to run a check.')
+      }
+      for (const repo of requested) {
+        if (targets.includes(repo)) continue
+        addActivity(`${repo.name}：该仓库已关闭监控，本次检查跳过。`, 'warn')
+      }
     }
-    const fetchEnabled = options.fetch ?? (monitoringRow?.fetch_enabled ?? 1) === 1
-    const policy: EmailPolicy = options.emailPolicy ?? ((monitoringRow?.email_policy as EmailPolicy) ?? 'none')
-    const notifyTarget: NotifyTarget = options.notifyTarget ?? ((monitoringRow?.notify_target as NotifyTarget) ?? 'self')
-    const notificationsEnabled = (monitoringRow?.notification_enabled ?? 1) === 1
 
     const allBranches: BranchSummary[] = []
     const scannedRepositoryIds: string[] = []
+    const scannedRepos: Repository[] = []
     // Per-repository scan failures. They are collected rather than thrown so one
     // unreachable repository cannot abort the checks of the others, but they must
     // still surface: a scan that fetched nothing used to be reported as a clean
@@ -159,17 +200,20 @@ export class MonitoringService {
     const failures: string[] = []
     for (const repo of targets) {
       scannedRepositoryIds.push(repo.id)
+      const fetchEnabled = options.fetch ?? (rowOf(repo.id)?.fetch_enabled ?? 1) === 1
       addActivity(`Scanning ${repo.name}...`)
       this.emitProgress(runId, activity)
       try {
-        const branches = await this.branchService.scanRepository(repo.id, {
+        const scannedBranches = await this.branchService.scanRepository(repo.id, {
           fetch: fetchEnabled,
           progress: (message) => {
             addActivity(message)
             this.emitProgress(runId, activity)
           }
         })
+        const branches = scannedBranches.map((branch) => ({ ...branch, repositoryName: repo.name }))
         allBranches.push(...branches)
+        scannedRepos.push(repo)
         addActivity(`${repo.name}: ${branches.length} branches analyzed.`, 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -211,8 +255,13 @@ export class MonitoringService {
     )
 
     const notifications: NotificationRecord[] = []
-    if (notificationsEnabled) {
-      const created = this.generateNotifications(scopedBranches)
+    const notifyingRepos = options.trigger === 'scan_repository'
+      ? []
+      : targets.filter((repo) => Number(rowOf(repo.id)?.notification_enabled ?? 1) === 1)
+    const notifyingIds = new Set(notifyingRepos.map((repo) => repo.id))
+    const notifiableBranches = scopedBranches.filter((branch) => notifyingIds.has(branch.repositoryId))
+    if (notifiableBranches.length > 0) {
+      const created = this.generateNotifications(notifiableBranches)
       notifications.push(...created)
       if (created.length > 0) {
         addActivity(`${created.length} new notification${created.length === 1 ? '' : 's'} generated.`)
@@ -226,14 +275,17 @@ export class MonitoringService {
 
     let emailsSent = 0
     const delivery: Array<'summary' | 'creators'> = []
+    const notifyTarget = options.notifyTarget ?? this.mergeNotifyTargets(scannedRepos, rowOf)
+    const policy = options.emailPolicy ? new Set<EmailPolicy>([options.emailPolicy]) : this.mergeEmailPolicies(scannedRepos, rowOf)
     const parsedNotify = parseNotifyTarget(typeof notifyTarget === 'string' ? notifyTarget : 'none')
     if (parsedNotify.self || parsedNotify.recipients) delivery.push('summary')
     if (parsedNotify.creator) delivery.push('creators')
-    if (delivery.length === 0 && policy !== 'none') {
-      if (policy === 'summary') delivery.push('summary')
-      if (policy === 'creators') delivery.push('creators')
+    if (delivery.length === 0) {
+      if (policy.has('summary')) delivery.push('summary')
+      if (policy.has('creators')) delivery.push('creators')
     }
-    for (const deliveryKind of delivery) {
+    const thresholdHint = this.scopedThresholdHint(scannedRepos, rowOf)
+    for (const deliveryKind of options.trigger === 'scan_repository' ? [] : delivery) {
       const emailConfig = this.email.getConfig()
       const groups = this.email.listGroups()
       if (!emailConfig.enabled) {
@@ -250,7 +302,7 @@ export class MonitoringService {
           repositories: scopedRepositoryCount,
           generatedAt: new Date().toISOString(),
           branches: scopedBranches.map(toEmailIssueRow),
-          thresholdHint: this.thresholdHint(monitoringRow)
+          thresholdHint
         }
         const cfg = this.email.getConfig()
         const selfAddress = cfg.selfEmail || cfg.testRecipient || cfg.username
@@ -265,6 +317,10 @@ export class MonitoringService {
           groupTargets,
           data,
           recipients: uniqueRecipients,
+          allowDefaultRecipient: deliveryKind === 'summary'
+            && policy.has('summary')
+            && !parsedNotify.self
+            && !parsedNotify.recipients,
           addActivity
         })
         if (result.ok) {
@@ -278,7 +334,7 @@ export class MonitoringService {
           .filter((b) => b.stale || b.naming.status === 'invalid' || b.cleanupCandidate)
           .map((b) => this.toIssueRow(b))
         const result = await this.email.sendCreatorEmails(rows, undefined, {
-          thresholdHint: this.thresholdHint(monitoringRow)
+          thresholdHint
         })
         if (result.ok) {
           emailsSent += result.emailsSent ?? 0
@@ -309,7 +365,8 @@ export class MonitoringService {
       notifications: notifications.length,
       emailsSent,
       error: failures.length > 0 ? failures.join(' | ') : null,
-      activity
+      activity,
+      repositoryIds: [...scannedRepositoryIds]
     }
     this.storage.insert('scan_runs', {
       id: runId,
@@ -333,10 +390,11 @@ export class MonitoringService {
       activity_json: JSON.stringify(activity)
     })
     for (const repositoryId of scannedRepositoryIds) {
-      this.insertRepoScanSummary(runId, repositoryId, scopedBranches.filter((branch) => branch.repositoryId === repositoryId))
+      this.insertRepoScanSummary(runId, repositoryId, allBranches.filter((branch) => branch.repositoryId === repositoryId))
     }
     this.audit.record('monitoring_check', {
       trigger: run.trigger,
+      repositoryIds: scannedRepositoryIds,
       repositories: run.repositories,
       branches: run.branches,
       stale: run.stale,
@@ -455,17 +513,23 @@ export class MonitoringService {
   }
 
   async notifySelfEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }> {
-    const summary = this.summarize(branches, 1)
+    // The threshold quoted in the mail belongs to the repositories the branches
+    // actually come from, not to whatever row happens to be first in the table.
+    const repoIds = [...new Set(branches.map((branch) => branch.repositoryId))]
+    const repos = repoIds
+      .map((id) => this.repositoryService.get(id))
+      .filter((repo): repo is Repository => Boolean(repo))
+    const summary = this.summarize(branches, Math.max(repos.length, 1))
     const data: EmailSummaryData = {
       total: summary.branches,
       stale: summary.stale,
       namingInvalid: summary.namingInvalid,
       merged: summary.merged,
       cleanupCandidates: summary.cleanupCandidates,
-      repositories: 1,
+      repositories: Math.max(repos.length, 1),
       generatedAt: new Date().toISOString(),
       branches: branches.map(toEmailIssueRow),
-      thresholdHint: this.thresholdHint(this.readMonitoringRow())
+      thresholdHint: this.scopedThresholdHint(repos, (id) => this.readMonitoringRow(id))
     }
     const result = await this.email.sendSummaryEmail(data)
     return { sent: result.emailsSent ?? 0, message: result.message }

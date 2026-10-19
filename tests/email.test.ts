@@ -79,6 +79,15 @@ describe('branch report attachment layout', () => {
     expect(headers).not.toContain('仓库')
   })
 
+  it('identifies every repository in a multi-repository email body', () => {
+    const html = buildBranchEmailHtml(withBranches([
+      { ...row, repository: 'Alpha' },
+      { ...row, repository: 'Beta', branch: 'bugfix/crash' }
+    ]), 'zh', 'report')
+    expect(html).toContain('仓库：Alpha')
+    expect(html).toContain('仓库：Beta')
+  })
+
   it('keeps long branch names inside the card by wrapping them', () => {
     const html = buildBranchEmailHtml(withBranches([{ ...row, branch: longBranch }]), 'zh', 'report')
     expect(html).toContain('table-layout:fixed')

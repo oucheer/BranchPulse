@@ -149,7 +149,7 @@ export interface GitManagerApi {
   exportReport(id: string, format: string, repositoryIds?: string[]): Promise<ReportRecord>
   deleteReport(id: string, repositoryIds?: string[]): Promise<ReportRecord[]>
   openReportFolder(): Promise<void>
-  openReportFile(id: string): Promise<void>
+  openReportFile(id: string, repositoryIds?: string[]): Promise<void>
 
   listReportSchedules(repositoryIds?: string[]): Promise<ReportSchedule[]>
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
@@ -495,15 +495,12 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     testEmailConnection: (config) => email.testConnection(config),
     sendTestEmail: (config) => email.sendTestEmail(config),
 
-    listReports: async (repositoryIds) => {
-      const reports = report.listReports()
-      return repositoryIds === undefined ? reports : reports.filter((report) => report.repositoryIds.some((id) => repositoryIds.includes(id)))
-    },
+    listReports: async (repositoryIds) => report.listReports(repositoryIds),
     generateReport: (period, format, groupIds, repositoryIds) => report.generateReport(period, format, groupIds, repositoryIds),
     exportReport: (id, format, repositoryIds) => report.exportReport(id, format, repositoryIds),
-    deleteReport: async (id) => report.deleteReport(id),
+    deleteReport: async (id, repositoryIds) => report.deleteReport(id, repositoryIds),
     openReportFolder: () => report.openReportFolder(),
-    openReportFile: (id) => report.openReportFile(id),
+    openReportFile: (id, repositoryIds) => report.openReportFile(id, repositoryIds),
 
     listReportSchedules: async (repositoryIds) => {
       const schedules = reportSchedules.list()
