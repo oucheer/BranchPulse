@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { apiBaseUrl, detectRemoteProvider, isApiBaseUrl } from '../src-node/services/gitlab'
 
@@ -82,6 +82,55 @@ describe('remote providers', () => {
     // private pathSegments should strip .git
     const segments = (svc as unknown as { pathSegments: (u: string) => string[] }).pathSegments('https://github.com/oucheer/git-test.git')
     expect(segments).toEqual(['oucheer', 'git-test'])
+  })
+
+  it('tests GitHub and Gitee project addresses against the repository endpoint', async () => {
+    const { GitLabService } = await import('../src-node/services/gitlab')
+    const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
+    const svc = new GitLabService(settings as never)
+
+    const githubFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ full_name: 'acme/app', login: 'ignored' }), { status: 200 })
+    )
+    const github = await svc.testConnection({ url: 'https://github.com/acme/app.git', apiKey: 'tok' })
+    expect(github.ok).toBe(true)
+    expect(String(githubFetch.mock.calls[0][0])).toBe('https://api.github.com/repos/acme/app')
+
+    const giteeFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ full_name: 'acme/app' }), { status: 200 })
+    )
+    const gitee = await svc.testConnection({ url: 'https://gitee.com/acme/app', apiKey: 'tok' })
+    expect(gitee.ok).toBe(true)
+    const giteeRequest = new URL(String(giteeFetch.mock.calls[0][0]))
+    expect(`${giteeRequest.origin}${giteeRequest.pathname}`).toBe('https://gitee.com/api/v5/repos/acme/app')
+    expect(giteeRequest.searchParams.get('access_token')).toBe('tok')
+  })
+
+  it('keeps forge login identities when mapping GitHub branch commits', async () => {
+    const { GitLabService } = await import('../src-node/services/gitlab')
+    const settings = { get: () => ({ gitlabUrl: '' }), getGitLabToken: () => 'tok' }
+    const svc = new GitLabService(settings as never)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify([{
+      name: 'main',
+      protected: true,
+      author: { login: 'octocat' },
+      committer: { login: 'hubot' },
+      commit: {
+        sha: 'abc12345',
+        message: 'initial',
+        author: { name: 'Octo Cat', email: 'octo@example.com', date: '2026-01-01T00:00:00Z' }
+      }
+    }]), { status: 200 }))
+
+    const [branch] = await svc.listBranches(7, {
+      url: 'https://github.com/acme/app',
+      projectPath: 'acme/app',
+      apiKey: 'tok',
+      provider: 'github'
+    })
+
+    expect(branch.commit.author_login).toBe('octocat')
+    expect(branch.commit.committer_login).toBe('hubot')
   })
 })
 

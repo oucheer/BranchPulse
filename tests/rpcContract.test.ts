@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -87,6 +87,28 @@ describe('RPC transport paths', () => {
     expect(FOLDERS_PATH).toBe('/api/fs/folders')
     expect(reportDownloadPath('report-1')).toBe('/api/reports/report-1/download')
     expect(reportDownloadPath('a/b c')).toBe('/api/reports/a%2Fb%20c/download')
+  })
+})
+
+describe('repository scans', () => {
+  it('never inherits scheduled mail settings while adding or rescanning', async () => {
+    const runCheckNow = vi.fn().mockResolvedValue({ branches: 0, stale: 0 })
+    const api = createGitManagerApi({
+      monitoring: { runCheckNow },
+      repository: { get: () => ({ name: 'Alpha' }) },
+      audit: { record: vi.fn() }
+    } as unknown as AppServices, { appVersion: () => '0.0.0-test' })
+
+    await api.scanRepository('repo-1', true)
+
+    expect(runCheckNow).toHaveBeenCalledWith(expect.objectContaining({
+      repositoryIds: ['repo-1'],
+      fetch: true,
+      trigger: 'scan_repository',
+      bypassEnabledCheck: true,
+      emailPolicy: 'none',
+      notifyTarget: 'none'
+    }))
   })
 })
 

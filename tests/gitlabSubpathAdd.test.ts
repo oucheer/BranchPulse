@@ -26,6 +26,49 @@ afterEach(() => {
 })
 
 describe('adding a project on an instance behind a relative URL root', () => {
+  it('adds a listed project by numeric id when the proxy rejects encoded paths', async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('/projects/group%2Fapp')) {
+        return jsonResponse({ message: 'encoded project path is not supported' }, 500)
+      }
+      if (url.endsWith('/projects?membership=true&simple=false&per_page=100&order_by=last_activity_at&page=1')) {
+        return jsonResponse([
+          {
+            id: 7,
+            path_with_namespace: 'group/app',
+            web_url: 'http://git.corp.com/group/app',
+            default_branch: 'main'
+          }
+        ])
+      }
+      if (url.endsWith('/projects/7')) {
+        return jsonResponse({
+          id: 7,
+          path_with_namespace: 'group/app',
+          web_url: 'http://git.corp.com/group/app',
+          default_branch: 'main'
+        })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+
+    const config = {
+      url: 'http://git.corp.com',
+      apiKey: 'test-token',
+      provider: 'gitlab' as const
+    }
+    const svc = service(config.url)
+    const projects = await svc.listProjects(config)
+    const project = await svc.getProject(projects[0].id, config)
+
+    expect(project.pathWithNamespace).toBe('group/app')
+    expect(calls).toContain('http://git.corp.com/api/v4/projects/7')
+    expect(calls.some((url) => url.includes('/projects/group%2Fapp'))).toBe(false)
+  })
+
   it('resolves the project again with the same prefix when it is added', async () => {
     const calls: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -52,7 +95,8 @@ describe('adding a project on an instance behind a relative URL root', () => {
     const project = await svc.getProject(projects[0].id, config)
 
     expect(project.pathWithNamespace).toBe('group/app')
-    expect(calls.every((url) => url.startsWith('http://git.corp.com/gitlab/api/v4/'))).toBe(true)
+    expect(calls[0]).toContain('http://git.corp.com/api/v4/projects/7')
+    expect(calls[1]).toContain('http://git.corp.com/gitlab/api/v4/projects/7')
   })
 
   it('adds the project on a cold cache too, by retrying with the prefixed API', async () => {

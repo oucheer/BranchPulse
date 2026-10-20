@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { GitManagerApi } from '../src-node/api'
 import { createServer, type GitManagerServer } from '../server/http'
 import { reportsDir } from '../src-node/utils/paths'
+import { reportViewPath } from '@shared/rpc'
 
 let workDir: string
 let staticDir: string
@@ -93,11 +94,11 @@ describe('GET /api/fs/folders', () => {
   })
 })
 
-describe('GET /api/reports/:id/download', () => {
-  function writeReport(name: string): string {
+describe('report files', () => {
+  function writeReport(name: string, content = 'id,status\n1,active\n'): string {
     const dir = reportsDir()
     const file = path.join(dir, name)
-    fs.writeFileSync(file, 'id,status\n1,active\n')
+    fs.writeFileSync(file, content)
     return file
   }
 
@@ -113,6 +114,31 @@ describe('GET /api/reports/:id/download', () => {
     expect(response.headers.get('content-type')).toBe('text/csv; charset=utf-8')
     expect(response.headers.get('content-disposition')).toContain('attachment')
     expect(await response.text()).toContain('id,status')
+  })
+
+  it('serves HTML inline for browser preview', async () => {
+    const file = writeReport('report-preview.html', '<!doctype html><html><body>preview</body></html>')
+    await start({
+      listReports: async () => [{ id: 'report-preview', path: file }]
+    } as unknown as Partial<GitManagerApi>)
+
+    const response = await fetch(`${base}${reportViewPath('report-preview')}`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    expect(response.headers.get('content-disposition')).toContain('inline')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(await response.text()).toContain('preview')
+  })
+
+  it('keeps non-HTML reports downloadable from the view path', async () => {
+    const file = writeReport('report-preview.csv')
+    await start({
+      listReports: async () => [{ id: 'report-preview', path: file }]
+    } as unknown as Partial<GitManagerApi>)
+
+    const response = await fetch(`${base}${reportViewPath('report-preview')}`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-disposition')).toContain('attachment')
   })
 
   it('answers 404 for an unknown report id', async () => {

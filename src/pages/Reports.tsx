@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Send, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
-import { Badge, Card, EmptyState, Toggle } from '../components/ui'
+import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
 import GroupScopePicker from '../components/GroupScopePicker'
 import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import { downloadReportFile } from '../lib/download'
 import { repositoryScopeLabel } from '../lib/scope'
+import { reportViewPath } from '@shared/rpc'
 import type { ReportScheduleFrequency } from '@shared/types'
 
 const formats = ['html', 'csv']
@@ -48,6 +49,7 @@ export default function Reports(): JSX.Element {
   const [sendingAll, setSendingAll] = useState(false)
   const [reportMode, setReportMode] = useState<'send' | 'schedule'>('send')
   const [generateGroupIds, setGenerateGroupIds] = useState<string[]>([])
+  const [reportDirectory, setReportDirectory] = useState<string | null>(null)
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
   const noSelection = selectedRepositoryIds.length === 0
@@ -156,15 +158,30 @@ export default function Reports(): JSX.Element {
 
   const openFolder = async (): Promise<void> => {
     try {
-      await window.gitmanager.openReportFolder()
+      const response = await fetch('/api/health')
+      if (!response.ok) throw new Error(`无法读取报告目录（HTTP ${response.status}）。`)
+      const body = await response.json() as { reportsDir?: unknown }
+      const directory = typeof body.reportsDir === 'string' ? body.reportsDir.trim() : ''
+      if (!directory) throw new Error('后端没有返回报告目录。')
+      setReportDirectory(directory)
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
   }
 
-  const openReportFile = async (id: string): Promise<void> => {
+  const openReportFile = async (id: string, reportFormat: string): Promise<void> => {
     try {
-      await window.gitmanager.openReportFile(id)
+      if (reportFormat === 'html') {
+        const preview = window.open(reportViewPath(id), '_blank')
+        if (!preview) {
+          toast('浏览器阻止了报告预览窗口，请允许本站打开新窗口后重试。', 'warn')
+          return
+        }
+        preview.opener = null
+        return
+      }
+      await downloadReportFile(id)
+      toast('CSV 报告已下载，请使用本地表格软件打开。', 'success')
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     }
@@ -195,8 +212,8 @@ export default function Reports(): JSX.Element {
           <h1 className="text-lg font-bold text-canvas-fg">{tr('reports')}</h1>
           <div className="text-xs text-muted">{reports.length} 份报告</div>
         </div>
-        <button className="btn" onClick={() => void openFolder()}>
-          <FolderOpen size={14} /> {tr('openFolder')}
+        <button className="btn" title="查看服务器报告目录" onClick={() => void openFolder()}>
+          <FolderOpen size={14} /> 报告目录
         </button>
       </div>
 
@@ -392,7 +409,7 @@ export default function Reports(): JSX.Element {
                 <div>{report.summary.cleanupCandidates} 个清理候选</div>
               </div>
               <div className="flex items-center gap-1">
-                <button className="btn px-2 text-[11px]" onClick={() => void openReportFile(report.id)}>
+                <button className="btn px-2 text-[11px]" onClick={() => void openReportFile(report.id, report.format)}>
                   <FolderOpen size={12} /> 打开
                 </button>
                 <button className="btn px-2 text-[11px]" onClick={() => void downloadReport(report.id)}>
@@ -411,6 +428,21 @@ export default function Reports(): JSX.Element {
           ))}
         </div>
       )}
+
+      <Modal
+        open={reportDirectory !== null}
+        title="服务器报告目录"
+        onClose={() => setReportDirectory(null)}
+        footer={<button className="btn" onClick={() => setReportDirectory(null)}>关闭</button>}
+        width={620}
+      >
+        <div className="space-y-3 text-sm text-muted">
+          <p>报告文件保存在运行 GitManager 的服务器上。浏览器不能直接打开服务器文件夹，请在报告列表中点击“打开”预览 HTML，或点击“下载”保存到本机。</p>
+          <code className="block break-all rounded-md border border-line bg-elevated px-3 py-2 text-xs text-canvas-fg">
+            {reportDirectory}
+          </code>
+        </div>
+      </Modal>
     </div>
   )
 }

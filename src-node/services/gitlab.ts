@@ -7,6 +7,25 @@ import { decryptSecret, encryptSecret } from '../utils/secrets'
 // on Electron. Re-exported here because repository/settings import it from here.
 export { decryptSecret, encryptSecret }
 
+/**
+ * Every forge request has a deadline. Without one a stalled intranet proxy can
+ * leave a scan running indefinitely.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+const CONNECTION_TEST_TIMEOUT_MS = 5_000
+
+/** Internal gateways sometimes fail once; retry statuses that can recover. */
+const MAX_TRANSIENT_RETRIES = 2
+const TRANSIENT_RETRY_DELAY_MS = 250
+
+export function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export interface GitLabBranchDto {
   name: string
   protected: boolean
@@ -25,9 +44,11 @@ export interface GitLabBranchDto {
     message: string
     author_name: string
     author_email: string
+    author_login?: string
     authored_date: string
     committer_name: string
     committer_email: string
+    committer_login?: string
     committed_date: string
     web_url: string
   }
@@ -243,7 +264,12 @@ export class GitLabService {
     return !isApiBaseUrl(url) && this.pathSegments(url).length >= 2
   }
 
-  private async request<T>(path: string, config?: GitLabConnectionConfig, init: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    config?: GitLabConnectionConfig,
+    init: RequestInit = {},
+    options: { timeoutMs?: number; retries?: number } = {}
+  ): Promise<T> {
     const { url, token, provider } = this.resolve(config)
     // `projectPath` lets a project URL (`http://host/gitlab/group/app`) reveal the
     // instance's relative URL root, so the API call keeps its `/gitlab` prefix.
@@ -251,50 +277,94 @@ export class GitLabService {
       `${apiBaseUrl(url, provider, config?.projectPath)}${path.startsWith('/') ? path : `/${path}`}`
     )
     if (provider === 'gitee') requestUrl.searchParams.set('access_token', token)
-    const response = await fetch(requestUrl, {
-      ...init,
-      headers: provider === 'gitlab' ? {
-        'PRIVATE-TOKEN': token,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...(init.headers ?? {})
-      } : provider === 'github' ? {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json'
-      } : {
-        Accept: 'application/json',
-        ...(init.headers ?? {})
+    // Keep query strings out of the log: Gitee carries its token there.
+    const safeTarget = `${requestUrl.origin}${requestUrl.pathname}`
+    // A body stream can only be read once; retain the most recent response so a
+    // final retry still reports the forge's own error message.
+    let lastBody = ''
+    let lastDetail = ''
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt, options)
+      if (!response.ok) {
+        const body = await response.text().catch(() => null)
+        if (body !== null) {
+          lastBody = body
+          lastDetail = apiErrorDetail(body)
+        }
+        const statusLabel = response.statusText ? ` ${response.statusText}` : ''
+        const retryLimit = options.retries ?? MAX_TRANSIENT_RETRIES
+        if (attempt < retryLimit && isTransientStatus(response.status)) {
+          logger.warn(`Remote repository API ${response.status} at ${safeTarget}; retrying (${attempt + 1}/${retryLimit}).`)
+          await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+          continue
+        }
+        const message = `Remote repository API ${response.status}${statusLabel}${lastDetail ? `: ${lastDetail}` : ''}`
+        logger.error(`Remote repository API request failed: ${init.method ?? 'GET'} ${safeTarget} -> ${response.status}${statusLabel}${lastDetail ? ` | ${lastDetail}` : ''}`)
+        throw new GitLabApiErrorImpl(message, response.status, lastBody.slice(0, 500))
       }
-    })
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      const detail = apiErrorDetail(body)
-      const statusLabel = response.statusText ? ` ${response.statusText}` : ''
-      const message = `Remote repository API ${response.status}${statusLabel}${detail ? `: ${detail}` : ''}`
-      // Keep query strings out of the log: Gitee carries its token there.
-      logger.error(`Remote repository API request failed: ${init.method ?? 'GET'} ${requestUrl.origin}${requestUrl.pathname} -> ${response.status}${statusLabel}${detail ? ` | ${detail}` : ''}`)
-      throw new GitLabApiErrorImpl(
-        message,
-        response.status,
-        body.slice(0, 500)
-      )
+      if (response.status === 204) return undefined as T
+      return (await response.json()) as T
     }
-    if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+  }
+
+  /** One attempt with a deadline, retrying dropped intranet connections. */
+  private async send(
+    requestUrl: URL,
+    provider: 'gitlab' | 'github' | 'gitee',
+    token: string,
+    init: RequestInit,
+    safeTarget: string,
+    attempt: number,
+    options: { timeoutMs?: number; retries?: number }
+  ): Promise<Response> {
+    try {
+      return await fetch(requestUrl, {
+        ...init,
+        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+        headers: provider === 'gitlab' ? {
+          'PRIVATE-TOKEN': token,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(init.headers ?? {})
+        } : provider === 'github' ? {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json'
+        } : {
+          Accept: 'application/json',
+          ...(init.headers ?? {})
+        }
+      })
+    } catch (err) {
+      const retryLimit = options.retries ?? MAX_TRANSIENT_RETRIES
+      if (attempt < retryLimit) {
+        const reason = err instanceof Error ? err.message : String(err)
+        logger.warn(`Remote repository API request to ${safeTarget} failed (${reason}); retrying (${attempt + 1}/${retryLimit}).`)
+        await delay(TRANSIENT_RETRY_DELAY_MS * (attempt + 1))
+        return this.send(requestUrl, provider, token, init, safeTarget, attempt + 1, options)
+      }
+      throw err
+    }
   }
 
   async testConnection(config?: GitLabConnectionConfig): Promise<GitLabTestResult> {
     try {
       const { url, provider } = this.resolve(config)
-      const result: { login?: string; version?: string } = provider === 'github'
-        ? await this.request<{ login: string }>('/user', config)
-        : provider === 'gitee'
-          ? await this.request<{ login: string }>('/user', config)
-          : await this.request<{ version: string }>('/version', config)
+      const projectUrl = this.isProjectUrl(url)
+      const testOptions = { timeoutMs: CONNECTION_TEST_TIMEOUT_MS, retries: 0 }
+      const projectPath = this.pathSegments(url).join('/')
+      const result = (provider === 'github' && projectUrl
+        ? await this.request(`/repos/${projectPath}`, config, {}, testOptions)
+        : provider === 'github'
+          ? await this.request('/user', config, {}, testOptions)
+          : provider === 'gitee' && projectUrl
+            ? await this.request(`/repos/${projectPath}`, config, {}, testOptions)
+            : provider === 'gitee'
+              ? await this.request('/user', config, {}, testOptions)
+              : await this.request('/version', config, {}, testOptions)) as Record<string, unknown>
       return {
         ok: true,
-        message: `Connected to ${provider} ${result.login ?? result.version ?? ''}`.trim(),
-        version: provider === 'gitlab' ? result.version : provider
+        message: `Connected to ${provider} ${String(result.login ?? result.full_name ?? result.path_with_namespace ?? result.version ?? '')}`.trim(),
+        version: provider === 'gitlab' ? String(result.version ?? '') : provider
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -422,6 +492,12 @@ export class GitLabService {
     for (let page = 1; page <= 20; page += 1) {
       const separator = path.includes('?') ? '&' : '?'
       const pageRows = await this.request<Array<Record<string, unknown>>>(`${path}${separator}page=${page}`, config)
+      // A gateway can wrap an error in a 200 response. Spreading that object
+      // either crashes with an opaque exception or creates a false empty scan.
+      if (pageRows === null || pageRows === undefined) break
+      if (!Array.isArray(pageRows)) {
+        throw new Error(`远程仓库 API 返回了非列表数据（${path}，第 ${page} 页），已中止本次扫描以免误报 0 个分支。`)
+      }
       rows.push(...pageRows)
       if (pageRows.length < 100) break
     }
@@ -469,8 +545,8 @@ export class GitLabService {
           html_url?: string
           commit?: {
             message?: string
-            author?: { name?: string; email?: string; date?: string }
-            committer?: { name?: string; email?: string; date?: string }
+            author?: { name?: string; email?: string; date?: string; login?: string }
+            committer?: { name?: string; email?: string; date?: string; login?: string }
           },
           parents?: Array<{ sha?: string }>
           _links?: { html?: string }
@@ -495,9 +571,11 @@ export class GitLabService {
             message: String(sourceCommit.commit?.message ?? ''),
             author_name: String(sourceCommit.commit?.author?.name ?? ''),
             author_email: String(sourceCommit.commit?.author?.email ?? ''),
+            author_login: String((row as Record<string, unknown>).author && ((row.author as Record<string, unknown>).login ?? '') || ''),
             authored_date: authorDate,
             committer_name: String(sourceCommit.commit?.committer?.name ?? ''),
             committer_email: String(sourceCommit.commit?.committer?.email ?? ''),
+            committer_login: String((row as Record<string, unknown>).committer && ((row.committer as Record<string, unknown>).login ?? '') || ''),
             committed_date: committerDate,
             web_url: String(sourceCommit.html_url ?? '')
           },
@@ -512,8 +590,8 @@ export class GitLabService {
           html_url?: string
           commit?: {
             message?: string
-            author?: { name?: string; email?: string; date?: string }
-            committer?: { name?: string; email?: string; date?: string }
+            author?: { name?: string; email?: string; date?: string; login?: string }
+            committer?: { name?: string; email?: string; date?: string; login?: string }
           }
           parents?: Array<{ sha?: string }>
         })
@@ -537,9 +615,11 @@ export class GitLabService {
             message: String(sourceCommit.commit?.message ?? ''),
             author_name: String(sourceCommit.commit?.author?.name ?? ''),
             author_email: String(sourceCommit.commit?.author?.email ?? ''),
+            author_login: String((row as Record<string, unknown>).author && ((row.author as Record<string, unknown>).login ?? '') || ''),
             authored_date: authorDate,
             committer_name: String(sourceCommit.commit?.committer?.name ?? ''),
             committer_email: String(sourceCommit.commit?.committer?.email ?? ''),
+            committer_login: String((row as Record<string, unknown>).committer && ((row.committer as Record<string, unknown>).login ?? '') || ''),
             committed_date: committerDate,
             web_url: String(sourceCommit.html_url ?? '')
           }
@@ -875,13 +955,12 @@ export class GitLabService {
 
   async getProject(projectId: number, config?: GitLabConnectionConfig): Promise<GitLabProject> {
     const { url, provider } = this.resolve(config)
-    const cachedPath = this.projectPathCache.get(`${provider}:${url}:${projectId}`)
-    // The cached path names the project, so it also tells `apiBaseUrl` how to
-    // read the URL: for `http://host/gitlab/group/app` the project URL form only
-    // resolves once `group/app` is subtracted and `/gitlab` stays as the root.
-    if (cachedPath) return this.getProjectByUrl(cachedPath, { ...config, projectPath: cachedPath })
     if (provider === 'github') return this.normalizeProject(await this.request<Record<string, unknown>>(`/repositories/${projectId}`, config), provider)
     if (provider === 'gitee') return this.normalizeProject(await this.request<Record<string, unknown>>(`/repos/${projectId}`, config), provider)
+    // Always address GitLab projects by numeric id. Encoded project paths are
+    // accepted by GitLab itself, but some intranet reverse proxies reject the
+    // `%2F` with a 500. The cached path is only metadata and must not decide
+    // which URL is requested here.
     const path = `/projects/${projectIdOrPath(projectId)}`
     try {
       return this.normalizeProject(await this.request<Record<string, unknown>>(path, config), provider)

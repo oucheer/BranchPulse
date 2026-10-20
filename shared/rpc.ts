@@ -95,3 +95,8 @@ export const FOLDERS_PATH = '/api/fs/folders'
 export function reportDownloadPath(id: string): string {
   return `/api/reports/${encodeURIComponent(id)}/download`
 }
+
+/** `GET /api/reports/<id>/view` — opens an HTML report inline in a browser tab. */
+export function reportViewPath(id: string): string {
+  return `/api/reports/${encodeURIComponent(id)}/view`
+}

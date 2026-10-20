@@ -1,0 +1,15 @@
+node_modules
+dist
+out
+release
+.git
+.agents
+.codex
+.tmp-*
+.gm-*
+*.log
+data
+logs
+debug-screen.png
+debug-run.ps1
+debug-run-asar.ps1

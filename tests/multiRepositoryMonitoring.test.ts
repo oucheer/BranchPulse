@@ -195,4 +195,23 @@ describe('multi-repository monitoring', () => {
     expect(summaries[0].branches.map((row) => row.repository)).toEqual(['Alpha', 'Beta'])
     expect(creatorCalls).toHaveLength(1)
   })
+
+  it('does not send mail for a single-repository scan even when a policy exists', async () => {
+    const { service, summaries, creatorCalls } = setup({
+      rows: { 'repo-1': { notify_target: 'self,creator' } },
+      policies: { 'repo-1': 'summary' }
+    })
+
+    const run = await service.runCheckNow({
+      repositoryIds: ['repo-1'],
+      trigger: 'scan_repository',
+      bypassEnabledCheck: true,
+      emailPolicy: 'summary',
+      notifyTarget: 'self,creator'
+    })
+
+    expect(run.repositoryIds).toEqual(['repo-1'])
+    expect(summaries).toHaveLength(0)
+    expect(creatorCalls).toHaveLength(0)
+  })
 })

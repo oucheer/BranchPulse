@@ -172,7 +172,7 @@ export function createServer(options: ServerOptions): GitManagerServer {
     }
   }
 
-  function handleReportDownload(res: http.ServerResponse, id: string): void {
+  function handleReportFile(res: http.ServerResponse, id: string, mode: 'download' | 'view'): void {
     void (async () => {
       const reports = await api.listReports()
       const record = reports.find((report) => report.id === id)
@@ -186,10 +186,13 @@ export function createServer(options: ServerOptions): GitManagerServer {
         return
       }
       const extension = path.extname(file.name).slice(1).toLowerCase()
+      const disposition = mode === 'view' && extension === 'html' ? 'inline' : 'attachment'
       res.writeHead(200, {
         'content-type': MIME[`.${extension}`] ?? 'application/octet-stream',
         'content-length': file.content.length,
-        'content-disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
+        'content-disposition': `${disposition}; filename="${encodeURIComponent(file.name)}"`,
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff'
       })
       res.end(file.content)
     })()
@@ -234,9 +237,11 @@ export function createServer(options: ServerOptions): GitManagerServer {
         handleFolders(res, url)
         return
       }
-      if (pathname.startsWith('/api/reports/') && pathname.endsWith('/download')) {
-        const id = decodeURIComponent(pathname.slice('/api/reports/'.length, -'/download'.length))
-        handleReportDownload(res, id)
+      if (pathname.startsWith('/api/reports/') && (pathname.endsWith('/download') || pathname.endsWith('/view'))) {
+        const mode = pathname.endsWith('/view') ? 'view' : 'download'
+        const suffix = `/${mode}`
+        const id = decodeURIComponent(pathname.slice('/api/reports/'.length, -suffix.length))
+        handleReportFile(res, id, mode)
         return
       }
       if (pathname.startsWith('/api/rpc/')) {

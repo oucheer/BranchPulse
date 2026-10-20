@@ -334,7 +334,16 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     },
     listRepositories: async () => repository.list(),
     scanRepository: (id, fetch) =>
-      monitoring.runCheckNow({ repositoryIds: [id], fetch, trigger: 'scan_repository', bypassEnabledCheck: true }).then((run) => {
+      monitoring.runCheckNow({
+        repositoryIds: [id],
+        fetch,
+        trigger: 'scan_repository',
+        bypassEnabledCheck: true,
+        // Adding or rescanning a repository is an inspection action. It must
+        // never inherit the repository's scheduled mail policy.
+        emailPolicy: 'none',
+        notifyTarget: 'none'
+      }).then((run) => {
         const repo = repository.get(id)
         audit.record('repository_scanned', { repository: repo?.name ?? id, branches: run.branches, stale: run.stale })
         return run
