@@ -509,7 +509,7 @@ export class MonitoringService {
   }
 
   async notifyBranchesEmail(branches: BranchSummary[]): Promise<{ sent: number; message: string }> {
-    const rows = branches.map((b) => this.toIssueRow(b))
+    const rows = branches.filter((b) => isMonitoredBranch(b.name)).map((b) => this.toIssueRow(b))
     const result = await this.email.sendCreatorEmails(rows)
     return { sent: result.emailsSent ?? 0, message: result.message }
   }
@@ -530,7 +530,7 @@ export class MonitoringService {
       cleanupCandidates: summary.cleanupCandidates,
       repositories: Math.max(repos.length, 1),
       generatedAt: new Date().toISOString(),
-      branches: branches.map(toEmailIssueRow),
+      branches: branches.filter((b) => isMonitoredBranch(b.name)).map(toEmailIssueRow),
       thresholdHint: this.scopedThresholdHint(repos, (id) => this.readMonitoringRow(id))
     }
     const result = await this.email.sendSummaryEmail(data)

@@ -79,11 +79,13 @@ export class ReportService {
 
   private buildSummary(branches: BranchSummary[], repositories: number): ReportSummary {
     const count = (fn: (b: BranchSummary) => boolean): number => branches.filter(fn).length
+    const issueBranches = branches.filter((b) => isMonitoredBranch(b.name))
+    const issueCount = (fn: (b: BranchSummary) => boolean): number => issueBranches.filter(fn).length
     const protectedCount = count((b) => b.protection.protected)
     const whitelistedCount = count((b) => b.protection.whitelisted)
-    const valid = count((b) => b.naming.status === 'valid')
-    const invalid = count((b) => b.naming.status === 'invalid')
-    const excluded = count((b) => b.naming.status === 'excluded')
+    const valid = issueCount((b) => b.naming.status === 'valid')
+    const invalid = issueCount((b) => b.naming.status === 'invalid')
+    const excluded = issueCount((b) => b.naming.status === 'excluded')
     const total = Math.max(1, branches.length)
     const scoredBranches = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
     const averageHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (branches.length ? 100 : 0)
@@ -93,11 +95,11 @@ export class ReportService {
       invalidBranches: invalid,
       excludedBranches: excluded,
       compliancePercent: Math.round(((valid + excluded) / total) * 100),
-      active: count((b) => b.state === 'active'),
-      stale: count((b) => b.stale),
-      merged: count((b) => b.merged),
+      active: issueCount((b) => b.state === 'active'),
+      stale: issueCount((b) => b.stale),
+      merged: issueCount((b) => b.merged),
       namingViolations: invalid,
-      cleanupCandidates: count((b) => b.cleanupCandidate),
+      cleanupCandidates: issueCount((b) => b.cleanupCandidate),
       protectedBranches: protectedCount,
       whitelistedBranches: whitelistedCount,
       averageHealth,
@@ -114,8 +116,9 @@ export class ReportService {
 
   getSummaryEmailData(repositoryIds?: string[]): EmailSummaryData {
     const scope = this.resolveScope(repositoryIds)
-    const branches = scope.length === 0 ? [] : this.branchService.listBranches(scope).filter((branch) => isMonitoredBranch(branch.name))
-    const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
+    const branches = scope.length === 0 ? [] : this.branchService.listBranches(scope)
+    const issueBranches = branches.filter((branch) => isMonitoredBranch(branch.name))
+    const count = (fn: (branch: BranchSummary) => boolean): number => issueBranches.filter(fn).length
     return {
       total: branches.length,
       stale: count((branch) => branch.stale),
@@ -124,7 +127,7 @@ export class ReportService {
       cleanupCandidates: count((branch) => branch.cleanupCandidate),
       repositories: scope.length,
       generatedAt: new Date().toISOString(),
-      branches: branches.map(toEmailIssueRow)
+      branches: issueBranches.map(toEmailIssueRow)
     }
   }
 
@@ -192,8 +195,9 @@ export class ReportService {
     if (scope.length === 0) throw new Error('未选择仓库：请先在仓库页勾选要汇总的仓库。')
     const knownRepos = new Map(this.repositoryService.list().map((repo) => [repo.id, repo]))
     const repos = scope.map((id) => knownRepos.get(id)).filter((repo): repo is Repository => Boolean(repo))
-    const scopedBranches = this.branchService.listBranches(scope).filter((branch) => isMonitoredBranch(branch.name))
-    const groupScope = resolveGroupScope(this.groups?.list() ?? [], groupIds, scopedBranches)
+    const allBranches = this.branchService.listBranches(scope)
+    const scopedBranches = allBranches.filter((branch) => isMonitoredBranch(branch.name))
+    const groupScope = resolveGroupScope(this.groups?.list() ?? [], groupIds, allBranches)
     const { groups: scopeGroups } = groupScope
     const reposById = new Map(repos.map((repo) => [repo.id, repo]))
     const branches = groupScope.branches.map((branch) => ({
@@ -433,6 +437,7 @@ export class ReportService {
       .map((run, index) => `${24 + index * Math.max(1, 512 / Math.max(1, trendData.length - 1))},${164 - (run.branches / trendMax) * 136}`)
       .join(' ')
     const riskBranches = branches
+      .filter((b) => isMonitoredBranch(b.name))
       .filter((b) => b.stale || b.cleanupCandidate)
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 120)
@@ -446,7 +451,7 @@ export class ReportService {
         <td><b class="${b.cleanupCandidate ? 'danger' : 'warn'}">${escapeHtml(reportStateLabel(b.state))}</b></td>
         <td>${b.cleanupCandidate ? '是' : '否'}</td>
       </tr>`).join('') : '<tr><td colspan="7">当前没有超过阈值或待清理的分支。</td></tr>'
-    const detailRows = branches.slice(0, 500).map((b) => `
+    const detailRows = branches.filter((b) => isMonitoredBranch(b.name)).slice(0, 500).map((b) => `
       <tr>
         <td>${escapeHtml(b.repositoryName)}</td>
         <td><code>${escapeHtml(b.displayName)}</code></td>
