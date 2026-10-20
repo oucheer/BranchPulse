@@ -698,10 +698,25 @@ export class GitLabService {
       return commits.map((entry) => this.mapGitHubCommit(entry))
     }
     const qs = new URLSearchParams({ from: baseRef, to: refName })
-    const row = await this.request<Record<string, unknown>>(
-      `/projects/${projectRef}/repository/compare?${qs.toString()}`,
-      config
-    )
+    let row: Record<string, unknown>
+    try {
+      row = await this.request<Record<string, unknown>>(
+        `/projects/${projectRef}/repository/compare?${qs.toString()}`,
+        config
+      )
+    } catch (err) {
+      // Some intranet GitLab deployments return 500 for this endpoint even when
+      // the branch exists (often the reverse proxy or an old GitLab version).
+      // Losing creator attribution for those branches is better than failing the
+      // whole scan, so degrade to an empty diff and let the creation-event
+      // lookup answer who started the branch.
+      const status = err instanceof GitLabApiErrorImpl ? err.status : undefined
+      if (status === 500) {
+        logger.warn(`Compare endpoint returned 500 for project ${projectRef} (${baseRef}...${refName}); continuing without own-commit attribution.`)
+        return []
+      }
+      throw err
+    }
     const commits = Array.isArray(row.commits) ? (row.commits as GitLabCommitDto[]) : []
     return commits
   }
