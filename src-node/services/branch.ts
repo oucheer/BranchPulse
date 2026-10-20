@@ -203,6 +203,11 @@ export function isBaselineBranch(name: string, baseBranch?: string | null): bool
   return Boolean(baseBranch) && name === baseBranch
 }
 
+/** main 和 develop 完全不进入检查、报告和邮件范围。 */
+export function isMonitoredBranch(name: string): boolean {
+  return !/^(main|develop)$/i.test(name)
+}
+
 export interface RepositoryScanOptions {
   fetch?: boolean
   force?: boolean
@@ -258,8 +263,9 @@ export class BranchService {
 
     progress('Fetching GitLab branches...')
     const remoteConfig = remoteBranchConfig(repo, this.repositoryService.getRemoteToken(repo.id) || this.settingsService.getGitLabToken())
-    const branches = await this.gitlab.listBranches(projectId, remoteConfig)
-    const defaultBranch = repo.defaultBranch || branches.find((b) => b.default)?.name || 'main'
+    const listedBranches = await this.gitlab.listBranches(projectId, remoteConfig)
+    const defaultBranch = repo.defaultBranch || listedBranches.find((b) => b.default)?.name || 'main'
+    const branches = listedBranches.filter((branch) => isMonitoredBranch(branch.name))
     progress(`Analyzing ${branches.length} GitLab branches...`)
     // Branch creation is not derivable from commits, so ask the forge who
     // created each branch. Empty for providers without that event stream.

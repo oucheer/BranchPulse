@@ -10,6 +10,7 @@ import type { AuditService } from './audit'
 import type { GroupService } from './groups'
 import type { EmailSummaryData } from './email'
 import type { EmailReportPartition } from './email'
+import { isMonitoredBranch } from './branch'
 import { buildPartitionedReportHtml, toEmailIssueRow } from './email'
 import { newId } from '../utils/ids'
 import { reportsDir } from '../utils/paths'
@@ -113,7 +114,7 @@ export class ReportService {
 
   getSummaryEmailData(repositoryIds?: string[]): EmailSummaryData {
     const scope = this.resolveScope(repositoryIds)
-    const branches = scope.length === 0 ? [] : this.branchService.listBranches(scope)
+    const branches = scope.length === 0 ? [] : this.branchService.listBranches(scope).filter((branch) => isMonitoredBranch(branch.name))
     const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
     return {
       total: branches.length,
@@ -191,7 +192,7 @@ export class ReportService {
     if (scope.length === 0) throw new Error('未选择仓库：请先在仓库页勾选要汇总的仓库。')
     const knownRepos = new Map(this.repositoryService.list().map((repo) => [repo.id, repo]))
     const repos = scope.map((id) => knownRepos.get(id)).filter((repo): repo is Repository => Boolean(repo))
-    const scopedBranches = this.branchService.listBranches(scope)
+    const scopedBranches = this.branchService.listBranches(scope).filter((branch) => isMonitoredBranch(branch.name))
     const groupScope = resolveGroupScope(this.groups?.list() ?? [], groupIds, scopedBranches)
     const { groups: scopeGroups } = groupScope
     const reposById = new Map(repos.map((repo) => [repo.id, repo]))
