@@ -372,7 +372,12 @@ export default function Branches(): JSX.Element {
     let list = scoped
     if (search) {
       const q = search.toLowerCase()
-      list = list.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
+      list = list.filter((b) =>
+        b.name.toLowerCase().includes(q)
+        || b.displayName.toLowerCase().includes(q)
+        || b.creator.name.toLowerCase().includes(q)
+        || b.lastAuthor.toLowerCase().includes(q)
+      )
     }
     if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))
     if (activePerson) list = list.filter((b) => branchMatchesCreatorOption(b, activePerson))

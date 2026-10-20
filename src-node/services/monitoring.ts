@@ -15,6 +15,7 @@ import type { BranchService } from './branch'
 import type { RepositoryService } from './repository'
 import type { EmailService, EmailIssueRow, EmailSummaryData } from './email'
 import { resolveRecipients, parseNotifyTarget, toEmailIssueRow } from './email'
+import { isMonitoredBranch } from './branch'
 import { partitionRecipientTokens, resolveGroupScope } from '@shared/groups'
 import type { EmailGroup } from '@shared/types'
 import type { GroupService } from './groups'
@@ -259,7 +260,7 @@ export class MonitoringService {
       ? []
       : targets.filter((repo) => Number(rowOf(repo.id)?.notification_enabled ?? 1) === 1)
     const notifyingIds = new Set(notifyingRepos.map((repo) => repo.id))
-    const notifiableBranches = scopedBranches.filter((branch) => notifyingIds.has(branch.repositoryId))
+    const notifiableBranches = scopedBranches.filter((branch) => notifyingIds.has(branch.repositoryId) && isMonitoredBranch(branch.name))
     if (notifiableBranches.length > 0) {
       const created = this.generateNotifications(notifiableBranches)
       notifications.push(...created)
@@ -301,7 +302,7 @@ export class MonitoringService {
           cleanupCandidates: summary.cleanupCandidates,
           repositories: scopedRepositoryCount,
           generatedAt: new Date().toISOString(),
-          branches: scopedBranches.map(toEmailIssueRow),
+          branches: scopedBranches.filter((branch) => isMonitoredBranch(branch.name)).map(toEmailIssueRow),
           thresholdHint
         }
         const cfg = this.email.getConfig()
@@ -331,6 +332,7 @@ export class MonitoringService {
         }
       } else {
         const rows: EmailIssueRow[] = scopedBranches
+          .filter((b) => isMonitoredBranch(b.name))
           .filter((b) => b.stale || b.naming.status === 'invalid' || b.cleanupCandidate)
           .map((b) => this.toIssueRow(b))
         const result = await this.email.sendCreatorEmails(rows, undefined, {
