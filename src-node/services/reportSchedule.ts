@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import type { EmailSendResult, ReportSchedule, ReportScheduleFrequency } from '@shared/types'
+import type { EmailSendResult, ManualSendReportState, ReportSchedule, ReportScheduleFrequency } from '@shared/types'
 import type { StorageService } from './storage'
 import type { ReportService } from './report'
 import type { EmailService } from './email'
@@ -123,6 +123,10 @@ export function computeNextReportRunAt(schedule: ReportSchedule, from = new Date
 export class ReportScheduleService {
   private timer: NodeJS.Timeout | null = null
   private running = false
+  private manualSendRunning = false
+  private manualSendStartedAt: string | null = null
+  private manualSendFinishedAt: string | null = null
+  private manualSendLastResult: EmailSendResult | null = null
 
   constructor(
     private readonly storage: StorageService,
@@ -198,15 +202,30 @@ export class ReportScheduleService {
     repositoryIds?: string[],
     groupIds?: string[]
   ): Promise<EmailSendResult> {
+    if (this.manualSendRunning) {
+      return {
+        ok: false,
+        message: '已有一次发送正在进行，请等待它完成后再试。',
+        emailsSent: 0
+      }
+    }
+    this.manualSendRunning = true
+    this.manualSendStartedAt = new Date().toISOString()
     const scope = repositoryIds ?? []
     if (scope.length === 0) {
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ok: false, message: '未选择仓库：请先在仓库页勾选要汇总的仓库。', emailsSent: 0 }
       this.audit.record('report_selected_repositories_sent', { reason: 'no_repository_selected' }, 'failure')
-      return { ok: false, message: '未选择仓库：请先在仓库页勾选要汇总的仓库。', emailsSent: 0 }
+      return this.manualSendLastResult
     }
     const emailConfig = this.emailService.getConfig()
     if (!emailConfig.enabled) {
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
       this.audit.record('report_selected_repositories_sent', { reason: 'email_disabled', repositoryIds: scope }, 'failure')
-      return { ok: false, message: '邮件发送未启用，请先在设置中启用并配置邮箱。', emailsSent: 0 }
+      return this.manualSendLastResult
     }
 
     try {
@@ -226,8 +245,11 @@ export class ReportScheduleService {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
       this.audit.record('report_selected_repositories_sent', { repositoryIds: scope, error: message }, 'failure')
-      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
+      return this.manualSendLastResult
     }
 
     const parsedNotify = parseNotifyTarget(recipients || 'self')
@@ -250,24 +272,30 @@ export class ReportScheduleService {
     ]
     const groupCcRecipients = [...new Set(groupCcTargets.flatMap((group) => groupRecipients(group)))]
     if (mainRecipients.length === 0 && creators.missing.length > 0) {
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = {
+        ok: false,
+        message: `范围内的分支创始人都没有有效邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
+        emailsSent: 0
+      }
       this.audit.record(
         'report_selected_repositories_sent',
         { reason: 'creators_without_email', input: recipients, repositoryIds: scope, missing: creators.missing },
         'failure'
       )
-      return {
-        ok: false,
-        message: `范围内的分支创始人都没有有效邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
-        emailsSent: 0
-      }
+      return this.manualSendLastResult
     }
     if (mainRecipients.length === 0 && groupCcRecipients.length === 0) {
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
       this.audit.record(
         'report_selected_repositories_sent',
         { reason: 'recipients_empty', input: recipients, repositoryIds: scope },
         'failure'
       )
-      return { ok: false, message: '没有可用收件人，请选择收件人或先在设置中填写我的个人邮箱。', emailsSent: 0 }
+      return this.manualSendLastResult
     }
     const toHeader = mainRecipients.length > 0 ? mainRecipients : groupCcRecipients
     const ccHeader = mainRecipients.length > 0 ? groupCcRecipients : []
@@ -299,15 +327,30 @@ export class ReportScheduleService {
         },
         result.ok ? 'success' : 'failure'
       )
-      return { ...result, message }
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ...result, message }
+      return this.manualSendLastResult
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      this.manualSendRunning = false
+      this.manualSendFinishedAt = new Date().toISOString()
+      this.manualSendLastResult = { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
       this.audit.record(
         'report_selected_repositories_sent',
         { recipients: toHeader, repositoryIds: scope, error: message },
         'failure'
       )
-      return { ok: false, message: '勾选仓库汇总发送失败。', technical: message, emailsSent: 0 }
+      return this.manualSendLastResult
+    }
+  }
+
+  getManualSendReportState(): ManualSendReportState {
+    return {
+      running: this.manualSendRunning,
+      startedAt: this.manualSendStartedAt,
+      finishedAt: this.manualSendFinishedAt,
+      lastResult: this.manualSendLastResult
     }
   }
 

@@ -274,6 +274,14 @@ export interface EmailSendResult {
   cc?: string[]
 }
 
+/** Server-tracked state of the "send selected repositories now" action. */
+export interface ManualSendReportState {
+  running: boolean
+  startedAt: string | null
+  finishedAt: string | null
+  lastResult: EmailSendResult | null
+}
+
 export type ThresholdUnit = 'minutes' | 'hours' | 'days' | 'weeks'
 
 export interface ReportSummary {
@@ -550,6 +558,7 @@ export interface BranchApi {
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
   /** 立即发送当前勾选仓库的报告汇总；创始人加入同一封邮件的密送。 */
   sendSelectedRepositoriesReport(period: string, recipients?: string, repositoryIds?: string[], groupIds?: string[]): Promise<EmailSendResult>
+  getManualSendReportState(): Promise<ManualSendReportState>
 
   listAudit(): Promise<AuditEntry[]>
   exportAuditLogs(format: 'csv' | 'json' | 'txt', directory?: string): Promise<AuditExportResult>

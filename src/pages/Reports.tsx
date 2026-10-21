@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Send, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
@@ -47,12 +47,48 @@ export default function Reports(): JSX.Element {
   const [generating, setGenerating] = useState(false)
   const [bulkRecipients, setBulkRecipients] = useState('self')
   const [sendingAll, setSendingAll] = useState(false)
+  const [manualSendRunning, setManualSendRunning] = useState(false)
+  const manualSendSeenRef = useRef<string | null>(null)
   const [reportMode, setReportMode] = useState<'send' | 'schedule'>('send')
   const [generateGroupIds, setGenerateGroupIds] = useState<string[]>([])
   const [reportDirectory, setReportDirectory] = useState<string | null>(null)
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
   const noSelection = selectedRepositoryIds.length === 0
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+    let nextDelay = 5000
+    const poll = async (): Promise<void> => {
+      try {
+        const state = await window.gitmanager.getManualSendReportState()
+        if (cancelled) return
+        setManualSendRunning(state.running)
+        nextDelay = state.running ? 3000 : 5000
+        if (state.finishedAt && state.finishedAt !== manualSendSeenRef.current && state.lastResult) {
+          manualSendSeenRef.current = state.finishedAt
+          const result = state.lastResult
+          const recipientText = result.recipients?.length ? `：${result.recipients.join(', ')}` : ''
+          if (result.ok) {
+            toast(`勾选仓库汇总已发送${recipientText}`, 'success')
+          } else {
+            toast(`${result.message}${result.technical ? `：${result.technical}` : ''}`, 'error')
+          }
+          void refresh()
+        }
+      } catch {
+        // 后端短暂不可用时不中断轮询，下一轮再恢复。
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void poll(), nextDelay)
+      }
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [refresh, toast])
 
   const reports = selectedRepositoryIds.length
     ? allReports.filter((report) => report.repositoryIds.some((id) => selectedRepositoryIds.includes(id)))
@@ -86,6 +122,7 @@ export default function Reports(): JSX.Element {
         generateGroupIds
       )
       const recipientText = result.recipients?.length ? `：${result.recipients.join(', ')}` : ''
+      manualSendSeenRef.current = new Date().toISOString()
       if (result.ok) {
         toast(`勾选仓库汇总已发送${recipientText}`, 'success')
       } else {
@@ -284,11 +321,11 @@ export default function Reports(): JSX.Element {
             />
             <button
               className="btn btn-primary h-fit"
-              disabled={sendingAll || emailDisabled || noSelection}
+              disabled={sendingAll || manualSendRunning || emailDisabled || noSelection}
               title={noSelection ? '未选择仓库' : emailDisabled ? '邮件发送未启用' : undefined}
               onClick={() => void sendSelectedRepositories()}
             >
-              <Send size={14} /> {sendingAll ? '发送中...' : '发送勾选仓库汇总'}
+              <Send size={14} /> {sendingAll || manualSendRunning ? '发送中...' : '发送勾选仓库汇总'}
             </button>
           </div>
           {emailDisabled ? <div className="mt-2 text-xs text-warn">邮件发送未启用，请先在设置中配置邮箱。</div> : null}

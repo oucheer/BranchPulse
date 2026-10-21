@@ -12,6 +12,7 @@ import type {
   EmailConfigDraft,
   EmailGroup,
   EmailSendResult,
+  ManualSendReportState,
   ConfigExportResult,
   ConfigExtras,
   ConfigImportResult,
@@ -155,6 +156,7 @@ export interface GitManagerApi {
   saveReportSchedule(schedule: Partial<ReportSchedule> & { id?: string }): Promise<ReportSchedule[]>
   deleteReportSchedule(id: string): Promise<ReportSchedule[]>
   sendSelectedRepositoriesReport(period: string, recipients?: string, repositoryIds?: string[], groupIds?: string[]): Promise<EmailSendResult>
+  getManualSendReportState(): Promise<ManualSendReportState>
 
   listBackups(repositoryIds?: string[]): Promise<BackupRecord[]>
   startBackup(options?: { repositoryIds?: string[]; folderPath?: string }): Promise<BackupRecord>
@@ -519,6 +521,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     deleteReportSchedule: async (id) => reportSchedules.delete(id),
     sendSelectedRepositoriesReport: (period, recipients, repositoryIds, groupIds) =>
       reportSchedules.sendSelectedRepositoriesReport(period, recipients, repositoryIds, groupIds),
+    getManualSendReportState: async () => reportSchedules.getManualSendReportState(),
 
     listBackups: async (repositoryIds) => {
       const records = backup.list()
