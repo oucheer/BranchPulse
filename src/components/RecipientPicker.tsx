@@ -34,7 +34,7 @@ export default function RecipientPicker({
   const self = tokens.some((token) => ['self', 'both'].includes(token.toLowerCase()))
   const creator = tokens.some((token) => ['creator', 'both'].includes(token.toLowerCase()))
   const groupNames = new Set(groups.map((group) => group.name.trim().toLowerCase()))
-  const selectedGroup = tokens.find((token) => groupNames.has(token.toLowerCase())) ?? ''
+  const selectedGroupTokens = tokens.filter((token) => groupNames.has(token.toLowerCase()))
   const manualRecipients = tokens.filter((token) => {
     const lower = token.toLowerCase()
     return !['self', 'creator', 'both', 'none'].includes(lower) && !groupNames.has(lower)
@@ -50,12 +50,12 @@ export default function RecipientPicker({
       self: next.self ?? self,
       creator: next.creator ?? creator,
       manualRecipients: next.manualRecipients ?? manualRecipients,
-      groupTokens: next.groupTokens ?? (selectedGroup ? [selectedGroup] : [])
+    groupTokens: next.groupTokens ?? selectedGroupTokens
     }))
   }
 
-  const readOnly = Boolean(selectedGroup)
-  const displayRecipients = selectedGroup
+  const readOnly = selectedGroupTokens.length > 0
+  const displayRecipients = readOnly
     ? resolveRecipientDisplay(value, groups, self ? selfEmail : '')
     : manualRecipients
 
@@ -77,23 +77,27 @@ export default function RecipientPicker({
         }}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          className="input max-w-[12rem]"
-          value={selectedGroup}
-          onChange={(event) => {
-            const group = event.target.value
-            if (!group) {
-              apply({ groupTokens: [] })
-              return
-            }
-            apply({ groupTokens: [group] })
-          }}
-        >
-          <option value="">选择分支组</option>
-          {groups.map((group) => (
-            <option key={group.id} value={group.name}>{group.name}</option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-2">
+          {groups.map((group) => {
+            const checked = selectedGroupTokens.some((token) => token.toLowerCase() === group.name.trim().toLowerCase())
+            return (
+              <label key={group.id} className="flex cursor-pointer items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs transition-colors" style={checked ? { background: 'rgba(59,130,246,0.12)', color: '#3b82f6' } : undefined}>
+                <input
+                  type="checkbox"
+                  className="accent-current"
+                  checked={checked}
+                  onChange={() => {
+                    const next = checked
+                      ? selectedGroupTokens.filter((token) => token.toLowerCase() !== group.name.trim().toLowerCase())
+                      : [...selectedGroupTokens, group.name]
+                    apply({ groupTokens: next })
+                  }}
+                />
+                {group.name}
+              </label>
+            )
+          })}
+        </div>
         {readOnly ? (
           <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>
             清除分支组
@@ -102,8 +106,7 @@ export default function RecipientPicker({
       </div>
       {readOnly ? (
         <p className="text-xs text-muted">
-          邮件内容不变（仍是当前检查 / 报告范围的全部分支），只是把邮件发给该组组员。
-          若要让组员只收到本组数据，请在下方「分组范围」里同时选中该组。
+          勾选多个分支组时，邮件会同时发给这些组的组员；检查 / 报告范围不变，仍是当前范围的全部分支。
         </p>
       ) : (
         <p className="text-xs text-muted">可填写邮箱或分支组名；填写组名时把本次结果发给该组组员，检查 / 报告范围不受影响。</p>

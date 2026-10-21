@@ -3,7 +3,6 @@ import { CalendarClock, Download, FileBarChart, FolderOpen, Plus, Send, Trash2 }
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
-import GroupScopePicker from '../components/GroupScopePicker'
 import { resolveRecipientDisplay } from '../lib/recipients'
 import { timeAgo } from '../lib/format'
 import { downloadReportFile } from '../lib/download'
@@ -50,7 +49,6 @@ export default function Reports(): JSX.Element {
   const [manualSendRunning, setManualSendRunning] = useState(false)
   const manualSendSeenRef = useRef<string | null>(null)
   const [reportMode, setReportMode] = useState<'send' | 'schedule'>('send')
-  const [generateGroupIds, setGenerateGroupIds] = useState<string[]>([])
   const [reportDirectory, setReportDirectory] = useState<string | null>(null)
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
@@ -101,7 +99,7 @@ export default function Reports(): JSX.Element {
     }
     setGenerating(true)
     try {
-      const report = await window.gitmanager.generateReport('manual', format, generateGroupIds, selectedRepositoryIds)
+      const report = await window.gitmanager.generateReport('manual', format, undefined, selectedRepositoryIds)
       toast(`报告已生成：${report.title} · ${report.path}`, 'success')
       void refresh()
     } catch (err) {
@@ -118,8 +116,7 @@ export default function Reports(): JSX.Element {
       const result = await window.gitmanager.sendSelectedRepositoriesReport(
         'manual',
         bulkRecipients,
-        selectedRepositoryIds,
-        generateGroupIds
+        selectedRepositoryIds
       )
       const recipientText = result.recipients?.length ? `：${result.recipients.join(', ')}` : ''
       manualSendSeenRef.current = new Date().toISOString()
@@ -277,15 +274,6 @@ export default function Reports(): JSX.Element {
               : `报告按仓库分区汇总当前勾选的 ${selectedRepositoryIds.length} 个仓库。`}
           </div>
         </div>
-        <div className="mt-3 max-w-xl">
-          <GroupScopePicker
-            value={generateGroupIds}
-            onChange={setGenerateGroupIds}
-            groups={emailGroups}
-            label="分组范围"
-            emptyHint="不选则统计当前仓库范围内的全部分支。"
-          />
-        </div>
       </Card>
 
       <Card className="p-4">
@@ -363,14 +351,6 @@ export default function Reports(): JSX.Element {
                 creatorHint="定时报告同样只发一封：创始人加入收件人，不会逐人逐封发送"
                 manualPlaceholder="多个邮箱或分支组用逗号、分号或换行分隔"
                 rows={5}
-              />
-            </div>
-            <div className="lg:col-span-4">
-              <GroupScopePicker
-                value={draft.groupIds}
-                onChange={(ids) => setDraft({ ...draft, groupIds: ids })}
-                groups={emailGroups}
-                emptyHint="不选则统计当前仓库范围内的全部分支。选组只收窄统计范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
               />
             </div>
           </div>
