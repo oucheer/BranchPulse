@@ -47,9 +47,15 @@ function startOfDay(date: Date): Date {
 
 export function computeNextRunAt(job: SchedulerJob, from: Date = new Date()): string {
   if (job.kind === 'interval') {
-    const base = job.lastRunAt ? new Date(job.lastRunAt) : from
-    const next = new Date(base.getTime() + Math.max(1, job.intervalMinutes) * 60 * 1000)
-    return next.toISOString()
+    const step = Math.max(1, job.intervalMinutes) * 60 * 1000
+    // Anchor on the previously scheduled time, not the actual completion
+    // time: otherwise every scan duration accumulates into the next trigger
+    // and the job drifts minutes per day.
+    const base = job.nextRunAt ? new Date(job.nextRunAt) : job.lastRunAt ? new Date(job.lastRunAt) : from
+    const next = new Date(base.getTime() + step)
+    // After downtime the stored grid is in the past; resume from now instead
+    // of firing a burst of catch-up runs.
+    return (next.getTime() <= from.getTime() ? new Date(from.getTime() + step) : next).toISOString()
   }
   const [hour, minute] = (job.time || '09:00').split(':').map(Number)
   const days = job.daysOfWeek.length ? job.daysOfWeek : [1, 2, 3, 4, 5]

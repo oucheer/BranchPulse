@@ -236,12 +236,26 @@ describe('computeNextRunAt', () => {
 
   it('clamps the interval to at least one minute', () => {
     const job = sampleJob({ intervalMinutes: 0, lastRunAt: '2026-09-03T10:00:00.000Z' })
-    expect(computeNextRunAt(job)).toBe('2026-09-03T10:01:00.000Z')
+    expect(computeNextRunAt(job, new Date('2026-09-03T10:00:20.000Z'))).toBe('2026-09-03T10:01:00.000Z')
   })
 
   it('supports minute-level intervals', () => {
     const job = sampleJob({ intervalMinutes: 5, lastRunAt: '2026-09-03T10:00:00.000Z' })
-    expect(computeNextRunAt(job, new Date('2026-09-03T12:00:00.000Z'))).toBe('2026-09-03T10:05:00.000Z')
+    expect(computeNextRunAt(job, new Date('2026-09-03T10:02:00.000Z'))).toBe('2026-09-03T10:05:00.000Z')
+  })
+
+  it('resumes a full interval after downtime instead of firing immediately', () => {
+    const job = sampleJob({ intervalMinutes: 5, lastRunAt: '2026-09-03T10:00:00.000Z' })
+    expect(computeNextRunAt(job, new Date('2026-09-03T12:00:00.000Z'))).toBe('2026-09-03T12:05:00.000Z')
+  })
+
+  it('keeps the scheduled grid when the previous run finished late', () => {
+    const job = sampleJob({
+      intervalMinutes: 1440,
+      lastRunAt: '2026-09-04T10:02:00.000Z',
+      nextRunAt: '2026-09-04T10:00:00.000Z'
+    })
+    expect(computeNextRunAt(job, new Date('2026-09-04T10:02:00.000Z'))).toBe('2026-09-05T10:00:00.000Z')
   })
 
   it('finds the next matching weekday at the configured time', () => {
