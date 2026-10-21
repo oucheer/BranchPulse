@@ -287,6 +287,13 @@ export class MonitoringService {
     }
     const thresholdHint = this.scopedThresholdHint(scannedRepos, rowOf)
     for (const deliveryKind of options.trigger === 'scan_repository' ? [] : delivery) {
+      // A partial scan would publish a branch count that depends on which
+      // repositories happened to answer. Skip delivery and surface the failure
+      // instead of mailing inconsistent totals.
+      if (failures.length > 0) {
+        addActivity('Email skipped because one or more repositories failed to scan.', 'warn')
+        break
+      }
       const emailConfig = this.email.getConfig()
       const groups = this.email.listGroups()
       if (!emailConfig.enabled) {

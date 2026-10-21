@@ -310,13 +310,20 @@ export default function Branches(): JSX.Element {
   const navigate = useNavigate()
   const zh = language === 'zh'
 
-  const [search, setSearch] = useState('')
-  const [repoFilterIds, setRepoFilterIds] = useState<string[] | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '')
+  const [repoFilterIds, setRepoFilterIds] = useState<string[] | null>(() => {
+    const raw = searchParams.get('repos')
+    return raw === null ? null : raw.split(',').filter(Boolean)
+  })
   const [repoMenuOpen, setRepoMenuOpen] = useState(false)
   const repoMenuRef = useRef<HTMLDivElement | null>(null)
-  const [issueFilter, setIssueFilter] = useState<IssueFilter>('')
-  const [creatorFilter, setCreatorFilter] = useState('')
-  const [groupFilter, setGroupFilter] = useState('')
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>(() => {
+    const value = searchParams.get('issue')
+    return value === 'stale' || value === 'invalid' ? value : ''
+  })
+  const [creatorFilter, setCreatorFilter] = useState(() => searchParams.get('creator') ?? '')
+  const [groupFilter, setGroupFilter] = useState(() => searchParams.get('group') ?? '')
   const [selectedBranch, setSelectedBranch] = useState<BranchSummary | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
@@ -324,6 +331,23 @@ export default function Branches(): JSX.Element {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const noSelection = selectedRepositoryIds.length === 0
+
+  // 筛选条件同步到 URL：进入分支详情再返回时，列表仍保持进入前的过滤状态。
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      const assign = (key: string, value: string | null): void => {
+        if (value === null) next.delete(key)
+        else next.set(key, value)
+      }
+      assign('search', search || null)
+      assign('repos', repoFilterIds === null ? null : repoFilterIds.join(','))
+      assign('issue', issueFilter || null)
+      assign('creator', creatorFilter || null)
+      assign('group', groupFilter || null)
+      return next
+    }, { replace: true })
+  }, [search, repoFilterIds, issueFilter, creatorFilter, groupFilter, setSearchParams])
   const scopedRepositories = useMemo(
     () => repositories.filter((repository) => selectedRepositoryIds.includes(repository.id)),
     [repositories, selectedRepositoryIds]

@@ -427,7 +427,10 @@ export class ReportScheduleService {
               }
             }
           }
-          const nextRunAt = schedule.frequency === 'once' ? null : computeNextReportRunAt(schedule, new Date())
+          // Derive the next run from the schedule's intended time, not from the
+          // actual completion time: a scan that takes 3 minutes must not push
+          // tomorrow's 09:00 delivery to 09:03 and drift further every day.
+          const nextRunAt = schedule.frequency === 'once' ? null : computeNextReportRunAt(schedule, new Date(schedule.nextRunAt ?? now))
           this.storage.update(
             'report_schedules',
             {

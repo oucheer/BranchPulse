@@ -17,6 +17,7 @@ COPY --from=build /app/dist/server ./dist/server
 COPY --from=build /app/dist/renderer ./dist/renderer
 
 ENV NODE_ENV=production \
+    TZ=Asia/Shanghai \
     GITMANAGER_HOST=0.0.0.0 \
     GITMANAGER_PORT=4173 \
     GITMANAGER_USER_DATA_DIR=/data
