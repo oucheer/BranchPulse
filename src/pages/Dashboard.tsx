@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  AlertTriangle, CheckCircle2, FolderGit2, GitBranch, RefreshCw, Scale, Info
+  AlertTriangle, CheckCircle2, FolderGit2, GitBranch, RefreshCw, Scale, Info, X
 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Card } from '../components/ui'
@@ -265,6 +265,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
   const [hoveredRisk, setHoveredRisk] = useState<string | null>(null)
+  const [selectedRisk, setSelectedRisk] = useState<string | null>(null)
   const [riskFilter, setRiskFilter] = useState<string | null>(null)
   const snapshot = useMemo(() => ({
     average: current,
@@ -317,6 +318,12 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   const hoveredPointIndex = hoveredRisk ? selectedPoints.findIndex((p) => p.id === hoveredRisk) : -1
   const labelPoint = hoveredPointIndex >= 0 ? selectedPoints[hoveredPointIndex] : null
   const labelPosition = labelPoint ? positionFor(labelPoint, hoveredPointIndex) : { left: '0%', bottom: '0%' }
+  const selectedPoint = selectedRisk ? selectedPoints.find((p) => p.id === selectedRisk) ?? null : null
+  const selectedPointIndex = selectedPoint ? selectedPoints.findIndex((p) => p.id === selectedPoint.id) : -1
+  const selectedBranch = selectedPoint ? branches.find((b) => b.id === selectedPoint.id) ?? null : null
+  const selectedPosition = selectedPoint ? positionFor(selectedPoint, selectedPointIndex) : null
+  // 点位越高，详情越容易越过图顶部；高位时改为向下展开，低位时向上弹出。
+  const popupBelow = selectedPosition ? parseFloat(selectedPosition.bottom) >= 60 : false
 
 
   const hasBranches = snapshot.total > 0
@@ -365,7 +372,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
           </div>
         ) : (
           <>
-            <div className="relative min-h-[180px] flex-1 overflow-hidden rounded-lg border border-line bg-surface-elevated">
+            <div className="relative min-h-[180px] flex-1 rounded-lg border border-line bg-surface-elevated">
               <div className="absolute inset-0 grid grid-cols-3 grid-rows-2">
                 <div className="border-r border-b border-line/50 bg-ok/5" />
                 <div className="border-r border-b border-line/50 bg-warn/5" />
@@ -376,7 +383,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
               </div>
               <span className="absolute left-1.5 top-1.5 text-[9px] text-muted opacity-70">{zh ? '高' : 'High'}</span>
               <span className="absolute bottom-1.5 left-1.5 text-[9px] text-muted opacity-70">{zh ? '低' : 'Low'}</span>
-              {labelPoint ? (
+              {labelPoint && labelPoint.id !== selectedRisk ? (
                 <div
                   className="pointer-events-none absolute z-10 max-w-[220px] rounded-lg border border-line bg-surface px-2.5 py-1.5 shadow-lg"
                   style={{
@@ -404,10 +411,68 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
                     style={{ left: position.left, bottom: position.bottom, background: point.color }}
                     onMouseEnter={() => setHoveredRisk(point.id)}
                     onMouseLeave={() => setHoveredRisk((currentId) => currentId === point.id ? null : currentId)}
+                    onClick={() => setSelectedRisk((currentId) => currentId === point.id ? null : point.id)}
                     aria-label={`${point.name}: ${point.risk}, ${point.inactiveDays}d`}
                   />
                 )
               })}
+              {selectedPoint && selectedPosition && selectedBranch ? (
+                <div
+                  className="absolute z-20 w-56 rounded-lg border border-line bg-surface px-3 py-2 shadow-lg"
+                  style={{
+                    left: `clamp(120px, ${selectedPosition.left}, calc(100% - 120px))`,
+                    bottom: popupBelow ? `calc(${selectedPosition.bottom} - 12px)` : `calc(${selectedPosition.bottom} + 12px)`,
+                    transform: popupBelow ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-canvas-fg" title={selectedBranch.displayName}>{selectedBranch.displayName}</div>
+                      <div className="mt-0.5 truncate text-[10px] text-muted" title={selectedBranch.repositoryName}>{selectedBranch.repositoryName}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted transition-colors hover:bg-surface-elevated hover:text-canvas-fg"
+                      onClick={() => setSelectedRisk(null)}
+                      aria-label={zh ? '关闭' : 'Close'}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <dl className="mt-2 space-y-1 text-[10px] leading-tight">
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '健康分' : 'Health'}</dt>
+                      <dd className="text-right font-semibold" style={{ color: selectedPoint.color }}>{selectedBranch.health.score} · {healthLabel(selectedBranch.health.score, language)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '未更新' : 'Inactive'}</dt>
+                      <dd className="text-right">{selectedBranch.inactiveDays} {zh ? '天（阈值 ' : 'd (limit '}{selectedBranch.thresholdDays}{zh ? ' 天）' : 'd)'}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '命名' : 'Naming'}</dt>
+                      <dd className="min-w-0 text-right" title={selectedBranch.naming.reason ?? ''}>
+                        {selectedBranch.naming.status === 'valid'
+                          ? (zh ? '合规' : 'Valid')
+                          : selectedBranch.naming.status === 'excluded'
+                            ? (zh ? '不检查' : 'Excluded')
+                            : (selectedBranch.naming.reason || (zh ? '不规范' : 'Invalid'))}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '最近提交' : 'Last commit'}</dt>
+                      <dd className="min-w-0 truncate text-right" title={selectedBranch.lastAuthor}>{selectedBranch.lastAuthor} · {timeAgo(selectedBranch.lastCommitAt ?? selectedBranch.lastScannedAt)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '领先/落后' : 'Ahead/Behind'}</dt>
+                      <dd className="text-right tabular-nums">{selectedBranch.ahead} / {selectedBranch.behind}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="shrink-0 text-muted">{zh ? '创始人' : 'Creator'}</dt>
+                      <dd className="min-w-0 truncate text-right" title={selectedBranch.creator.name}>{selectedBranch.creator.name}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : null}
             </div>
             <div className="mt-1 flex justify-between text-[9px] text-muted opacity-70">
               <span>{zh ? '最近' : 'Recent'}</span>
