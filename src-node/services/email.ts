@@ -635,6 +635,12 @@ function repositoryContext(rows: EmailIssueRow[], lang: EmailLang): string {
   return zh ? `（仓库：${list}）` : ` (repositories: ${names.map((name) => escapeHtml(name)).join(', ')})`
 }
 
+function namingRulesSummary(lang: EmailLang): string {
+  return lang === 'zh'
+    ? '<p>规范：a/b_c。main 禁止后缀；develop 不允许带 /（临时规则允许 develop_XX）；feature|bugfix|hotfix/b_c；release/完整项目名（如 release/LP-7265V1R1）。b/c 以字母或数字开头，可含字母、数字、_、.；禁止中文。</p>'
+    : '<p>Naming convention: a/b_c. main has no suffix; develop disallows / (temporary develop_XX allowed); feature|bugfix|hotfix/b_c; release/full project name (e.g. release/LP-7265V1R1). b/c starts with a letter or digit and may contain letters, digits, _, .; Chinese is not allowed.</p>'
+}
+
 /** 一个创始人对应一封邮件：停更与命名问题合并，避免同一人多封通知。 */
 export function creatorDigestEmail(
   rows: EmailIssueRow[],
@@ -651,7 +657,7 @@ export function creatorDigestEmail(
     ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `已停更分支（${stale.length}）` : `Stale branches (${stale.length})`}</h2>${thresholdHint ? `<p style="color:#6b7280;font-size:12px">${escapeHtml(thresholdHint)}</p>` : ''}${scenarioRowsTable(stale, lang, 'stale')}`
     : ''
   const namingSection = naming.length
-    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `命名不规范分支（${naming.length}）` : `Naming issues (${naming.length})`}</h2><p>${zh ? '请按仓库命名规范修改后重新推送。' : 'Rename these branches to match the repository rules and push again.'}</p>${scenarioRowsTable(naming, lang, 'naming')}`
+    ? `<h2 style="font-size:16px;margin:20px 0 8px">${zh ? `命名不规范分支（${naming.length}）` : `Naming issues (${naming.length})`}</h2><p>${zh ? '请按仓库命名规范修改后重新推送。' : 'Rename these branches to match the repository rules and push again.'}</p>${namingRulesSummary(lang)}${scenarioRowsTable(naming, lang, 'naming')}`
     : ''
   const repositories = [...new Set(rows.map((row) => row.repository).filter(Boolean))]
   const intro = zh
@@ -734,9 +740,7 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
   const count = rows.length
   const repoContext = repositoryContext(rows, lang)
   const gitCommands = `<pre style="background:#f1f5f9;padding:8px;border-radius:6px;font-size:12px">git branch -m &lt;old&gt; &lt;new&gt;\ngit push -u origin &lt;new&gt;\ngit push origin --delete &lt;old&gt;</pre>`
-  const namingRules = zh
-    ? '<p>规范：a/b_c。main 禁止后缀；develop 不允许带 /（临时规则允许 develop_XX）；feature|bugfix|hotfix/b_c；release/完整项目名（如 release/LP-7265V1R1）。b/c 以字母或数字开头，可含字母、数字、_、.；禁止中文。</p>'
-    : '<p>Naming convention: a/b_c. main has no suffix; develop disallows / (temporary develop_XX allowed); feature|bugfix|hotfix/b_c; release/full project name (e.g. release/LP-7265V1R1). b/c starts with a letter or digit and may contain letters, digits, _, .; Chinese is not allowed.</p>'
+  const namingRules = namingRulesSummary(lang)
 
   if (scenario === 'naming') {
     const subject = zh

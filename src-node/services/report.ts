@@ -344,7 +344,7 @@ export class ReportService {
     if (format === 'csv') {
       const header = [
         'repository', 'branch', 'type', 'state', 'inactive_days', 'age_days', 'last_commit', 'creator',
-        'ahead', 'behind', 'merged', 'naming', 'health', 'whitelisted', 'default', 'protected', 'cleanup_candidate'
+        'ahead', 'behind', 'merged', 'naming', 'naming_reason', 'health', 'whitelisted', 'default', 'protected', 'cleanup_candidate'
       ]
       const esc = (v: unknown): string => `"${String(v ?? '').replace(/"/g, '""')}"`
       const lines = [header.map(esc).join(',')]
@@ -352,7 +352,7 @@ export class ReportService {
         lines.push(
           [
             b.repositoryName, b.name, b.type, b.state, b.inactiveDays, b.ageDays, b.lastCommitAt, b.creator.name,
-            b.ahead, b.behind, b.merged, b.naming.status, b.health.score,
+            b.ahead, b.behind, b.merged, b.naming.status, b.naming.reason, b.health.score,
             b.protection.whitelisted, b.protection.isDefault, b.protection.protected, b.cleanupCandidate
           ]
             .map(esc)
@@ -459,7 +459,7 @@ export class ReportService {
         <td>${b.commitCount}</td>
         <td>${b.inactiveDays} 天</td>
         <td>${escapeHtml(reportStateLabel(b.state))}</td>
-        <td>${escapeHtml(reportNamingLabel(b.naming.status))}</td>
+        <td>${escapeHtml(reportNamingLabel(b.naming.status))}${b.naming.status === 'invalid' && b.naming.reason ? `<br/><span style="font-size:11px;color:#b54708">${escapeHtml(b.naming.reason)}</span>` : ''}</td>
         <td>${b.health.score}</td>
         <td>${b.protection.isDefault ? '默认' : b.protection.protected ? '保护' : '普通'}</td>
       </tr>`).join('')
