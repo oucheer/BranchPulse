@@ -16,28 +16,28 @@ const emptyRule = (repositoryId: string | null): Omit<NamingRule, 'id' | 'enable
 
 const namingTemplates = [
   {
-    label: '功能分支（字母、数字、点、下划线、短横线）',
-    name: '功能分支',
-    pattern: '^feature\\/[a-z0-9._-]+$',
-    description: 'feature/ 后使用小写字母、数字、点、下划线或短横线'
+    label: '功能分支 a/b_c',
+    name: 'Feature a/b_c',
+    pattern: '^feature\\/[A-Za-z0-9][A-Za-z0-9_.]*$',
+    description: 'feature/b_c，b/c 以字母或数字开头，可含字母、数字、_、.'
   },
   {
-    label: '修复分支',
-    name: '修复分支',
-    pattern: '^(bugfix|hotfix)\\/[a-z0-9._-]+$',
-    description: 'bugfix/ 或 hotfix/ 后使用小写字母、数字、点、下划线或短横线'
+    label: '修复分支 a/b_c',
+    name: 'Bugfix/Hotfix a/b_c',
+    pattern: '^(bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*$',
+    description: 'bugfix/b_c 或 hotfix/b_c，建议 bugfix/123456'
   },
   {
-    label: '发布 / 维护分支',
-    name: '发布维护分支',
-    pattern: '^(release|chore|docs)\\/[a-z0-9._-]+$',
-    description: 'release、chore 或 docs 前缀后使用小写字母、数字、点、下划线或短横线'
+    label: '发布分支（完整项目名）',
+    name: 'Release 项目名',
+    pattern: '^release\\/[A-Za-z0-9][A-Za-z0-9_.-]*$',
+    description: 'release/完整项目名，如 release/LP-7265V1R1，仅项目名可带 -'
   },
   {
-    label: '允许中文的功能分支',
-    name: '允许中文的功能分支',
-    pattern: '^feature\\/[\\p{Script=Han}a-z0-9._-]+$',
-    description: 'feature/ 后允许中文、小写字母、数字、点、下划线或短横线'
+    label: '临时开发分支 develop_XX',
+    name: 'Develop 临时规则',
+    pattern: '^develop_[A-Za-z0-9][A-Za-z0-9_.]*$',
+    description: '特殊（临时规则）允许 develop_XX，如 develop_XC；develop 不允许带 /'
   }
 ]
 
@@ -112,10 +112,13 @@ export default function NamingRules(): JSX.Element {
       <Card className="p-4">
         <div className="mb-3 rounded-md border border-line bg-surface/60 p-3 text-xs leading-relaxed text-muted">
           <div className="mb-1 text-sm font-semibold text-canvas-fg">命名规则说明</div>
-          常用前缀是 <span className="font-mono">feature/、bugfix/、hotfix/、release/、chore/、docs/</span>。
-          基础规则要求：前缀后必须有具体描述；描述使用小写字母、数字、点、下划线或短横线；不能包含空格或连续斜杠；不能以 <span className="font-mono">/</span> 或 <span className="font-mono">-</span> 开头，也不能以 <span className="font-mono">/</span> 结尾。
-          <span className="font-mono">main</span> 和 <span className="font-mono">develop</span> 默认豁免。
-          基础前缀规则不支持中文；如需支持中文，必须使用下方允许中文的 regex / unicode 模板。
+          分支命名风格为 <span className="font-mono">a/b_c</span>：
+          <span className="font-mono">main</span> 禁止后缀、禁止删除；
+          <span className="font-mono">develop</span> 不允许带 <span className="font-mono">/</span>，特殊临时规则允许 <span className="font-mono">develop_XX</span>（如 develop_XC）；
+          feature 为短期过渡分支，长期保留需申请记录在案；
+          release 为长期分支，b 必须为完整项目名（如 <span className="font-mono">release/LP-7265V1R1</span>），仅项目名可带 <span className="font-mono">-</span>；
+          bugfix 建议 <span className="font-mono">bugfix/bug_id</span>（如 bugfix/123456）。
+          b/c 以大写或小写字母、数字开头，后续可含大小写字母、数字、<span className="font-mono">_</span>、<span className="font-mono">.</span>；禁止中文；禁止纯数字或工程师名字等随意命名；禁止拉取版本分支（版本号仅用于 release）。
         </div>
         <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('validate')}</div>
         <div className="flex gap-2">

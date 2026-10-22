@@ -52,18 +52,24 @@ export function matchPattern(pattern: string, type: 'glob' | 'regex' | 'exact', 
   }
 }
 
-const allowedPrefixes = new Set(['feature', 'bugfix', 'hotfix', 'release', 'chore', 'docs'])
+const allowedPrefixes = new Set(['feature', 'bugfix', 'hotfix', 'release'])
 
-const prefixHint = `允许的前缀为 ${[...allowedPrefixes].join('/')}，需形如 feature/login-page`
+const prefixHint = `允许的前缀为 ${[...allowedPrefixes].join('/')}，需形如 a/b_c（例如 feature/login_page、bugfix/123456）`
+
+const bodyPattern = /^[A-Za-z0-9][A-Za-z0-9_.]*$/
 
 export function baseNamingIssue(name: string): string | null {
   if (name.endsWith('/')) return '不能以 / 结尾'
   if (name.includes('//')) return '不能包含连续 /'
   if (/\s/.test(name)) return '不能包含空格'
-  if (/[A-Z]/.test(name)) return '必须使用小写字母'
+  if (/[^\x00-\x7F]/.test(name)) return '禁止中文或非 ASCII 字符'
   if (name.startsWith('/') || name.startsWith('-')) return '不能以 / 或 - 开头'
-  if (/^(main|develop)(?:\/|[^a-z])/.test(name)) {
-    return '主分支必须直接为 main / develop'
+  if (name !== 'main' && name.startsWith('main')) {
+    return 'main 为长期分支，禁止带后缀，必须直接为 main'
+  }
+  if (name !== 'develop' && name.startsWith('develop')) {
+    if (/^develop_[A-Za-z0-9][A-Za-z0-9_.]*$/.test(name)) return null
+    return 'develop 只能为 develop 或特殊临时形式 develop_XX（_ 后以字母或数字开头，可含字母、数字、_、.），不允许带 /'
   }
   if (name === 'main' || name === 'develop') return null
 
@@ -77,6 +83,19 @@ export function baseNamingIssue(name: string): string | null {
   const description = name.slice(separatorIndex + 1)
   if (!description) return `缺少具体功能描述，${prefixHint}`
   if (!allowedPrefixes.has(prefix)) return `前缀「${prefix}」不在允许范围内：${prefixHint}`
+  if (prefix === 'release') {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(description)) {
+      return 'release 分支 b 必须为完整项目名（项目编号），仅项目名可带 -，其余可含字母、数字、_、.'
+    }
+  } else if (!bodyPattern.test(description)) {
+    return 'b/c 必须以大写字母、小写字母或数字开头，后续可含大小写字母、数字、_、.'
+  }
+  if (/^\d+$/.test(description) && prefix !== 'bugfix' && prefix !== 'hotfix') {
+    return '禁止过于随意的命名（如纯数字 123 或工程师名字），请使用有业务含义的描述'
+  }
+  if (prefix !== 'release' && /^(?:v|V)?\d+(?:\.\d+)+/.test(description)) {
+    return '禁止拉取版本分支：版本号命名仅用于 release 分支（如 release/LP-7265V1R1）'
+  }
   return null
 }
 

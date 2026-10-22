@@ -278,18 +278,16 @@ CREATE TABLE IF NOT EXISTS scan_run_repositories (
 
 function defaultNamingRules(): Array<Record<string, unknown>> {
   const rules: Array<Record<string, unknown>> = [
-    { name: 'feature/*', pattern: 'feature/*', type: 'glob', mode: 'allow', description: 'Feature branches', priority: 10 },
-    { name: 'bugfix/*', pattern: 'bugfix/*', type: 'glob', mode: 'allow', description: 'Bugfix branches', priority: 20 },
-    { name: 'hotfix/*', pattern: 'hotfix/*', type: 'glob', mode: 'allow', description: 'Hotfix branches', priority: 40 },
-    { name: 'release/*', pattern: 'release/*', type: 'glob', mode: 'allow', description: 'Release branches', priority: 50 },
-    { name: 'docs/*', pattern: 'docs/*', type: 'glob', mode: 'allow', description: 'Documentation branches', priority: 70 },
-    { name: 'chore/*', pattern: 'chore/*', type: 'glob', mode: 'allow', description: 'Chore branches', priority: 90 },
+    { name: 'feature/b_c', pattern: 'feature/*', type: 'glob', mode: 'allow', description: 'Feature 短期过渡分支', priority: 10 },
+    { name: 'bugfix/b_c', pattern: 'bugfix/*', type: 'glob', mode: 'allow', description: 'Bugfix 短期过渡分支，建议 bugfix/bug_id', priority: 20 },
+    { name: 'hotfix/b_c', pattern: 'hotfix/*', type: 'glob', mode: 'allow', description: 'Hotfix 短期过渡分支', priority: 40 },
+    { name: 'release/项目名', pattern: 'release/*', type: 'glob', mode: 'allow', description: 'Release 长期发布分支，如 release/LP-7265V1R1', priority: 50 },
     {
       name: 'Conventional prefix',
-      pattern: '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$',
+      pattern: '^(?:develop(?:_[A-Za-z0-9][A-Za-z0-9_.]*)?|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$',
       type: 'regex',
       mode: 'allow',
-      description: 'Conventional branch naming',
+      description: 'a/b_c 标准命名：main、develop（含 develop_XX 临时规则）、feature|bugfix|hotfix/b_c、release/项目名',
       priority: 100
     }
   ]
@@ -402,7 +400,8 @@ export class StorageService {
     this.run(`DELETE FROM whitelist WHERE rowid NOT IN (SELECT MIN(rowid) FROM whitelist GROUP BY pattern)`)
     this.run(`DELETE FROM protected_branches WHERE rowid NOT IN (SELECT MIN(rowid) FROM protected_branches GROUP BY pattern)`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
-    this.run(`UPDATE branch_naming_rules SET pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|fix|hotfix|release|refactor|docs|test|chore)\\/[a-z0-9._-]+$'`)
+    this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('docs/*', 'chore/*') AND type = 'glob' AND mode = 'allow'`)
+    this.run(`UPDATE branch_naming_rules SET pattern = '^(?:develop(?:_[A-Za-z0-9][A-Za-z0-9_.]*)?|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$', type = 'regex', mode = 'allow', description = 'a/b_c 标准命名：main、develop（含 develop_XX 临时规则）、feature|bugfix|hotfix/b_c、release/项目名' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$'`)
     this.run(`UPDATE monitoring_rules SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
     this.run(`UPDATE monitoring_rules_repo SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
     this.dropColumn('monitoring_rules', 'grace_period_days')

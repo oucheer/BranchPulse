@@ -735,8 +735,8 @@ function creatorScenarioEmail(rows: EmailIssueRow[], scenario: CreatorEmailScena
   const repoContext = repositoryContext(rows, lang)
   const gitCommands = `<pre style="background:#f1f5f9;padding:8px;border-radius:6px;font-size:12px">git branch -m &lt;old&gt; &lt;new&gt;\ngit push -u origin &lt;new&gt;\ngit push origin --delete &lt;old&gt;</pre>`
   const namingRules = zh
-    ? '<p>规范：feature|bugfix|hotfix|release|chore|docs/xxx，或 main / develop。分支描述建议使用小写字母、数字、短横线，不能包含空格。</p>'
-    : '<p>Naming convention: feature|bugfix|hotfix|release|chore|docs/xxx, or main / develop.</p>'
+    ? '<p>规范：a/b_c。main 禁止后缀；develop 不允许带 /（临时规则允许 develop_XX）；feature|bugfix|hotfix/b_c；release/完整项目名（如 release/LP-7265V1R1）。b/c 以字母或数字开头，可含字母、数字、_、.；禁止中文。</p>'
+    : '<p>Naming convention: a/b_c. main has no suffix; develop disallows / (temporary develop_XX allowed); feature|bugfix|hotfix/b_c; release/full project name (e.g. release/LP-7265V1R1). b/c starts with a letter or digit and may contain letters, digits, _, .; Chinese is not allowed.</p>'
 
   if (scenario === 'naming') {
     const subject = zh
