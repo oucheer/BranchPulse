@@ -3,7 +3,6 @@ import { CalendarClock, Play, Plus, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, ConfirmCheckbox, EmptyState, Modal, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
-import GroupScopePicker from '../components/GroupScopePicker'
 import { timeAgo } from '../lib/format'
 import type { SchedulerJob, NotifyTarget } from '@shared/types'
 
@@ -86,12 +85,6 @@ export default function Scheduler(): JSX.Element {
     return names.join('、')
   }
 
-  const groupScopeLabel = (groupIds: string[] | undefined): string => {
-    const names = (groupIds ?? [])
-      .map((id) => emailGroups.find((group) => group.id === id)?.name)
-      .filter((name): name is string => Boolean(name))
-    return names.length > 0 ? names.join('、') : '分组已删除'
-  }
 
   const visibleRuns = selectedRepositoryIds.length
     ? scanRuns.filter((run) => run.repositoryIds?.some((id) => selectedRepositoryIds.includes(id)))
@@ -99,7 +92,7 @@ export default function Scheduler(): JSX.Element {
 
   const save = async (job: Partial<SchedulerJob> & { id?: string }): Promise<void> => {
     try {
-      await window.gitmanager.saveJob(job)
+      await window.gitmanager.saveJob({ ...job, groupIds: [] })
       toast(tr('saved'), 'success')
       setEditJob(null)
       void refresh()
@@ -198,7 +191,6 @@ export default function Scheduler(): JSX.Element {
                     {job.nextRunAt ? <span>· 下次：{new Date(job.nextRunAt).toLocaleString()}</span> : null}
                     <span>· {tr('inspectionOnly')}</span>
                     <span>· {notifyLabel(job.notifyTarget)}</span>
-                    {job.groupIds.length > 0 ? <span>· 分组范围：{groupScopeLabel(job.groupIds)}</span> : null}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -379,12 +371,6 @@ export default function Scheduler(): JSX.Element {
               allowCreator
               label="收件人"
               manualPlaceholder="you@example.com, team@example.com"
-            />
-            <GroupScopePicker
-              value={editJob?.groupIds ?? []}
-              onChange={(ids) => setEditJob({ ...editJob, groupIds: ids })}
-              groups={emailGroups}
-              emptyHint="不选则检查全部仓库范围内的分支。选组只收窄检查范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
             />
         </div>
       </Modal>

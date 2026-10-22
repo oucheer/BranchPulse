@@ -158,6 +158,7 @@ export default function Reports(): JSX.Element {
       await window.gitmanager.saveReportSchedule({
         ...draft,
         repositoryIds: selectedRepositoryIds,
+        groupIds: [],
         enabled: true,
         runAt: draft.frequency === 'once' && draft.runAt ? new Date(draft.runAt).toISOString() : null
       })
@@ -231,13 +232,6 @@ export default function Reports(): JSX.Element {
 
   const frequencyLabel = (frequency: ReportScheduleFrequency): string =>
     frequency === 'daily' ? '每日' : frequency === 'weekly' ? '每周' : frequency === 'monthly' ? '每月' : '指定时间'
-
-  const groupScopeLabel = (groupIds: string[]): string => {
-    const names = groupIds
-      .map((id) => emailGroups.find((group) => group.id === id)?.name)
-      .filter((name): name is string => Boolean(name))
-    return names.length > 0 ? names.join('、') : '分组已删除'
-  }
 
   return (
     <div className="space-y-6">
@@ -387,7 +381,6 @@ export default function Reports(): JSX.Element {
                   </div>
                   <div className="text-xs text-muted">
                     {schedule.nextRunAt ? `下次：${new Date(schedule.nextRunAt).toLocaleString('zh-CN')}` : '已完成或未启用'}
-                    {schedule.groupIds.length > 0 ? ` · 分组范围：${groupScopeLabel(schedule.groupIds)}` : ''}
                     {schedule.recipients
                       ? ` · 发送到 ${resolveRecipientDisplay(schedule.recipients, emailGroups, emailConfig?.selfEmail).join(', ') || schedule.recipients}`
                       : ' · 不发送邮件'}

@@ -1,4 +1,5 @@
-import { Mail, UserRound } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, Mail, UserRound } from 'lucide-react'
 import { Toggle } from './ui'
 import type { EmailGroup, NotifyTarget } from '@shared/types'
 import { applyRecipientDraft, resolveRecipientDisplay, splitRecipientTokens } from '../lib/recipients'
@@ -30,6 +31,8 @@ export default function RecipientPicker({
   manualPlaceholder = 'you@example.com, team@example.com',
   rows = 4
 }: RecipientPickerProps): JSX.Element {
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false)
+  const groupMenuRef = useRef<HTMLDivElement | null>(null)
   const tokens = splitRecipientTokens(value)
   const self = tokens.some((token) => ['self', 'both'].includes(token.toLowerCase()))
   const creator = tokens.some((token) => ['creator', 'both'].includes(token.toLowerCase()))
@@ -54,6 +57,15 @@ export default function RecipientPicker({
     }))
   }
 
+  useEffect(() => {
+    if (!groupMenuOpen) return
+    const close = (event: MouseEvent): void => {
+      if (!groupMenuRef.current?.contains(event.target as Node)) setGroupMenuOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [groupMenuOpen])
+
   const readOnly = selectedGroupTokens.length > 0
   const displayRecipients = readOnly
     ? resolveRecipientDisplay(value, groups, self ? selfEmail : '')
@@ -77,26 +89,48 @@ export default function RecipientPicker({
         }}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-2">
-          {groups.map((group) => {
-            const checked = selectedGroupTokens.some((token) => token.toLowerCase() === group.name.trim().toLowerCase())
-            return (
-              <label key={group.id} className="flex cursor-pointer items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs transition-colors" style={checked ? { background: 'rgba(59,130,246,0.12)', color: '#3b82f6' } : undefined}>
-                <input
-                  type="checkbox"
-                  className="accent-current"
-                  checked={checked}
-                  onChange={() => {
-                    const next = checked
-                      ? selectedGroupTokens.filter((token) => token.toLowerCase() !== group.name.trim().toLowerCase())
-                      : [...selectedGroupTokens, group.name]
-                    apply({ groupTokens: next })
-                  }}
-                />
-                {group.name}
-              </label>
-            )
-          })}
+        <div ref={groupMenuRef} className="relative">
+          <button
+            type="button"
+            className="input flex items-center justify-between gap-2 text-left"
+            onClick={() => setGroupMenuOpen((open) => !open)}
+          >
+            <span className={selectedGroupTokens.length ? 'text-canvas-fg' : 'text-muted'}>
+              {selectedGroupTokens.length
+                ? `已选 ${selectedGroupTokens.length} 个分支组`
+                : '选择分支组'}
+            </span>
+            <ChevronDown size={14} className="shrink-0 text-muted" />
+          </button>
+          {groupMenuOpen ? (
+            <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-line bg-canvas shadow-lg">
+              {groups.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted">还没有分支组，可先在设置页新建。</div>
+              ) : (
+                groups.map((group) => {
+                  const checked = selectedGroupTokens.some((token) => token.toLowerCase() === group.name.trim().toLowerCase())
+                  return (
+                    <label
+                      key={group.id}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-canvas-fg hover:bg-surface-elevated"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = checked
+                            ? selectedGroupTokens.filter((token) => token.toLowerCase() !== group.name.trim().toLowerCase())
+                            : [...selectedGroupTokens, group.name]
+                          apply({ groupTokens: next })
+                        }}
+                      />
+                      {group.name}
+                    </label>
+                  )
+                })
+              )}
+            </div>
+          ) : null}
         </div>
         {readOnly ? (
           <button className="btn px-2 text-xs" type="button" onClick={() => apply({ groupTokens: [] })}>

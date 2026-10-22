@@ -3,7 +3,6 @@ import { Activity, Bell, Mail, Play, Plus, Save, Scale, Timer, X } from 'lucide-
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
-import GroupScopePicker from '../components/GroupScopePicker'
 import type { MonitoringConfig, NotifyTarget, ThresholdRule } from '@shared/types'
 
 type ThresholdUnit = MonitoringConfig['staleThresholdUnit']
@@ -29,7 +28,6 @@ export default function Monitoring(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const [draft, setDraft] = useState(monitoring)
   const [ruleDraft, setRuleDraft] = useState<ThresholdRule>({ prefix: '', value: 90, unit: 'days' })
-  const [scopeGroupIds, setScopeGroupIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const suppressDraftSync = useRef(false)
 
@@ -98,7 +96,6 @@ export default function Monitoring(): JSX.Element {
         emailPolicy: draft.notificationEnabled ? draft.emailPolicy : 'none',
         trigger: 'manual',
         ...(selectedRepositoryIds.length > 0 ? { repositoryIds: selectedRepositoryIds } : {}),
-        ...(scopeGroupIds.length > 0 ? { groupIds: scopeGroupIds } : {})
       })
       // A check that reached no repository must not read as a clean run: the
       // reason is the only thing the user can act on.
@@ -288,12 +285,6 @@ export default function Monitoring(): JSX.Element {
             <p className="text-xs text-muted">
               {emailDisabled || !draft.notificationEnabled ? tr('checkOnlyNoEmail') : tr('notifyTarget')}
             </p>
-            <GroupScopePicker
-              value={scopeGroupIds}
-              onChange={setScopeGroupIds}
-              groups={emailGroups}
-              emptyHint="不选则检查当前仓库范围内的全部分支。选组只收窄检查范围，收件人不变；要让组员只收到本组数据，请在上方收件人里同时选该组。"
-            />
             <button className="btn btn-primary w-full justify-center" disabled={scanning} onClick={() => void runCheck()}>
               <Play size={14} /> {tr('triggerCheckNotify')}
             </button>
