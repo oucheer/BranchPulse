@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Bell, Mail, Play, Plus, Save, Scale, Timer, X } from 'lucide-react'
+import { Activity, Bell, Check, Mail, Play, Plus, Save, Scale, Timer, X } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, Toggle } from '../components/ui'
 import RecipientPicker from '../components/RecipientPicker'
@@ -63,6 +63,7 @@ export default function Monitoring(): JSX.Element {
   }
 
   const rules = draft.thresholdRules ?? []
+  const [addingRule, setAddingRule] = useState(false)
 
   const addRule = (): void => {
     const prefix = ruleDraft.prefix.trim()
@@ -140,6 +141,9 @@ export default function Monitoring(): JSX.Element {
           </Badge>
         </h1>
         <div className="flex items-center gap-3">
+          <button className="btn btn-primary" disabled={saving || scanning} onClick={() => void save()}>
+            <Save size={14} /> 保存设置并生效
+          </button>
           <span className="text-sm text-muted">{monitoring.enabled ? '监控开启中' : '监控已关闭'}</span>
           <Toggle checked={monitoring.enabled} label="监控开关" disabled={saving} onChange={(v) => void toggleMonitoring(v)} />
         </div>
@@ -217,35 +221,46 @@ export default function Monitoring(): JSX.Element {
                     ))}
                 </div>
               )}
-              <div className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-center gap-2">
-                <input
-                  className="input font-mono text-xs"
-                  placeholder="前缀，如 release/"
-                  value={ruleDraft.prefix}
-                  onChange={(e) => setRuleDraft({ ...ruleDraft, prefix: e.target.value })}
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={maxByUnit[ruleDraft.unit]}
-                  className="input"
-                  value={ruleDraft.value}
-                  onChange={(e) => setRuleDraft({ ...ruleDraft, value: Math.max(1, Number(e.target.value) || 1) })}
-                />
-                <select
-                  className="input"
-                  value={ruleDraft.unit}
-                  onChange={(e) => setRuleDraft({ ...ruleDraft, unit: e.target.value as ThresholdUnit })}
-                >
-                  <option value="weeks">周</option>
-                  <option value="days">天</option>
-                  <option value="hours">小时</option>
-                  <option value="minutes">分钟</option>
-                </select>
-                <button className="btn px-2" disabled={!ruleDraft.prefix.trim()} onClick={addRule}>
-                  <Plus size={13} />
+              {addingRule ? (
+                <div className="grid grid-cols-[1fr_5rem_5.5rem_auto] items-center gap-2">
+                  <input
+                    className="input font-mono text-xs"
+                    placeholder="前缀，如 release/"
+                    autoFocus
+                    value={ruleDraft.prefix}
+                    onChange={(e) => setRuleDraft({ ...ruleDraft, prefix: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={maxByUnit[ruleDraft.unit]}
+                    className="input"
+                    value={ruleDraft.value}
+                    onChange={(e) => setRuleDraft({ ...ruleDraft, value: Math.max(1, Number(e.target.value) || 1) })}
+                  />
+                  <select
+                    className="input"
+                    value={ruleDraft.unit}
+                    onChange={(e) => setRuleDraft({ ...ruleDraft, unit: e.target.value as ThresholdUnit })}
+                  >
+                    <option value="weeks">周</option>
+                    <option value="days">天</option>
+                    <option value="hours">小时</option>
+                    <option value="minutes">分钟</option>
+                  </select>
+                  <button
+                    className="btn px-2"
+                    title="确认添加这条规则"
+                    onClick={() => { addRule(); setAddingRule(false) }}
+                  >
+                    <Check size={14} className="text-ok" />
+                  </button>
+                </div>
+              ) : (
+                <button className="btn w-full justify-center gap-1 text-xs" onClick={() => setAddingRule(true)}>
+                  <Plus size={13} /> 添加前缀规则
                 </button>
-              </div>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -261,9 +276,6 @@ export default function Monitoring(): JSX.Element {
               </div>
               <Toggle checked={draft.notificationEnabled} disabled={emailDisabled} onChange={(v) => setDraft({ ...draft, notificationEnabled: v })} />
             </div>
-            <button className="btn btn-primary w-full justify-center" disabled={saving || scanning} onClick={() => void save()}>
-              <Save size={14} /> 保存设置并生效
-            </button>
           </div>
         </Card>
 

@@ -329,8 +329,20 @@ export default function Branches(): JSX.Element {
   const [hoveredBranch, setHoveredBranch] = useState<BranchSummary | null>(null)
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const listScrollRef = useRef<HTMLDivElement | null>(null)
 
   const noSelection = selectedRepositoryIds.length === 0
+
+  // 返回列表时恢复进入详情前的滚动位置，避免跳回列表顶端。
+  useEffect(() => {
+    const saved = sessionStorage.getItem('branches-list-scroll')
+    if (!saved) return
+    sessionStorage.removeItem('branches-list-scroll')
+    const container = listScrollRef.current
+    if (!container) return
+    const top = Number(saved)
+    if (Number.isFinite(top)) requestAnimationFrame(() => { container.scrollTop = top })
+  }, [])
 
   // 筛选条件同步到 URL：进入分支详情再返回时，列表仍保持进入前的过滤状态。
   useEffect(() => {
@@ -790,7 +802,7 @@ export default function Branches(): JSX.Element {
             </div>
             <span className="text-[10px] text-muted">{filtered.length}</span>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className={`${ROW_GRID} sticky top-0 z-10 border-b border-line bg-surface-elevated px-3 py-1.5 text-[10px] text-muted`}>
               <span aria-hidden="true" />
               <span className="text-[10px]" title={zh ? '状态颜色' : 'State color'}>●</span>
@@ -857,7 +869,10 @@ export default function Branches(): JSX.Element {
                       selected={selectedBranch?.id === b.id}
                       checked={selectedIds.has(b.id + '-' + b.type)}
                       onToggle={() => toggleSelect(b)}
-                      onSelect={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
+                      onSelect={() => {
+                        if (listScrollRef.current) sessionStorage.setItem('branches-list-scroll', String(listScrollRef.current.scrollTop))
+                        navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)
+                      }}
                       onHover={(v) => setHoveredBranch(v ? b : null)}
                       onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                       onNotify={() => void handleNotify(b)}
