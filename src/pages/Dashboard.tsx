@@ -322,8 +322,8 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   const selectedPointIndex = selectedPoint ? selectedPoints.findIndex((p) => p.id === selectedPoint.id) : -1
   const selectedBranch = selectedPoint ? branches.find((b) => b.id === selectedPoint.id) ?? null : null
   const selectedPosition = selectedPoint ? positionFor(selectedPoint, selectedPointIndex) : null
-  // 点位越高，详情越容易越过图顶部；高位时改为向下展开，低位时向上弹出。
-  const popupBelow = selectedPosition ? parseFloat(selectedPosition.bottom) >= 60 : false
+  // 上半区的点位向下展开详情，下半区向上弹出，保证弹层始终贴着分支点且不出图框。
+  const popupDown = selectedPosition ? parseFloat(selectedPosition.bottom) >= 50 : false
 
 
   const hasBranches = snapshot.total > 0
@@ -421,8 +421,10 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
                   className="absolute z-20 w-56 rounded-lg border border-line bg-surface px-3 py-2 shadow-lg"
                   style={{
                     left: `clamp(120px, ${selectedPosition.left}, calc(100% - 120px))`,
-                    bottom: popupBelow ? `calc(${selectedPosition.bottom} - 12px)` : `calc(${selectedPosition.bottom} + 12px)`,
-                    transform: popupBelow ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+                    ...(popupDown
+                      ? { top: `clamp(12px, calc(100% - ${selectedPosition.bottom} + 10px), calc(100% - 150px))` }
+                      : { bottom: `clamp(150px, calc(${selectedPosition.bottom} + 10px), calc(100% - 12px))` }),
+                    transform: 'translateX(-50%)'
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">

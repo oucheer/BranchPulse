@@ -50,6 +50,8 @@ export interface EmailSummaryData {
   thresholdHint?: string
   /** 非空时表示这是「某个组」的专项邮件，标题与主题都带上组名。 */
   scopeLabel?: string
+  /** 手工勾选发送时按所选问题类型裁剪正文区块；缺省时全部展示。 */
+  sections?: { stale?: boolean; naming?: boolean }
 }
 
 export type EmailLang = 'en' | 'zh'
@@ -510,10 +512,12 @@ function branchEmailBody(
       body: sections.join('')
     }
   }
-  sections.push(`
+  const showStale = data.sections?.stale !== false
+  const showNaming = data.sections?.naming !== false
+  if (showStale) sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.attention}</h3>
     ${staleIssues.length ? groupedTables(staleIssues, lang, [t.branch, t.creator, t.lastAuthor, t.inactive, t.lastCommit, t.state], ['24%', '17%', '15%', '10%', '20%', '14%'], staleCells) : `<p style="font-size:12px;color:#6b7280">${t.attentionEmpty}</p>`}`)
-  sections.push(`
+  if (showNaming) sections.push(`
     <h3 style="font-size:14px;margin:18px 0 4px">${t.namingTitle}</h3>
     ${namingIssues.length ? groupedTables(namingIssues, lang, [t.branch, t.creator, t.lastAuthor, t.rule, t.reason], ['21%', '16%', '14%', '20%', '29%'], namingCells) : `<p style="font-size:12px;color:#6b7280">${t.namingEmpty}</p>`}`)
   sections.push(`

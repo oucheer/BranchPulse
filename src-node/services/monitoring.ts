@@ -529,6 +529,8 @@ export class MonitoringService {
       .map((id) => this.repositoryService.get(id))
       .filter((repo): repo is Repository => Boolean(repo))
     const summary = this.summarize(branches, Math.max(repos.length, 1))
+    const hasStale = branches.some((b) => b.stale)
+    const hasNaming = branches.some((b) => b.naming.status === 'invalid')
     const data: EmailSummaryData = {
       total: summary.branches,
       stale: summary.stale,
@@ -538,7 +540,8 @@ export class MonitoringService {
       repositories: Math.max(repos.length, 1),
       generatedAt: new Date().toISOString(),
       branches: branches.filter((b) => isMonitoredBranch(b.name)).map(toEmailIssueRow),
-      thresholdHint: this.scopedThresholdHint(repos, (id) => this.readMonitoringRow(id))
+      thresholdHint: this.scopedThresholdHint(repos, (id) => this.readMonitoringRow(id)),
+      sections: { stale: hasStale, naming: hasNaming }
     }
     const result = await this.email.sendSummaryEmail(data)
     return { sent: result.emailsSent ?? 0, message: result.message }
