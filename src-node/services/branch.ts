@@ -307,12 +307,25 @@ export class BranchService {
         branch.creator.confidence !== 'unknown' && !branch.creator.email ? branch.creator.name : ''
       ])
       .filter((name) => name && name !== 'Unknown')
+    // Names seen in commit payloads map to the address each commit actually
+    // used. This covers creators whose GitLab account hides public_email but
+    // who committed with a real address under a matching display name.
+    const commitEmailByName = new Map<string, string>()
+    for (const branch of analyzed) {
+      for (const commit of branch.recentCommits) {
+        const name = commit.authorName?.trim()
+        const email = commit.authorEmail?.trim()
+        if (name && email && !commitEmailByName.has(name.toLowerCase())) commitEmailByName.set(name.toLowerCase(), email)
+      }
+    }
     if (missingAuthorNames.length > 0 && typeof this.gitlab.resolveUserEmailsByNames === 'function') {
       const emailByName = await this.gitlab.resolveUserEmailsByNames(missingAuthorNames, remoteConfig)
       for (const branch of analyzed) {
         const lastAuthorEmail = branch.lastAuthorEmail || emailByName.get(branch.lastAuthor)
         const creatorEmail = branch.creator.confidence !== 'unknown'
-          ? (branch.creator.email || emailByName.get(branch.creator.name))
+          ? (branch.creator.email
+            || commitEmailByName.get(branch.creator.name.toLowerCase())
+            || emailByName.get(branch.creator.name))
           : branch.creator.email
         if (lastAuthorEmail || creatorEmail) {
           branch.lastAuthorEmail = lastAuthorEmail || branch.lastAuthorEmail
@@ -447,7 +460,13 @@ export class BranchService {
     const emailByUsername = typeof this.gitlab.resolveUserEmails === 'function'
       ? await this.gitlab.resolveUserEmails(identityNames, config)
       : new Map<string, string>()
-    const creatorEmail = creator.email || emailForUsername(emailByUsername, creatorEvent?.username)
+    // GitLab hides account emails behind public_email opt-in, but commit
+    // payloads always carry the address used for the commit. The branch's own
+    // first commit is therefore the most reliable address fallback.
+    const creatorEmail = creator.email
+      || emailForUsername(emailByUsername, creatorEvent?.username)
+      || firstOwn?.author_email?.trim()
+      || ''
     const resolvedCreator = creatorEmail ? { ...creator, email: creatorEmail } : creator
     const lastAuthorEmail = latestCommit?.author_email?.trim()
       || emailForUsername(emailByUsername, latestCommit?.author_login)
