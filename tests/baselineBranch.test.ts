@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary } from '@shared/types'
-import { BranchService, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
+import { backfillCachedCreatorEmail, BranchService, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
 import { HealthService } from '../src-node/services/health'
 import { NamingService } from '../src-node/services/naming'
 import { ProtectionService } from '../src-node/services/protection'
@@ -96,6 +96,30 @@ describe('baseline branches stay out of lifecycle scoring', () => {
     expect(feature.state).toBe('stale')
     expect(feature.stale).toBe(true)
     expect(feature.cleanupCandidate).toBe(true)
+  })
+})
+
+describe('cached branch snapshots still backfill creator emails', () => {
+  it('reuses the last author email for a cache hit whose creator name matches', () => {
+    const cached = cachedBranch({
+      creator: { name: '张三', email: '', firstCommitAt: LONG_AGO, confidence: 'medium' },
+      lastAuthor: '张三',
+      lastAuthorEmail: 'zhang@example.com'
+    })
+    expect(backfillCachedCreatorEmail(cached).creator.email).toBe('zhang@example.com')
+  })
+
+  it('backfills from a cached commit authored by the creator when names differ', () => {
+    const cached = cachedBranch({
+      creator: { name: '李四', email: '', firstCommitAt: LONG_AGO, confidence: 'medium' },
+      lastAuthor: '张三',
+      lastAuthorEmail: 'zhang@example.com',
+      recentCommits: [
+        { sha: '1', shortSha: '1', authorName: '李四', authorEmail: 'li@example.com', committedAt: LONG_AGO, subject: 'init' },
+        { sha: '2', shortSha: '2', authorName: '张三', authorEmail: 'zhang@example.com', committedAt: LONG_AGO, subject: 'update' }
+      ]
+    })
+    expect(backfillCachedCreatorEmail(cached).creator.email).toBe('li@example.com')
   })
 })
 

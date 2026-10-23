@@ -54,6 +54,30 @@ export function resolveRemoteCreator(
   return { creator: { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' } }
 }
 
+/**
+ * Older cached snapshots can miss the creator email even though the creator
+ * itself is known. Apply the same fallback chain as a fresh analysis so a
+ * cache hit does not keep showing an empty address until the branch changes.
+ */
+export function backfillCachedCreatorEmail(cached: BranchSummary): BranchSummary {
+  if (cached.creator.confidence === 'unknown' || cached.creator.email || !cached.lastAuthor) return cached
+  const backfilled = { ...cached }
+  const creatorNameLower = cached.creator.name.toLowerCase()
+  if (creatorNameLower === cached.lastAuthor.toLowerCase() && cached.lastAuthorEmail) {
+    backfilled.creator = { ...cached.creator, email: cached.lastAuthorEmail }
+    return backfilled
+  }
+  for (const commit of cached.recentCommits ?? []) {
+    const authorName = commit.authorName?.trim().toLowerCase()
+    const authorEmail = commit.authorEmail?.trim()
+    if (authorName === creatorNameLower && authorEmail) {
+      backfilled.creator = { ...cached.creator, email: authorEmail }
+      break
+    }
+  }
+  return backfilled
+}
+
 interface AnalysisFacts {
   name: string
   type: 'local' | 'remote'
@@ -412,7 +436,7 @@ export class BranchService {
       try {
         const cached = JSON.parse(String(existing.data_json)) as BranchSummary
         if (cached.lastAuthorEmail || cached.creator.email || (!cached.lastAuthor && cached.creator.name === 'Unknown')) {
-          return this.refreshComputed(cached, monitoring, { name: branch.name } as GitRefInfo, '')
+          return this.refreshComputed(backfillCachedCreatorEmail(cached), monitoring, { name: branch.name } as GitRefInfo, '')
         }
       } catch {
         /* fall through */
