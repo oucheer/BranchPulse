@@ -3,6 +3,7 @@ import type {
   BranchState,
   BranchSummary,
   CommitInfo,
+  CreatorInfo,
   HealthResult,
   MonitoringConfig,
   NamingResult,
@@ -23,6 +24,28 @@ import type { BranchCreatorDto, GitLabBranchDto, GitLabCommitDto, GitLabService 
 import { newId } from '../utils/ids'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Keep a creator name, but retain an address only when it is attached to the
+ * forge account. Legacy snapshots and commit signatures do not carry that
+ * proof and must not become notification targets by accident.
+ */
+export function sanitizeCreatorInfo(creator: CreatorInfo): CreatorInfo {
+  const name = String(creator.name ?? '').trim()
+  const email = String(creator.email ?? '').trim()
+  const emailSource = creator.emailSource === 'account' && EMAIL_PATTERN.test(email) ? 'account' : ''
+  if (emailSource === 'account') {
+    return { ...creator, name, email, emailSource, confidence: 'high' }
+  }
+  return {
+    ...creator,
+    name,
+    email: '',
+    emailSource: '',
+    confidence: !name || name === 'Unknown' ? 'unknown' : 'medium'
+  }
+}
 
 /**
  * Decide who created a remote branch.
@@ -38,44 +61,27 @@ export function resolveRemoteCreator(
   _firstOwnCommit: GitLabCommitDto | null,
   creationEvent: BranchCreatorDto | null,
   _branchTip: GitLabCommitDto | null = null
-): { creator: { name: string; email: string; firstCommitAt: string | null; confidence: 'high' | 'medium' | 'low' | 'unknown' } } {
+): { creator: CreatorInfo } {
   if (creationEvent) {
     return {
-      creator: {
+      creator: sanitizeCreatorInfo({
         name: creationEvent.name,
         email: creationEvent.email,
+        emailSource: creationEvent.emailSource,
         firstCommitAt: creationEvent.createdAt,
-        // A known creator without an address is still a correct name, but it
-        // cannot be emailed, so it must not read as fully confident.
         confidence: creationEvent.email ? 'high' : 'medium'
-      }
+      })
     }
   }
-  return { creator: { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' } }
+  return { creator: { name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' } }
 }
 
 /**
- * Older cached snapshots can miss the creator email even though the creator
- * itself is known. Apply the same fallback chain as a fresh analysis so a
- * cache hit does not keep showing an empty address until the branch changes.
+ * Cached snapshots may contain addresses written before provenance existed.
+ * Clear them instead of reconstructing an address from a same-named author.
  */
 export function backfillCachedCreatorEmail(cached: BranchSummary): BranchSummary {
-  if (cached.creator.confidence === 'unknown' || cached.creator.email || !cached.lastAuthor) return cached
-  const backfilled = { ...cached }
-  const creatorNameLower = cached.creator.name.toLowerCase()
-  if (creatorNameLower === cached.lastAuthor.toLowerCase() && cached.lastAuthorEmail) {
-    backfilled.creator = { ...cached.creator, email: cached.lastAuthorEmail }
-    return backfilled
-  }
-  for (const commit of cached.recentCommits ?? []) {
-    const authorName = commit.authorName?.trim().toLowerCase()
-    const authorEmail = commit.authorEmail?.trim()
-    if (authorName === creatorNameLower && authorEmail) {
-      backfilled.creator = { ...cached.creator, email: authorEmail }
-      break
-    }
-  }
-  return backfilled
+  return { ...cached, creator: sanitizeCreatorInfo(cached.creator) }
 }
 
 interface AnalysisFacts {
@@ -325,46 +331,6 @@ export class BranchService {
       throw new Error(`${failureLabel}：${sample}`)
     }
 
-    const missingAuthorNames = analyzed
-      .flatMap((branch) => [
-        !branch.lastAuthorEmail ? branch.lastAuthor : '',
-        branch.creator.confidence !== 'unknown' && !branch.creator.email ? branch.creator.name : ''
-      ])
-      .filter((name) => name && name !== 'Unknown')
-    // Names seen in commit payloads map to the address each commit actually
-    // used. This covers creators whose GitLab account hides public_email but
-    // who committed with a real address under a matching display name.
-    const commitEmailByName = new Map<string, string>()
-    for (const branch of analyzed) {
-      for (const commit of branch.recentCommits) {
-        const name = commit.authorName?.trim()
-        const email = commit.authorEmail?.trim()
-        if (name && email && !commitEmailByName.has(name.toLowerCase())) commitEmailByName.set(name.toLowerCase(), email)
-      }
-    }
-    if (missingAuthorNames.length > 0 && typeof this.gitlab.resolveUserEmailsByNames === 'function') {
-      const emailByName = await this.gitlab.resolveUserEmailsByNames(missingAuthorNames, remoteConfig)
-      for (const branch of analyzed) {
-        const lastAuthorEmail = branch.lastAuthorEmail || emailByName.get(branch.lastAuthor)
-        const creatorMatchesLastAuthor = Boolean(
-          branch.creator.name
-          && branch.lastAuthor
-          && branch.creator.name.toLowerCase() === branch.lastAuthor.toLowerCase()
-        )
-        const creatorEmail = branch.creator.confidence !== 'unknown'
-          ? (branch.creator.email
-            || commitEmailByName.get(branch.creator.name.toLowerCase())
-            || (creatorMatchesLastAuthor ? branch.lastAuthorEmail : '')
-            || (creatorMatchesLastAuthor ? lastAuthorEmail : '')
-            || emailByName.get(branch.creator.name))
-          : branch.creator.email
-        if (lastAuthorEmail || creatorEmail) {
-          branch.lastAuthorEmail = lastAuthorEmail || branch.lastAuthorEmail
-          branch.creator = { ...branch.creator, email: creatorEmail || branch.creator.email }
-        }
-      }
-    }
-
     this.storage.transaction(() => {
       // A complete remote listing is authoritative. Remove cached branches that
       // were deleted remotely so report totals match the latest check.
@@ -429,7 +395,9 @@ export class BranchService {
     // v12: invalidate caches saved by the web build before creator email lookup
     // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    const cacheContentKey = `v12|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    // v14: creator provenance is stricter than v13; cached rows may have
+    // borrowed a tip author's account email when the event lacked a username.
+    const cacheContentKey = `v14|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -486,7 +454,6 @@ export class BranchService {
     const identityNames = [
       latestCommit?.author_login,
       latestCommit?.committer_login,
-      creatorEvent?.username
     ].filter((value): value is string => Boolean(value && value.trim()))
     const emailByUsername = typeof this.gitlab.resolveUserEmails === 'function'
       ? await this.gitlab.resolveUserEmails(identityNames, config)
@@ -502,17 +469,18 @@ export class BranchService {
       || emailForUsername(emailByUsername, latestCommit?.author_login)
       || emailForUsername(emailByUsername, latestCommit?.committer_login)
       || latestCommit?.committer_email?.trim()
-    // GitLab hides account emails behind public_email opt-in, but commit
-    // payloads always carry the address used for the commit. The branch's own
-    // first commit is therefore the most reliable address fallback.
-    const creatorEmail = creator.email
-      || emailForUsername(emailByUsername, creatorEvent?.username)
-      || firstOwn?.author_email?.trim()
-      // The creation event's display name often equals the tip commit author;
-      // reusing that address is exactly the lookup path that already works.
-      || (creator.name && creator.name === lastAuthor ? lastAuthorEmail : undefined)
-      || ''
-    const resolvedCreator = creatorEmail ? { ...creator, email: creatorEmail } : creator
+    // Only the creation event author's own forge account can prove a creator
+    // address. A tip author's account email is delivery data for the last
+    // author and must never migrate to the creator because of a shared display
+    // name or a missing creation-event username.
+    const verifiedCreatorEmail = creator.emailSource === 'account' && creator.email
+      ? creator.email
+      : ''
+    const resolvedCreator = sanitizeCreatorInfo({
+      ...creator,
+      email: verifiedCreatorEmail,
+      emailSource: verifiedCreatorEmail ? 'account' : ''
+    })
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
     const oldestFetched = commits.length > 0
@@ -583,7 +551,7 @@ export class BranchService {
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
       try {
         const cached = JSON.parse(String(existing.data_json)) as BranchSummary
-        return [this.refreshComputed(cached, monitoring, ref, currentBranch)]
+        return [this.refreshComputed(backfillCachedCreatorEmail(cached), monitoring, ref, currentBranch)]
       } catch {
         /* fall through to full analysis */
       }
@@ -630,11 +598,12 @@ export class BranchService {
     const creator: BranchSummary['creator'] = firstCommit
       ? {
           name: firstCommit.authorName,
-          email: firstCommit.authorEmail,
+          email: '',
+          emailSource: '',
           firstCommitAt: firstCommit.committedAt,
-          confidence: mergeBase ? 'high' : 'medium'
+          confidence: 'medium'
         }
-      : { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' }
+      : { name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' }
 
     const createdAt = firstCommit?.committedAt ?? ref.committedAt
     const mergedInto = aheadBehind.ahead === 0 ? defaultBranch : null
@@ -739,6 +708,7 @@ export class BranchService {
   }
 
   private refreshComputed(cached: BranchSummary, monitoring: MonitoringConfig, ref: GitRefInfo, currentBranch: string): BranchSummary {
+    cached = backfillCachedCreatorEmail(cached)
     const now = Date.now()
     const inactiveDays = elapsedDays(cached.lastCommitAt, now)
     const ageDays = elapsedDays(cached.createdAt, now)
@@ -851,5 +821,7 @@ export class BranchService {
 }
 
 function creatorKeyForCache(creator: BranchCreatorDto | undefined): string {
-  return creator ? `${creator.username}|${creator.name}|${creator.email}|${creator.createdAt ?? ''}` : 'unknown'
+  return creator
+    ? `${creator.username}|${creator.name}|${creator.email}|${creator.emailSource}|${creator.createdAt ?? ''}`
+    : 'unknown'
 }

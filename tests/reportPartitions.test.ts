@@ -22,7 +22,7 @@ function branch(name: string, repositoryId: string): BranchSummary {
     existsLocally: false,
     existsRemotely: true,
     isHead: false,
-    creator: { name: '张三', email: 'zhangsan@example.com', firstCommitAt: null, confidence: 'high' },
+    creator: { name: '张三', email: 'zhangsan@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' },
     createdAt: '2026-01-01T00:00:00.000Z',
     lastCommitAt: '2026-01-01T00:00:00.000Z',
     lastCommitSha: 'sha',

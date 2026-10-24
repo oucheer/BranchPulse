@@ -25,7 +25,7 @@ function branch(overrides: Partial<BranchSummary> & { name?: string } = {}): Bra
     existsLocally: false,
     existsRemotely: true,
     isHead: false,
-    creator: { name: '张三', email: 'zhangsan@example.com', firstCommitAt: null, confidence: 'high' },
+    creator: { name: '张三', email: 'zhangsan@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' },
     createdAt: '2026-01-01T00:00:00.000Z',
     lastCommitAt: '2026-01-01T00:00:00.000Z',
     lastCommitSha: 'abc',
@@ -111,7 +111,7 @@ describe('branch ownership rules', () => {
   })
 
   it('matches a branch when only the creator address hits a member', () => {
-    const creatorWithoutName = branch({ creator: { name: '', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } })
+    const creatorWithoutName = branch({ creator: { name: '', email: 'lisi@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } })
     expect(branchBelongsToGroup(group(), creatorWithoutName)).toBe(true)
   })
 
@@ -123,7 +123,7 @@ describe('branch ownership rules', () => {
   })
 
   it('does not claim branches whose creator is unrelated', () => {
-    const other = branch({ creator: { name: '赵六', email: 'zhaoliu@example.com', firstCommitAt: null, confidence: 'high' } })
+    const other = branch({ creator: { name: '赵六', email: 'zhaoliu@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } })
     expect(branchBelongsToGroup(group(), other)).toBe(false)
   })
 
@@ -138,7 +138,7 @@ describe('group branch stats', () => {
     const stats = groupBranchStats([
       branch({ name: 'feature/a' }),
       branch({ name: 'feature/b', state: 'stale', stale: true, inactiveDays: 200 }),
-      branch({ name: 'feature/c', state: 'stale', stale: true, naming: { status: 'invalid' }, cleanupCandidate: true, creator: { name: '李四', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } })
+      branch({ name: 'feature/c', state: 'stale', stale: true, naming: { status: 'invalid' }, cleanupCandidate: true, creator: { name: '李四', email: 'lisi@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } })
     ])
     expect(stats.total).toBe(3)
     expect(stats.active).toBe(1)
@@ -150,14 +150,14 @@ describe('group branch stats', () => {
   })
 
   it('ignores the Unknown placeholder when listing creators', () => {
-    const stats = groupBranchStats([branch({ creator: { name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' } })])
+    const stats = groupBranchStats([branch({ creator: { name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' } })])
     expect(stats.creators).toEqual([])
   })
 })
 
 describe('creator options for the people filter', () => {
   it('groups branches by creator and counts them', () => {
-    const options = creatorOptions([branch({ name: 'a' }), branch({ name: 'b' }), branch({ name: 'c', creator: { name: '李四', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } })])
+    const options = creatorOptions([branch({ name: 'a' }), branch({ name: 'b' }), branch({ name: 'c', creator: { name: '李四', email: 'lisi@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } })])
     expect(options.map((option) => [option.name, option.branches])).toEqual([
       ['张三', 2],
       ['李四', 1]
@@ -167,13 +167,13 @@ describe('creator options for the people filter', () => {
   it('matches a branch on either the name or the address', () => {
     const option = { name: '张三', email: 'zhangsan@example.com', branches: 1 }
     expect(branchMatchesCreatorOption(branch(), option)).toBe(true)
-    expect(branchMatchesCreatorOption(branch({ creator: { name: '', email: 'zhangsan@example.com', firstCommitAt: null, confidence: 'high' } }), option)).toBe(true)
-    expect(branchMatchesCreatorOption(branch({ creator: { name: '李四', email: 'lisi@example.com', firstCommitAt: null, confidence: 'high' } }), option)).toBe(false)
+    expect(branchMatchesCreatorOption(branch({ creator: { name: '', email: 'zhangsan@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } }), option)).toBe(true)
+    expect(branchMatchesCreatorOption(branch({ creator: { name: '李四', email: 'lisi@example.com', emailSource: 'account', firstCommitAt: null, confidence: 'high' } }), option)).toBe(false)
   })
 
   it('recovers a missing address from a later branch of the same person', () => {
     const options = creatorOptions([
-      branch({ name: 'a', creator: { name: '张三', email: '', firstCommitAt: null, confidence: 'high' } }),
+      branch({ name: 'a', creator: { name: '张三', email: '', emailSource: '', firstCommitAt: null, confidence: 'medium' } }),
       branch({ name: 'b' })
     ])
     expect(options).toHaveLength(1)

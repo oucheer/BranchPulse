@@ -66,6 +66,8 @@ export interface BranchCreatorDto {
   username: string
   createdAt: string | null
   source: 'event'
+  /** Only a forge account lookup or public account email can set this. */
+  emailSource: 'account' | ''
 }
 
 export interface GitLabCommitDto {
@@ -240,8 +242,10 @@ export class GitLabService {
   private userProfileCache = new Map<string, { name: string; email: string } | null>()
 
   /** Cache key: the same login can exist on two hosts with different addresses. */
-  private userEmailKey(username: string): string {
-    const host = this.settings.get().gitlabUrl.replace(/\/+$/, '')
+  private userEmailKey(username: string, config?: GitLabConnectionConfig): string {
+    const host = String(config?.url?.trim() || this.settings.get().gitlabUrl)
+      .replace(/\/+$/, '')
+      .toLowerCase()
     return `${host}|${username.toLowerCase()}`
   }
 
@@ -769,17 +773,23 @@ export class GitLabService {
           email: '',
           username,
           createdAt: typeof event.created_at === 'string' ? event.created_at : null,
-          source: 'event'
+          source: 'event',
+          emailSource: ''
         })
         if (username) usernames.add(username)
       }
       await Promise.all([...usernames].map(async (username) => {
         try {
           const profile = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(username)}`, config)
+          const profileLogin = String(profile.login ?? '').trim()
+          if (!profileLogin || profileLogin.toLowerCase() !== username.toLowerCase()) {
+            throw new Error(`GitHub profile login mismatch for ${username}`)
+          }
           for (const creator of creators.values()) {
             if (creator.username !== username) continue
             creator.name = String(profile.name ?? '').trim() || creator.name
             creator.email = String(profile.email ?? '').trim()
+            if (creator.email) creator.emailSource = 'account'
           }
         } catch {
           // The event actor remains usable when profile access is restricted.
@@ -833,10 +843,11 @@ export class GitLabService {
         if (!name) continue
         creators.set(branch, {
           name,
-          email: String(author.public_email ?? author.email ?? row.author_email ?? '').trim(),
+          email: String(author.public_email ?? '').trim(),
           username,
           createdAt: typeof row.created_at === 'string' ? row.created_at : null,
-          source: 'event'
+          source: 'event',
+          emailSource: String(author.public_email ?? '').trim() ? 'account' : ''
         })
       }
     }
@@ -854,7 +865,10 @@ export class GitLabService {
         const profile = profiles.get(creator.username.toLowerCase())
         if (!profile) continue
         creator.name = profile.name || creator.name
-        if (!creator.email) creator.email = profile.email
+        if (!creator.email && profile.email) {
+          creator.email = profile.email
+          creator.emailSource = 'account'
+        }
       }
     }
     return creators
@@ -867,7 +881,7 @@ export class GitLabService {
     const profiles = new Map<string, { name: string; email: string }>()
     const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
       .filter((username) => {
-        const cached = this.userProfileCache.get(this.userEmailKey(username))
+        const cached = this.userProfileCache.get(this.userEmailKey(username, config))
         if (cached === undefined) return true
         if (cached) profiles.set(username.toLowerCase(), cached)
         return false
@@ -880,12 +894,12 @@ export class GitLabService {
         const match = Array.isArray(rows)
           ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
           : undefined
-        this.userProfileCache.set(this.userEmailKey(username), match ? {
+        this.userProfileCache.set(this.userEmailKey(username, config), match ? {
           name: String(match.name ?? '').trim(),
           email: String(match.public_email ?? '').trim() || String(match.email ?? '').trim()
         } : null)
         if (match) {
-          profiles.set(username.toLowerCase(), this.userProfileCache.get(this.userEmailKey(username))!)
+          profiles.set(username.toLowerCase(), this.userProfileCache.get(this.userEmailKey(username, config))!)
         }
       } catch {
         // Event identity remains valid even when profile access is restricted.
@@ -895,13 +909,16 @@ export class GitLabService {
   }
 
   /**
-   * Resolve the public address of forge accounts by username.
+   * Resolve the public address of forge accounts by exact username.
    *
    * GitLab hides `public_email` on commit and event payloads whenever the user
    * did not opt in, but the user directory still reports it (and, on instances
    * that expose it, the account `email`). Without this lookup a branch created
    * from the web UI that carries no commit has a correct creator name and no
    * way to reach them.
+   *
+   * The username must match exactly. Falling back to the first search result
+   * would attach a same-named stranger's address to the branch creator.
    *
    * Bounded on purpose: one request per distinct username per scan, cached for
    * the process lifetime, and any failure degrades to "no address" instead of
@@ -916,7 +933,7 @@ export class GitLabService {
     if (provider !== 'gitlab') return resolved
     const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
       .filter((username) => {
-        const cached = this.userEmailCache.get(this.userEmailKey(username))
+        const cached = this.userEmailCache.get(this.userEmailKey(username, config))
         // Empty misses may come from a transient or permission-filtered
         // directory response and must remain retryable.
         if (!cached) return true
@@ -933,37 +950,11 @@ export class GitLabService {
         continue
       }
       const match = Array.isArray(rows)
-        ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase()) ?? rows[0]
+        ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
         : undefined
       const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
-      this.userEmailCache.set(this.userEmailKey(username), email)
+      this.userEmailCache.set(this.userEmailKey(username, config), email)
       if (email) resolved.set(username, email)
-    }
-    return resolved
-  }
-
-  /** Resolve commit identities when the commit API exposes a name but no login/email. */
-  async resolveUserEmailsByNames(
-    names: string[],
-    config?: GitLabConnectionConfig
-  ): Promise<Map<string, string>> {
-    const resolved = new Map<string, string>()
-    const { provider } = this.resolve(config)
-    if (provider !== 'gitlab') return resolved
-    for (const rawName of [...new Set(names.map((name) => name.trim()).filter(Boolean))].slice(0, MAX_CREATOR_EMAIL_LOOKUPS)) {
-      try {
-        const qs = new URLSearchParams({ search: rawName, per_page: '20' })
-        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
-        const normalized = rawName.toLowerCase()
-        const match = Array.isArray(rows)
-          ? rows.find((row) => String(row.name ?? '').trim().toLowerCase() === normalized)
-            ?? rows.find((row) => String(row.username ?? '').trim().toLowerCase() === normalized)
-          : undefined
-        const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
-        if (email) resolved.set(rawName, email)
-      } catch {
-        // Missing directory access must not make an otherwise valid scan fail.
-      }
     }
     return resolved
   }

@@ -39,8 +39,8 @@ function withCreatorNotes(
   if (creators.addresses.length > 0) {
     notes.push(`创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`)
   }
-  if (creators.missing.length > 0) notes.push(`缺少有效邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
-  if (creators.fallback.length > 0) notes.push(`创始人未找到，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
+  if (creators.missing.length > 0) notes.push(`无有效收件人邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
+  if (creators.fallback.length > 0) notes.push(`创始人邮箱无法确认，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
   return notes.length > 0 ? `${message}（${notes.join('；')}）` : message
 }
 
@@ -51,7 +51,7 @@ function appendCreatorSection(
   creators: CreatorRecipients,
   storage: StorageService
 ): string {
-  if (creators.addresses.length === 0 && creators.missing.length === 0) return html
+  if (creators.addresses.length === 0 && creators.missing.length === 0 && creators.fallback.length === 0) return html
   let section = ''
   try {
     section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage), creators.fallback)
@@ -276,7 +276,7 @@ export class ReportScheduleService {
       this.manualSendFinishedAt = new Date().toISOString()
       this.manualSendLastResult = {
         ok: false,
-        message: `范围内的分支创始人都没有有效邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
+        message: `范围内没有可用的创始人或最后提交人邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
         emailsSent: 0
       }
       this.audit.record(
@@ -322,6 +322,7 @@ export class ReportScheduleService {
           recipients: result.recipients ?? toHeader,
           creatorRecipients: creators.addresses,
           ...(ccHeader.length > 0 ? { cc: ccHeader } : {}),
+          creatorFallbackRecipients: creators.fallback,
           creatorsWithoutEmail: creators.missing,
           ok: result.ok
         },
@@ -431,7 +432,8 @@ export class ReportScheduleService {
                 id: schedule.id,
                 name: schedule.name,
                 reason: !selfAddress ? 'self_email_missing' : 'recipients_empty',
-                input: schedule.recipients
+                input: schedule.recipients,
+                creatorsWithoutEmail: creators.missing
               }, 'failure')
             }
             const auditedGroups = [
@@ -461,6 +463,12 @@ export class ReportScheduleService {
               const toHeader = recipients.length > 0 ? recipients : groupCcRecipients
               const ccHeader = recipients.length > 0 ? groupCcRecipients : []
               await send(toHeader, ccHeader)
+              this.audit.record('report_schedule_creator_recipients', {
+                id: schedule.id,
+                verifiedCreatorRecipients: creators.addresses,
+                fallbackRecipients: creators.fallback,
+                skipped: creators.missing
+              }, creators.missing.length > 0 ? 'failure' : 'success')
               for (const { group, delivery } of auditedGroups) {
                 const members = groupRecipients(group)
                 if (members.length === 0) continue

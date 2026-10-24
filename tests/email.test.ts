@@ -11,6 +11,7 @@ const row: EmailIssueRow = {
   branch: 'feature/login/page',
   creator: '张三',
   creatorEmail: 'zhang@example.com',
+  creatorEmailSource: 'account',
   lastCommitDate: '2026-05-01',
   lastCommitAt: '2026-05-01T00:00:00.000Z',
   inactiveDays: 200,

@@ -31,7 +31,7 @@ function cachedBranch(overrides: Partial<BranchSummary>): BranchSummary {
     existsLocally: false,
     existsRemotely: true,
     isHead: false,
-    creator: { name: '张三', email: 'zhang@example.com', firstCommitAt: LONG_AGO, confidence: 'medium' },
+    creator: { name: '张三', email: 'zhang@example.com', emailSource: 'account', firstCommitAt: LONG_AGO, confidence: 'high' },
     createdAt: LONG_AGO,
     lastCommitAt: LONG_AGO,
     lastCommitSha: 'abc',
@@ -99,19 +99,24 @@ describe('baseline branches stay out of lifecycle scoring', () => {
   })
 })
 
-describe('cached branch snapshots still backfill creator emails', () => {
-  it('reuses the last author email for a cache hit whose creator name matches', () => {
+describe('cached branch snapshots never invent creator emails', () => {
+  it('clears an old creator email when the snapshot has no verified source', () => {
     const cached = cachedBranch({
-      creator: { name: '张三', email: '', firstCommitAt: LONG_AGO, confidence: 'medium' },
+      creator: { name: '张三', email: 'zhang@example.com', emailSource: '', firstCommitAt: LONG_AGO, confidence: 'high' },
       lastAuthor: '张三',
       lastAuthorEmail: 'zhang@example.com'
     })
-    expect(backfillCachedCreatorEmail(cached).creator.email).toBe('zhang@example.com')
+    expect(backfillCachedCreatorEmail(cached).creator).toMatchObject({
+      name: '张三',
+      email: '',
+      emailSource: '',
+      confidence: 'medium'
+    })
   })
 
-  it('backfills from a cached commit authored by the creator when names differ', () => {
+  it('does not recover an address from a commit authored under the same name', () => {
     const cached = cachedBranch({
-      creator: { name: '李四', email: '', firstCommitAt: LONG_AGO, confidence: 'medium' },
+      creator: { name: '李四', email: '', emailSource: '', firstCommitAt: LONG_AGO, confidence: 'medium' },
       lastAuthor: '张三',
       lastAuthorEmail: 'zhang@example.com',
       recentCommits: [
@@ -119,7 +124,30 @@ describe('cached branch snapshots still backfill creator emails', () => {
         { sha: '2', shortSha: '2', authorName: '张三', authorEmail: 'zhang@example.com', committedAt: LONG_AGO, subject: 'update' }
       ]
     })
-    expect(backfillCachedCreatorEmail(cached).creator.email).toBe('li@example.com')
+    expect(backfillCachedCreatorEmail(cached).creator.email).toBe('')
+  })
+
+  it('retains an address explicitly verified from the forge account', () => {
+    const cached = cachedBranch({
+      creator: { name: '张三', email: 'zhang@example.com', emailSource: 'account', firstCommitAt: LONG_AGO, confidence: 'high' }
+    })
+    expect(backfillCachedCreatorEmail(cached).creator).toMatchObject({
+      email: 'zhang@example.com',
+      emailSource: 'account',
+      confidence: 'high'
+    })
+  })
+
+  it('clears an account-marked address when the address itself is invalid', () => {
+    const cached = cachedBranch({
+      creator: { name: '张三', email: 'not-an-email', emailSource: 'account', firstCommitAt: LONG_AGO, confidence: 'high' }
+    })
+    expect(backfillCachedCreatorEmail(cached).creator).toMatchObject({
+      name: '张三',
+      email: '',
+      emailSource: '',
+      confidence: 'medium'
+    })
   })
 })
 
@@ -142,7 +170,7 @@ describe('resolveRemoteCreator', () => {
 
   it('does not infer the creator from a branch-only commit', () => {
     const { creator } = resolveRemoteCreator(commit() as never, null)
-    expect(creator).toEqual({ name: 'Unknown', email: '', firstCommitAt: null, confidence: 'unknown' })
+    expect(creator).toEqual({ name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' })
   })
 
   it('uses the forge creation event when the branch has no commits of its own', () => {
@@ -151,7 +179,8 @@ describe('resolveRemoteCreator', () => {
       email: 'wang@example.com',
       username: 'wangwu',
       createdAt: '2026-02-02T00:00:00.000Z',
-      source: 'event'
+      source: 'event',
+      emailSource: 'account'
     })
     expect(creator.name).toBe('王五')
     expect(creator.email).toBe('wang@example.com')
@@ -167,7 +196,8 @@ describe('resolveRemoteCreator', () => {
       email: '',
       username: 'zhaoliu',
       createdAt: null,
-      source: 'event'
+      source: 'event',
+      emailSource: ''
     })
     expect(creator.name).toBe('赵六')
     expect(creator.email).toBe('')
@@ -188,10 +218,28 @@ describe('resolveRemoteCreator', () => {
       email: '',
       username: 'wangwu',
       createdAt: null,
-      source: 'event'
+      source: 'event',
+      emailSource: ''
     })
     expect(creator.email).toBe('')
     expect(creator.confidence).toBe('medium')
+  })
+
+  it('drops an account source when the address is invalid', () => {
+    const { creator } = resolveRemoteCreator(null, {
+      name: '王五',
+      email: 'not-an-email',
+      emailSource: 'account',
+      username: 'wangwu',
+      createdAt: null,
+      source: 'event'
+    })
+    expect(creator).toMatchObject({
+      name: '王五',
+      email: '',
+      emailSource: '',
+      confidence: 'medium'
+    })
   })
 })
 

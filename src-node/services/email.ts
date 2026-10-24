@@ -19,6 +19,7 @@ export interface EmailIssueRow {
   branch: string
   creator: string
   creatorEmail: string
+  creatorEmailSource: 'account' | ''
   lastAuthor?: string
   lastAuthorEmail?: string
   lastCommitDate: string
@@ -73,6 +74,7 @@ export function toEmailIssueRow(branch: BranchSummary): EmailIssueRow {
     branch: branch.displayName,
     creator: branch.creator.name,
     creatorEmail: branch.creator.email,
+    creatorEmailSource: branch.creator.emailSource,
     lastAuthor: branch.lastAuthor,
     lastAuthorEmail: branch.lastAuthorEmail,
     lastCommitDate: branch.lastCommitAt ? new Date(branch.lastCommitAt).toLocaleString() : '-',
@@ -416,12 +418,14 @@ function branchEmailBody(
   ]
   const stalePercent = data.total ? Math.round((data.stale / data.total) * 100) : 0
   const creatorLabel = (row: EmailIssueRow): string => {
-    if (row.creator && row.creator !== 'Unknown') return escapeHtml(row.creator)
+    if (row.creator && row.creator !== 'Unknown') {
+      return `${escapeHtml(row.creator)}${row.creatorEmailSource === 'account' ? '' : ` (${lang === 'zh' ? '邮箱未验证' : 'email unverified'})`}`
+    }
     const fallback = row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')
     return `${escapeHtml(fallback)} (${lang === 'zh' ? '最后提交人，待确认创始人' : 'last author; creator unverified'})`
   }
   const creatorReviewRows = data.branches
-    .filter((row) => !row.creator || row.creator === 'Unknown')
+    .filter((row) => !row.creator || row.creator === 'Unknown' || row.creatorEmailSource !== 'account')
     .sort((a, b) => a.repository.localeCompare(b.repository) || a.branch.localeCompare(b.branch))
 
   const staleIssues = data.branches
@@ -453,7 +457,7 @@ function branchEmailBody(
     branchCell(row.branch),
     creatorLabel(row),
     escapeHtml(row.lastAuthor || (lang === 'zh' ? '未获取' : 'Unavailable')),
-    escapeHtml(row.creatorEmail || '-'),
+    escapeHtml(row.creatorEmailSource === 'account' && EMAIL_PATTERN.test(row.creatorEmail) ? row.creatorEmail : '-'),
     stateLabel(row.state, lang),
     namingLabel(row.namingStatus, lang),
     String(row.healthScore),
@@ -502,7 +506,9 @@ function branchEmailBody(
   if (includeCreatorReview && creatorReviewRows.length) {
     sections.push(`<div style="margin-top:14px;border:1px solid #f2c94c;background:#fff9e6;border-radius:6px;padding:10px 12px;color:#7a5b00;font-size:12px">
       <strong>${lang === 'zh' ? '分支创始人需要确认' : 'Creator confirmation required'}</strong>
-      <ul style="margin:6px 0 0 18px;padding:0">${creatorReviewRows.map((row) => `<li>${escapeHtml(row.repository)} / ${escapeHtml(row.branch)}：${lang === 'zh' ? `无法找到该分支创始人，最后提交人是${row.lastAuthor || '未获取'}，请其确认该分支情况` : `The branch creator could not be found; the last author is ${row.lastAuthor || 'unavailable'}. Please ask them to confirm this branch.`}</li>`).join('')}</ul>
+      <ul style="margin:6px 0 0 18px;padding:0">${creatorReviewRows.map((row) => `<li>${escapeHtml(row.repository)} / ${escapeHtml(row.branch)}：${lang === 'zh'
+        ? `${row.creator && row.creator !== 'Unknown' ? `创始人 ${row.creator} 的邮箱无法通过平台账号确认` : '无法确认该分支创始人'}，最后提交人是${row.lastAuthor || '未获取'}${EMAIL_PATTERN.test(String(row.lastAuthorEmail ?? '')) ? '，通知将改发给最后提交人' : '，且最后提交人无有效邮箱'}`
+        : `${row.creator && row.creator !== 'Unknown' ? `The creator email for ${row.creator} could not be verified from the forge account` : 'The branch creator could not be confirmed'}; the last author is ${row.lastAuthor || 'unavailable'}${EMAIL_PATTERN.test(String(row.lastAuthorEmail ?? '')) ? ' and will receive the fallback notification' : ' and no valid fallback email is available'}.`}</li>`).join('')}</ul>
     </div>`)
   }
   if (compact) {
@@ -617,7 +623,9 @@ function scenarioRowsTable(rows: EmailIssueRow[], lang: EmailLang, scenario: Cre
   const tableRows = rows.map((row) => [
     escapeHtml(row.repository || '-'),
     `<code>${escapeHtml(row.branch)}</code>`,
-    row.creator && row.creator !== 'Unknown' ? escapeHtml(row.creator) : `${escapeHtml(row.lastAuthor || (zh ? '未获取' : 'Unavailable'))} (${zh ? '最后提交人，待确认创始人' : 'last author; creator unverified'})`,
+    row.creator && row.creator !== 'Unknown'
+      ? `${escapeHtml(row.creator)}${row.creatorEmailSource === 'account' ? '' : ` (${zh ? '邮箱未验证' : 'email unverified'})`}`
+      : `${escapeHtml(row.lastAuthor || (zh ? '未获取' : 'Unavailable'))} (${zh ? '最后提交人，待确认创始人' : 'last author; creator unverified'})`,
     escapeHtml(row.lastAuthor || (zh ? '未获取' : 'Unavailable')),
     escapeHtml(formatDateTime(row.lastCommitAt ?? row.lastCommitDate, lang)),
     String(row.inactiveDays),
@@ -672,37 +680,131 @@ export function creatorDigestEmail(
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** 报告/汇总邮件的创始人收件人：去重后放进同一封邮件，而不是逐人逐分支重复发送。 */
-export function collectCreatorAddresses(rows: EmailIssueRow[]): { to: string[]; missing: string[]; fallback: string[] } {
-  const to: string[] = []
+export type CreatorRecipientKind = 'creator' | 'last-author' | 'missing'
+
+export interface CreatorRecipientDecision {
+  kind: CreatorRecipientKind
+  address: string
+  reason:
+    | 'verified-creator'
+    | 'creator-email-unverified-last-author-fallback'
+    | 'no-valid-recipient-email'
+}
+
+/**
+ * One decision function for every notification path. A creator email is usable
+ * only when the forge account itself verified it; otherwise a valid last-author
+ * address is an explicit, auditable fallback.
+ */
+export function resolveCreatorRecipient(row: EmailIssueRow): CreatorRecipientDecision {
+  const creatorAddress = String(row.creatorEmail ?? '').trim()
+  if (row.creatorEmailSource === 'account' && EMAIL_PATTERN.test(creatorAddress)) {
+    return { kind: 'creator', address: creatorAddress, reason: 'verified-creator' }
+  }
+  const fallbackAddress = String(row.lastAuthorEmail ?? '').trim()
+  if (EMAIL_PATTERN.test(fallbackAddress)) {
+    return {
+      kind: 'last-author',
+      address: fallbackAddress,
+      reason: 'creator-email-unverified-last-author-fallback'
+    }
+  }
+  return { kind: 'missing', address: '', reason: 'no-valid-recipient-email' }
+}
+
+export interface CreatorRecipientGroup {
+  kind: Exclude<CreatorRecipientKind, 'missing'>
+  address: string
+  rows: EmailIssueRow[]
+}
+
+export interface GroupedCreatorRecipients {
+  groups: CreatorRecipientGroup[]
+  missing: string[]
+}
+
+export interface CreatorAddressCollection {
+  /** Every valid address, including explicit last-author fallbacks. */
+  to: string[]
+  verifiedCreatorRecipients: string[]
+  fallbackRecipients: string[]
+  fallback: string[]
+  missing: string[]
+  skipped: string[]
+  skippedReasons: string[]
+}
+
+function missingRecipientLabel(row: EmailIssueRow): string {
+  const name = String(row.creator ?? '').trim()
+  const lastAuthor = String(row.lastAuthor ?? '').trim()
+  return name && name !== 'Unknown'
+    ? `${name}（创始人邮箱无法确认，最后提交人无有效邮箱）`
+    : `${lastAuthor || '未获取最后提交人'}（无法确认创始人，最后提交人无有效邮箱）`
+}
+
+/**
+ * Group notifications by normalized address. If any branch proves the address
+ * belongs to its creator account, the whole group is creator-owned; otherwise
+ * it remains an explicit last-author fallback. This prevents row order from
+ * changing the audit classification or recipient wording.
+ */
+export function groupCreatorRecipients(rows: EmailIssueRow[]): GroupedCreatorRecipients {
+  const groups = new Map<string, CreatorRecipientGroup>()
   const missing: string[] = []
-  const fallbackAddresses: string[] = []
-  const seenAddr = new Set<string>()
   const seenMissing = new Set<string>()
   for (const row of rows) {
-    const creatorKnown = Boolean(row.creator && row.creator !== 'Unknown')
-    const creatorAddress = String(row.creatorEmail ?? '').trim()
-    const fallbackAddress = String(row.lastAuthorEmail ?? '').trim()
-    const address = creatorKnown ? creatorAddress : fallbackAddress
-    const key = address.toLowerCase()
-    if (address && EMAIL_PATTERN.test(address)) {
-      if (!seenAddr.has(key)) {
-        seenAddr.add(key)
-        to.push(address)
-        if (!creatorKnown) fallbackAddresses.push(address)
+    const decision = resolveCreatorRecipient(row)
+    if (decision.kind === 'missing') {
+      const label = missingRecipientLabel(row)
+      if (!seenMissing.has(label)) {
+        seenMissing.add(label)
+        missing.push(label)
       }
       continue
     }
-    const name = String(row.creator ?? '').trim()
-    const missingLabel = creatorKnown
-      ? (name || address || '未知创始人')
-      : `${row.lastAuthor || '未获取最后提交人'}（无法找到创始人）`
-    if (!seenMissing.has(missingLabel)) {
-      seenMissing.add(missingLabel)
-      missing.push(missingLabel)
+    const key = decision.address.trim().toLowerCase()
+    const existing = groups.get(key)
+    if (existing) {
+      existing.rows.push(row)
+      if (decision.kind === 'creator') existing.kind = 'creator'
+    } else {
+      groups.set(key, {
+        kind: decision.kind,
+        address: key,
+        rows: [row]
+      })
     }
   }
-  return { to, missing, fallback: fallbackAddresses }
+  const kindOrder: Record<CreatorRecipientGroup['kind'], number> = {
+    creator: 0,
+    'last-author': 1
+  }
+  return {
+    groups: [...groups.values()].sort((a, b) =>
+      kindOrder[a.kind] - kindOrder[b.kind] || a.address.localeCompare(b.address)
+    ),
+    missing
+  }
+}
+
+/** 报告/汇总邮件的创始人收件人：去重后放进同一封邮件，而不是逐人逐分支重复发送。 */
+export function collectCreatorAddresses(rows: EmailIssueRow[]): CreatorAddressCollection {
+  const { groups, missing } = groupCreatorRecipients(rows)
+  const verifiedCreatorRecipients = groups
+    .filter((group) => group.kind === 'creator')
+    .map((group) => group.address)
+  const fallbackRecipients = groups
+    .filter((group) => group.kind === 'last-author')
+    .map((group) => group.address)
+  return {
+    to: [...verifiedCreatorRecipients, ...fallbackRecipients],
+    verifiedCreatorRecipients,
+    fallbackRecipients,
+    fallback: fallbackRecipients,
+    missing,
+    skipped: missing,
+    skippedReasons: missing
+  }
 }
 
 /** 报告邮件里的「创始人通知范围」区块：说明同一封邮件覆盖了谁、跳过了谁。 */
@@ -714,21 +816,21 @@ export function creatorNotificationSection(
 ): string {
   if (addresses.length === 0 && missing.length === 0 && fallbackAddresses.length === 0) return ''
   const zh = lang === 'zh'
-  const title = zh ? '分支创始人通知范围' : 'Branch creators notified'
+  const title = zh ? '分支异常通知范围' : 'Branch issue notification scope'
   const noted = addresses.length
     ? zh
-      ? `<p style="font-size:12px;margin:6px 0 0">本邮件已发送给以下 ${addresses.length} 位分支创始人：${escapeHtml(addresses.join('、'))}</p>`
-      : `<p style="font-size:12px;margin:6px 0 0">This email is addressed to ${addresses.length} branch creator(s): ${escapeHtml(addresses.join(', '))}</p>`
+      ? `<p style="font-size:12px;margin:6px 0 0">平台账号已验证创始人收件人（${addresses.length}）：${escapeHtml(addresses.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0">Verified creator account recipients (${addresses.length}): ${escapeHtml(addresses.join(', '))}</p>`
     : ''
   const skipped = missing.length
     ? zh
-      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">因缺少有效邮箱未通知（请补充邮箱后重试）：${escapeHtml(missing.join('、'))}</p>`
-      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">Not notified (missing email): ${escapeHtml(missing.join(', '))}</p>`
+      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">无有效创始人邮箱且无有效最后提交人邮箱，已跳过并记录原因：${escapeHtml(missing.join('、'))}</p>`
+      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">Skipped and recorded because neither a verified creator email nor a valid last-author email was available: ${escapeHtml(missing.join(', '))}</p>`
     : ''
   const fallback = fallbackAddresses.length
     ? zh
-      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">因无法找到分支创始人，以下最后提交人邮箱作为回退收件人：${escapeHtml(fallbackAddresses.join('、'))}。邮件正文已标明需其确认分支情况。</p>`
-      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">The creator could not be found, so these last-author addresses were used as fallback recipients: ${escapeHtml(fallbackAddresses.join(', '))}. The email identifies the branches that need confirmation.</p>`
+      ? `<p style="font-size:12px;margin:6px 0 0;color:#b54708">最后提交人回退收件人（${fallbackAddresses.length}，创始人邮箱无法通过平台账号确认）：${escapeHtml(fallbackAddresses.join('、'))}。请最后提交人协助确认分支情况。</p>`
+      : `<p style="font-size:12px;margin:6px 0 0;color:#b54708">Last-author fallback recipients (${fallbackAddresses.length}; creator email could not be verified from the forge account): ${escapeHtml(fallbackAddresses.join(', '))}. Please ask them to confirm these branches.</p>`
     : ''
   return `
   <section style="margin-top:20px;border:1px solid #e2e6ea;border-radius:8px;padding:14px 18px">
@@ -1075,32 +1177,27 @@ export class EmailService {
     const transport = this.buildTransport(config)
     const lang = readEmailLang(this.storage)
     if (!cfg.enabled) return { ok: false, message: lang === 'zh' ? '邮件发送未启用。' : 'Email sending is disabled.', emailsSent: 0 }
-    const groups = new Map<string, EmailIssueRow[]>()
-    for (const row of rows) {
-      const creatorKnown = Boolean(row.creator && row.creator !== 'Unknown')
-      const target = creatorKnown ? row.creatorEmail : row.lastAuthorEmail
-      const key = (target || row.creator || row.lastAuthor || 'unknown').trim().toLowerCase()
-      const list = groups.get(key) ?? []
-      list.push(row)
-      groups.set(key, list)
-    }
+    const grouped = groupCreatorRecipients(rows)
     const recipients: string[] = []
-    const skipped: string[] = []
+    const skipped = grouped.missing
+    const fallbackRecipients = grouped.groups
+      .filter((group) => group.kind === 'last-author')
+      .map((group) => group.address)
+    const verifiedCreatorRecipients = grouped.groups
+      .filter((group) => group.kind === 'creator')
+      .map((group) => group.address)
+    const recipientPlan = grouped.groups.map((group) => ({
+      kind: group.kind,
+      address: group.address,
+      branches: group.rows.map((row) => `${row.repository}/${row.branch}`)
+    }))
     let sent = 0
     let failed = 0
     const failures: string[] = []
     try {
-      for (const [key, branchRows] of groups) {
-        const first = branchRows[0]
-        const creatorKnown = Boolean(first.creator && first.creator !== 'Unknown')
-        const to = String(creatorKnown ? first.creatorEmail : first.lastAuthorEmail || '').trim()
-        if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-          skipped.push(creatorKnown
-            ? (first.creator ? `${first.creator}（无有效邮箱）` : String(key))
-            : `${first.lastAuthor || '未获取最后提交人'}（无法找到创始人且最后提交人无有效邮箱）`)
-          continue
-        }
-        const issueRows = branchRows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid')
+      for (const group of grouped.groups) {
+        const to = group.address
+        const issueRows = group.rows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid')
         if (issueRows.length === 0) continue
         const email = creatorDigestEmail(issueRows, lang, options?.thresholdHint)
         try {
@@ -1123,23 +1220,44 @@ export class EmailService {
     }
     const details = failures.slice(0, 3).join('; ')
     if (failed > 0) {
-      this.audit.record('email_creator_sent', { recipients, count: sent, failed, errors: failures }, sent > 0 ? 'success' : 'failure')
+      this.audit.record('email_creator_sent', {
+        recipients,
+        verifiedCreatorRecipients,
+        fallbackRecipients,
+        count: sent,
+        failed,
+        skipped,
+        recipientPlan,
+        skippedReasons: grouped.missing,
+        errors: failures
+      }, sent > 0 ? 'success' : 'failure')
       const configHint = '请确认设置中的发件邮箱服务器、用户名与密码正确，并检查网络与加密方式。'
       const suffix = details ? ` 失败原因：${details}` : configHint
       return {
         ok: sent > 0,
         message: sent > 0
-          ? `已发送 ${sent} 封创始人邮件，${failed} 封失败。${suffix}`
-          : `创始人邮件发送失败（共 ${failed} 封）。${suffix}` ,
+          ? `已发送 ${sent} 封分支异常通知邮件，${failed} 封失败。${suffix}`
+          : `分支异常通知邮件发送失败（共 ${failed} 封）。${suffix}` ,
         technical: failures.join('\n'),
         emailsSent: sent
       }
     }
-    this.audit.record('email_creator_sent', { recipients, count: sent, skipped }, 'success')
-    const skipText = skipped.length > 0 ? `；${skipped.length} 个创始人缺少有效邮箱已跳过：${skipped.slice(0, 3).join('、')}` : ''
+    this.audit.record('email_creator_sent', {
+      recipients,
+      verifiedCreatorRecipients,
+      fallbackRecipients,
+      count: sent,
+      skipped,
+      recipientPlan,
+      skippedReasons: grouped.missing
+    }, 'success')
+    const fallbackText = fallbackRecipients.length > 0
+      ? `；${fallbackRecipients.length} 个分支因创始人邮箱无法确认，已改发给最后提交人：${[...new Set(fallbackRecipients)].slice(0, 3).join('、')}`
+      : ''
+    const skipText = skipped.length > 0 ? `；${skipped.length} 个分支因无有效收件人邮箱已跳过：${skipped.slice(0, 3).join('、')}` : ''
     return {
       ok: sent > 0,
-      message: sent > 0 ? `已发送 ${sent} 封创始人邮件。${skipText}` : `没有可发送的创始人邮件。${skipText}`,
+      message: sent > 0 ? `已发送 ${sent} 封分支异常通知邮件。${fallbackText}${skipText}` : `没有可发送的分支异常通知邮件。${fallbackText}${skipText}`,
       recipients,
       emailsSent: sent
     }

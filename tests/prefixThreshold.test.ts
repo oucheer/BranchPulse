@@ -124,7 +124,7 @@ function cachedBranch(overrides: Partial<BranchSummary>): BranchSummary {
     existsLocally: false,
     existsRemotely: true,
     isHead: false,
-    creator: { name: '张三', email: 'zhang@example.com', firstCommitAt: daysAgo(400), confidence: 'high' },
+    creator: { name: '张三', email: 'zhang@example.com', emailSource: 'account', firstCommitAt: daysAgo(400), confidence: 'high' },
     createdAt: daysAgo(400),
     lastCommitAt: daysAgo(400),
     lastCommitSha: 'abc',

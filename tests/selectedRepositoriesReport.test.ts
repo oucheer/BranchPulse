@@ -21,6 +21,7 @@ function row(partial: Partial<EmailIssueRow>): EmailIssueRow {
     branch: 'feature/login',
     creator: '张三',
     creatorEmail: 'zhangsan@example.com',
+    creatorEmailSource: 'account',
     lastAuthor: '张三',
     lastAuthorEmail: '',
     lastCommitDate: '2026-01-01',
@@ -112,7 +113,7 @@ describe('sendSelectedRepositoriesReport', () => {
     expect(result.ok).toBe(true)
     expect(sendReportEmail).toHaveBeenCalledTimes(1)
     expect(sendReportEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: ['self@example.com', 'zhangsan@example.com', 'lisi@example.com'],
+      to: ['self@example.com', 'lisi@example.com', 'zhangsan@example.com'],
       subject: expect.stringContaining('分支健康汇总')
     }))
   })

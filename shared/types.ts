@@ -13,7 +13,13 @@ export type LanguageCode = 'en' | 'zh'
 
 export interface CreatorInfo {
   name: string
+  /**
+   * Only an address verified against the forge account may be stored here.
+   * A branch creator without a verifiable address keeps an empty email and
+   * notifications fall back to the last author.
+   */
   email: string
+  emailSource: 'account' | ''
   firstCommitAt: string | null
   confidence: 'high' | 'medium' | 'low' | 'unknown'
 }
