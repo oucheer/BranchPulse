@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary } from '@shared/types'
-import { backfillCachedCreatorEmail, BranchService, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
+import { backfillCachedCreatorEmail, BranchService, creatorEmailFromCommits, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
 import { HealthService } from '../src-node/services/health'
 import { NamingService } from '../src-node/services/naming'
 import { ProtectionService } from '../src-node/services/protection'
@@ -240,6 +240,75 @@ describe('resolveRemoteCreator', () => {
       emailSource: '',
       confidence: 'medium'
     })
+  })
+})
+
+describe('creatorEmailFromCommits', () => {
+  const event = {
+    name: 'Octo Cat',
+    email: '',
+    username: 'octocat',
+    createdAt: '2026-03-01T00:00:00.000Z',
+    source: 'event' as const,
+    emailSource: '' as const
+  }
+
+  it('accepts a commit email when the forge resolved it to the creator login', () => {
+    const email = creatorEmailFromCommits(event, [{
+      id: 'sha-1',
+      short_id: 'sha-1',
+      title: 'first',
+      message: 'first',
+      created_at: '2026-03-01T00:00:00.000Z',
+      authored_date: '2026-03-01T00:00:00.000Z',
+      committed_date: '2026-03-01T00:00:00.000Z',
+      author_name: 'Octo Cat',
+      author_email: 'octocat@example.com',
+      author_login: 'octocat',
+      committer_name: 'Octo Cat',
+      committer_email: 'octocat@example.com',
+      committer_login: 'octocat',
+      web_url: ''
+    }] as never)
+    expect(email).toBe('octocat@example.com')
+  })
+
+  it('rejects a same-named commit from a different account', () => {
+    const email = creatorEmailFromCommits(event, [{
+      id: 'sha-1',
+      short_id: 'sha-1',
+      title: 'first',
+      message: 'first',
+      created_at: '2026-03-01T00:00:00.000Z',
+      authored_date: '2026-03-01T00:00:00.000Z',
+      committed_date: '2026-03-01T00:00:00.000Z',
+      author_name: 'Octo Cat',
+      author_email: 'stranger@example.com',
+      author_login: 'stranger',
+      committer_name: 'Octo Cat',
+      committer_email: 'stranger@example.com',
+      committer_login: 'stranger',
+      web_url: ''
+    }] as never)
+    expect(email).toBe('')
+  })
+
+  it('rejects commits when the creation event has no username', () => {
+    const email = creatorEmailFromCommits({ ...event, username: '' }, [{
+      id: 'sha-1',
+      short_id: 'sha-1',
+      title: 'first',
+      message: 'first',
+      created_at: '2026-03-01T00:00:00.000Z',
+      authored_date: '2026-03-01T00:00:00.000Z',
+      committed_date: '2026-03-01T00:00:00.000Z',
+      author_name: 'Octo Cat',
+      author_email: 'octocat@example.com',
+      committer_name: 'Octo Cat',
+      committer_email: 'octocat@example.com',
+      web_url: ''
+    }] as never)
+    expect(email).toBe('')
   })
 })
 

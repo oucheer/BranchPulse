@@ -84,6 +84,32 @@ export function backfillCachedCreatorEmail(cached: BranchSummary): BranchSummary
   return { ...cached, creator: sanitizeCreatorInfo(cached.creator) }
 }
 
+/**
+ * Accept a commit email as creator provenance only when the forge resolved
+ * that commit to the same account that created the branch. GitHub/Gitee return
+ * the account login on commits, so an exact login match proves the email
+ * belongs to the creator account; a display-name match would not.
+ */
+export function creatorEmailFromCommits(
+  creationEvent: BranchCreatorDto | null,
+  commits: GitLabCommitDto[]
+): string {
+  const username = creationEvent?.username?.trim().toLowerCase()
+  if (!username) return ''
+  return [...commits]
+    .filter((commit) => {
+      const login = String(commit.author_login ?? commit.committer_login ?? '').trim().toLowerCase()
+      return login === username
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.committed_date || a.authored_date || a.created_at || 0).getTime()
+      const bTime = new Date(b.committed_date || b.authored_date || b.created_at || 0).getTime()
+      return aTime - bTime
+    })
+    .map((commit) => String(commit.author_email ?? '').trim() || String(commit.committer_email ?? '').trim())
+    .find((email) => Boolean(email)) ?? ''
+}
+
 interface AnalysisFacts {
   name: string
   type: 'local' | 'remote'
@@ -395,9 +421,9 @@ export class BranchService {
     // v12: invalidate caches saved by the web build before creator email lookup
     // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    // v14: creator provenance is stricter than v13; cached rows may have
-    // borrowed a tip author's account email when the event lacked a username.
-    const cacheContentKey = `v14|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    // v15: account-verified commit emails for GitHub/Gitee creators were
+    // cleared by v14; re-analyse cached rows once under the login-match rule.
+    const cacheContentKey = `v15|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -469,13 +495,13 @@ export class BranchService {
       || emailForUsername(emailByUsername, latestCommit?.author_login)
       || emailForUsername(emailByUsername, latestCommit?.committer_login)
       || latestCommit?.committer_email?.trim()
-    // Only the creation event author's own forge account can prove a creator
-    // address. A tip author's account email is delivery data for the last
-    // author and must never migrate to the creator because of a shared display
-    // name or a missing creation-event username.
+    // The event author's profile email is the primary proof. As a second
+    // account-level proof, accept a commit email when the forge resolved that
+    // commit to the same account that created the branch. A shared display
+    // name alone is never enough.
     const verifiedCreatorEmail = creator.emailSource === 'account' && creator.email
       ? creator.email
-      : ''
+      : creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
     const resolvedCreator = sanitizeCreatorInfo({
       ...creator,
       email: verifiedCreatorEmail,
