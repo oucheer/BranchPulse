@@ -64,6 +64,8 @@ export interface BranchCreatorDto {
   email: string
   /** Identity on the forge, when the API exposes it. */
   username: string
+  /** Stable account id from the creation event, when the API exposes it. */
+  userId?: number | null
   createdAt: string | null
   source: 'event'
   /** Only a forge account lookup or public account email can set this. */
@@ -836,6 +838,7 @@ export class GitLabService {
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
         const username = String(author.username ?? row.author_username ?? '').trim()
+        const authorId = Number(author.id ?? row.author_id ?? NaN)
         const name = String(author.name ?? '').trim()
           || String(row.author_name ?? '').trim()
           || username
@@ -845,6 +848,7 @@ export class GitLabService {
           name,
           email: String(author.public_email ?? '').trim(),
           username,
+          userId: Number.isFinite(authorId) ? authorId : null,
           createdAt: typeof row.created_at === 'string' ? row.created_at : null,
           source: 'event',
           emailSource: String(author.public_email ?? '').trim() ? 'account' : ''
@@ -859,7 +863,10 @@ export class GitLabService {
     }
     const usersToResolve = [...creators.values()].filter((creator) => creator.username)
     if (usersToResolve.length > 0) {
-      const profiles = await this.resolveGitLabUsers(usersToResolve.map((creator) => creator.username), config)
+      const profiles = await this.resolveGitLabUsers(
+        usersToResolve.map((creator) => ({ username: creator.username, userId: creator.userId ?? null })),
+        config
+      )
       for (const creator of creators.values()) {
         if (!creator.username) continue
         const profile = profiles.get(creator.username.toLowerCase())
@@ -871,29 +878,66 @@ export class GitLabService {
         }
       }
     }
+    // Non-admin tokens are often rejected by the user directory
+    // (`/users?username=`), but any authenticated user can fetch one account
+    // by its stable id. The event proves only a numeric author id, so the
+    // response must carry that same id before its address can be trusted.
+    const unresolvedById = [...creators.values()].filter((creator) => creator.userId && !creator.email)
+    for (const creator of unresolvedById.slice(0, MAX_CREATOR_EMAIL_LOOKUPS)) {
+      try {
+        const profile = await this.request<Record<string, unknown>>(`/users/${creator.userId}`, config)
+        if (Number(profile.id ?? NaN) !== creator.userId) continue
+        creator.name = String(profile.name ?? '').trim() || creator.name
+        if (!creator.username) creator.username = String(profile.username ?? '').trim()
+        const email = String(profile.public_email ?? '').trim() || String(profile.email ?? '').trim()
+        if (email) {
+          creator.email = email
+          creator.emailSource = 'account'
+        }
+      } catch {
+        // The creation event remains valid even when profile access is restricted.
+      }
+    }
     return creators
   }
 
   private async resolveGitLabUsers(
-    usernames: string[],
+    entries: Array<{ username: string; userId: number | null }>,
     config?: GitLabConnectionConfig
   ): Promise<Map<string, { name: string; email: string }>> {
     const profiles = new Map<string, { name: string; email: string }>()
-    const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
-      .filter((username) => {
-        const cached = this.userProfileCache.get(this.userEmailKey(username, config))
+    const pending = [...new Map(entries.map((entry) => [entry.username.trim().toLowerCase(), entry])).values()]
+      .filter((entry) => {
+        const cached = this.userProfileCache.get(this.userEmailKey(entry.username, config))
         if (cached === undefined) return true
-        if (cached) profiles.set(username.toLowerCase(), cached)
+        if (cached) profiles.set(entry.username.toLowerCase(), cached)
         return false
       })
       .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
-    for (const username of pending) {
+    for (const entry of pending) {
+      const username = entry.username
       const qs = new URLSearchParams({ username })
       try {
         const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
         const match = Array.isArray(rows)
           ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
           : undefined
+        // A user-directory miss can mean either "no such account" or "the
+        // token may not enumerate users". Only retry by id when the directory
+        // returned an empty (not an error) response, so real 403s stay
+        // retryable for the id path below.
+        if (Array.isArray(rows) && rows.length === 0 && entry.userId) {
+          const byId = await this.request<Record<string, unknown>>(`/users/${entry.userId}`, config)
+          if (Number(byId.id ?? NaN) === entry.userId && String(byId.username ?? '').toLowerCase() === username.toLowerCase()) {
+            const profile = {
+              name: String(byId.name ?? '').trim(),
+              email: String(byId.public_email ?? '').trim() || String(byId.email ?? '').trim()
+            }
+            this.userProfileCache.set(this.userEmailKey(username, config), profile)
+            profiles.set(username.toLowerCase(), profile)
+          }
+          continue
+        }
         this.userProfileCache.set(this.userEmailKey(username, config), match ? {
           name: String(match.name ?? '').trim(),
           email: String(match.public_email ?? '').trim() || String(match.email ?? '').trim()

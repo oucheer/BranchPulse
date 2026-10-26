@@ -88,7 +88,9 @@ export function baseNamingIssue(name: string): string | null {
       return 'release 分支 b 必须为完整项目名（项目编号），仅项目名可带 -，其余可含字母、数字、_、.'
     }
   } else if (!bodyPattern.test(description)) {
-    return 'b/c 必须以大写字母、小写字母或数字开头，后续可含大小写字母、数字、_、.'
+    return description.includes('-')
+      ? 'b/c 没有项目名时不能使用 - 连接，应以 _ 连接，可含字母、数字、_、.'
+      : 'b/c 必须以大写字母、小写字母或数字开头，后续可含大小写字母、数字、_、.'
   }
   if (/^\d+$/.test(description) && prefix !== 'bugfix' && prefix !== 'hotfix') {
     return '禁止过于随意的命名（如纯数字 123 或工程师名字），请使用有业务含义的描述'

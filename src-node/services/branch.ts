@@ -423,7 +423,7 @@ export class BranchService {
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
     // v15: account-verified commit emails for GitHub/Gitee creators were
     // cleared by v14; re-analyse cached rows once under the login-match rule.
-    const cacheContentKey = `v15|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    const cacheContentKey = `v16|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -848,6 +848,6 @@ export class BranchService {
 
 function creatorKeyForCache(creator: BranchCreatorDto | undefined): string {
   return creator
-    ? `${creator.username}|${creator.name}|${creator.email}|${creator.emailSource}|${creator.createdAt ?? ''}`
+    ? `${creator.username}|${creator.name}|${creator.email}|${creator.emailSource}|${creator.userId ?? ''}|${creator.createdAt ?? ''}`
     : 'unknown'
 }

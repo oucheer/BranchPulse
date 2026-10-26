@@ -118,7 +118,7 @@ export default function NamingRules(): JSX.Element {
           feature 为短期过渡分支，长期保留需申请记录在案；
           release 为长期分支，b 必须为完整项目名（如 <span className="font-mono">release/LP-7265V1R1</span>），仅项目名可带 <span className="font-mono">-</span>；
           bugfix 建议 <span className="font-mono">bugfix/bug_id</span>（如 bugfix/123456）。
-          b/c 以大写或小写字母、数字开头，后续可含大小写字母、数字、<span className="font-mono">_</span>、<span className="font-mono">.</span>；禁止中文；禁止纯数字或工程师名字等随意命名；禁止拉取版本分支（版本号仅用于 release）。
+          b/c 以大写或小写字母、数字开头，后续可含大小写字母、数字、<span className="font-mono">_</span>、<span className="font-mono">.</span>，没有项目名时不要用 <span className="font-mono">-</span> 连接；禁止中文；禁止纯数字或工程师名字等随意命名；禁止拉取版本分支（版本号仅用于 release）。
         </div>
         <div className="mb-2 text-sm font-semibold text-canvas-fg">{tr('validate')}</div>
         <div className="flex gap-2">
