@@ -89,7 +89,7 @@ export function baseNamingIssue(name: string): string | null {
     }
   } else if (!bodyPattern.test(description)) {
     return description.includes('-')
-      ? 'b/c 没有项目名时不能使用 - 连接，应以 _ 连接，可含字母、数字、_、.'
+      ? `分支名应使用 a/b_c 结构，b/c 之间应以 _ 连接（例如 ${prefix}/pcie_band_crc）；- 只允许出现在 release 分支的完整项目名中`
       : 'b/c 必须以大写字母、小写字母或数字开头，后续可含大小写字母、数字、_、.'
   }
   if (/^\d+$/.test(description) && prefix !== 'bugfix' && prefix !== 'hotfix') {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BranchSummary } from '@shared/types'
-import { backfillCachedCreatorEmail, BranchService, creatorEmailFromCommits, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
+import { backfillCachedCreatorEmail, BranchService, creatorEmailFromCommits, creatorEmailFromIdentityChain, isBaselineBranch, resolveRemoteCreator } from '../src-node/services/branch'
 import { HealthService } from '../src-node/services/health'
 import { NamingService } from '../src-node/services/naming'
 import { ProtectionService } from '../src-node/services/protection'
@@ -309,6 +309,54 @@ describe('creatorEmailFromCommits', () => {
       web_url: ''
     }] as never)
     expect(email).toBe('')
+  })
+})
+
+describe('creatorEmailFromIdentityChain', () => {
+  const event = {
+    name: 'Octo Cat',
+    email: '',
+    username: 'octocat',
+    createdAt: null,
+    source: 'event' as const,
+    emailSource: '' as const
+  }
+
+  it('reuses the last-author chain when the first own commit signature matches the creator', () => {
+    const result = creatorEmailFromIdentityChain(
+      { name: 'Octo Cat', email: '', emailSource: '', firstCommitAt: null, confidence: 'medium' },
+      event,
+      {
+        id: 'sha-1', short_id: 'sha-1', title: '', message: '', created_at: '', authored_date: '', committed_date: '',
+        author_name: 'Octo Cat', author_email: 'octocat@example.com', committer_name: 'Octo Cat', committer_email: '', web_url: ''
+      } as never,
+      new Map()
+    )
+    expect(result).toEqual({ email: 'octocat@example.com', source: 'account' })
+  })
+
+  it('rejects a same-named first commit from a different login', () => {
+    const result = creatorEmailFromIdentityChain(
+      { name: 'Octo Cat', email: '', emailSource: '', firstCommitAt: null, confidence: 'medium' },
+      event,
+      {
+        id: 'sha-1', short_id: 'sha-1', title: '', message: '', created_at: '', authored_date: '', committed_date: '',
+        author_name: 'Octo Cat', author_email: 'stranger@example.com', author_login: 'stranger',
+        committer_name: 'Octo Cat', committer_email: '', web_url: ''
+      } as never,
+      new Map()
+    )
+    expect(result).toEqual({ email: '', source: '' })
+  })
+
+  it('uses the verified account email from the last-author chain', () => {
+    const result = creatorEmailFromIdentityChain(
+      { name: 'Octo Cat', email: '', emailSource: '', firstCommitAt: null, confidence: 'medium' },
+      event,
+      null,
+      new Map([['octocat', 'profile@example.com']])
+    )
+    expect(result).toEqual({ email: 'profile@example.com', source: 'account' })
   })
 })
 

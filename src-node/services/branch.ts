@@ -110,6 +110,44 @@ export function creatorEmailFromCommits(
     .find((email) => Boolean(email)) ?? ''
 }
 
+const normalizeIdentity = (value: string | null | undefined): string => String(value ?? '').trim().toLowerCase()
+
+/**
+ * Use the same evidence chain as the last-author email, but require the
+ * candidate to match the creator identity. Event/profile data is platform
+ * proof; a first-commit signature is accepted only when the author name or
+ * forge login matches the creator, so a same-named stranger cannot be
+ * attached by accident.
+ */
+export function creatorEmailFromIdentityChain(
+  creator: CreatorInfo,
+  creationEvent: BranchCreatorDto | null,
+  firstOwn: GitLabCommitDto | null,
+  emailsByUsername: Map<string, string>
+): { email: string; source: 'account' | '' } {
+  if (creator.emailSource === 'account' && creator.email) {
+    return { email: creator.email, source: 'account' }
+  }
+  const username = normalizeIdentity(creationEvent?.username || creator.name)
+  const profileEmail = username ? emailsByUsername.get(username) ?? emailsByUsername.get(username.toLowerCase()) : undefined
+  if (profileEmail && EMAIL_PATTERN.test(profileEmail)) {
+    return { email: profileEmail, source: 'account' }
+  }
+  const commitEmail = firstOwn?.author_email?.trim() || firstOwn?.committer_email?.trim()
+  if (!commitEmail || !EMAIL_PATTERN.test(commitEmail)) return { email: '', source: '' }
+  const creatorName = normalizeIdentity(creator.name)
+  const commitLogins = [normalizeIdentity(firstOwn?.author_login), normalizeIdentity(firstOwn?.committer_login)].filter(Boolean)
+  const eventUsername = normalizeIdentity(creationEvent?.username)
+  if (eventUsername && commitLogins.length > 0) {
+    if (!commitLogins.includes(eventUsername)) return { email: '', source: '' }
+    return { email: commitEmail, source: 'account' }
+  }
+  const nameMatches = Boolean(creatorName)
+    && (normalizeIdentity(firstOwn?.author_name) === creatorName || normalizeIdentity(firstOwn?.committer_name) === creatorName)
+  if (nameMatches) return { email: commitEmail, source: 'account' }
+  return { email: '', source: '' }
+}
+
 interface AnalysisFacts {
   name: string
   type: 'local' | 'remote'
@@ -478,6 +516,7 @@ export class BranchService {
     // but must never be presented as the creator.
     const { creator } = resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
     const identityNames = [
+      creatorEvent?.username,
       latestCommit?.author_login,
       latestCommit?.committer_login,
     ].filter((value): value is string => Boolean(value && value.trim()))
@@ -499,9 +538,12 @@ export class BranchService {
     // account-level proof, accept a commit email when the forge resolved that
     // commit to the same account that created the branch. A shared display
     // name alone is never enough.
-    const verifiedCreatorEmail = creator.emailSource === 'account' && creator.email
-      ? creator.email
-      : creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
+    const verifiedCreator = creatorEmailFromIdentityChain(creator, creatorEvent, firstOwn, emailByUsername)
+    // creatorEmailFromCommits only accepts commits whose forge login matches
+    // the creation event's username, so it can extend the verified chain but
+    // cannot silently replace it.
+    const verifiedCreatorEmail = verifiedCreator.email
+      || creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
     const resolvedCreator = sanitizeCreatorInfo({
       ...creator,
       email: verifiedCreatorEmail,
