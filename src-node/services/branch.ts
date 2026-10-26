@@ -459,9 +459,10 @@ export class BranchService {
     // v12: invalidate caches saved by the web build before creator email lookup
     // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    // v15: account-verified commit emails for GitHub/Gitee creators were
-    // cleared by v14; re-analyse cached rows once under the login-match rule.
-    const cacheContentKey = `v16|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    // v17: the creator email chain now reuses the last-author profile lookup
+    // with an identity gate. Re-analyse cached rows once so branches scanned
+    // under v16 pick up account-verified addresses instead of stale blanks.
+    const cacheContentKey = `v17|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
