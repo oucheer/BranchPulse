@@ -119,7 +119,7 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
     web_url: ''
   }]
 
-  it('binds a branch commit email to the exact creator username through GitLab GraphQL', async () => {
+  it('binds a project commit email to the exact creator username through GitLab GraphQL', async () => {
     const urls: string[] = []
     globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
       const url = String(input)
@@ -146,6 +146,135 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
     expect(urls[0]).toBe('https://gitlab.example.com/api/graphql')
   })
 
+  it('finds a verified account commit when the branch itself has no commits', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.includes('/repository/commits?')) {
+        if (url.includes('author=zhangsan')) {
+          expect(url).not.toContain('ref_name=')
+          return jsonResponse([])
+        }
+        // Exact-author matches were empty, so the resolver falls back to a
+        // bounded project history and still validates each SHA through GraphQL.
+        expect(url).not.toContain('author=')
+        return jsonResponse(commits)
+      }
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { username: 'zhangsan' },
+          committer: { username: 'zhangsan_other' }
+        } } } }
+      })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/empty-branch',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      [],
+      config
+    )
+
+    expect(result).toMatchObject({ email: 'zhangsan@corp.example', resolution: { status: 'verified-commit' } })
+    expect(urls[0]).toContain('/repository/commits?')
+  })
+
+  it('shares a verified account-wide commit result across branches', async () => {
+    let graphqlCalls = 0
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.endsWith('/api/graphql')) {
+        graphqlCalls += 1
+        return jsonResponse({
+          data: { project: { repository: { c0: {
+            sha: 'abc123',
+            author: { username: 'zhangsan' },
+            committer: { username: '' }
+          } } } }
+        })
+      }
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse(commits)
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+    const sharedService = new GitLabService(settings as never)
+    const creator = { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden' as const, retryable: false, checkedAt: '2026-01-01T00:00:00Z' } }
+
+    const first = await sharedService.resolveCreatorCommitEmail(42, 'feature/first', creator, [], config)
+    const second = await sharedService.resolveCreatorCommitEmail(42, 'feature/second', creator, [], config)
+
+    expect(first.email).toBe('zhangsan@corp.example')
+    expect(second).toEqual(first)
+    expect(graphqlCalls).toBe(1)
+  })
+
+  it('keeps paging exact-author commits instead of stopping at the first 100', async () => {
+    const urls: string[] = []
+    const baseTime = Date.parse('2026-01-01T00:00:00Z')
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...commits[0],
+      id: `first-${index}`,
+      authored_date: new Date(baseTime + index * 1000).toISOString(),
+      committed_date: new Date(baseTime + index * 1000).toISOString(),
+      author_email: `first-${index}@corp.example`,
+      committer_email: `first-${index}@corp.example`
+    }))
+    const secondPage = [
+      {
+        ...commits[0],
+        id: 'unrelated-second-page',
+        authored_date: new Date(baseTime - 2000).toISOString(),
+        committed_date: new Date(baseTime - 2000).toISOString(),
+        author_email: 'other@corp.example',
+        committer_email: 'other@corp.example'
+      },
+      {
+        ...commits[0],
+        id: 'wanted-second-page',
+        authored_date: new Date(baseTime - 1000).toISOString(),
+        committed_date: new Date(baseTime - 1000).toISOString(),
+        author_email: 'zhangsan@corp.example',
+        committer_email: 'zhangsan@corp.example'
+      }
+    ]
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.endsWith('/api/graphql')) {
+        const query = JSON.parse(String(init?.body ?? '{}')).query as string
+        const aliases = [...query.matchAll(/c(\d+): commit\(ref: "([^"]+)"\)/g)]
+        const data = Object.fromEntries(aliases.map(([, key, sha]) => [
+          `c${key}`,
+          {
+            sha,
+            author: { username: sha === 'wanted-second-page' ? 'zhangsan' : `someone-${key}` },
+            committer: { username: sha === 'wanted-second-page' ? 'zhangsan' : `someone-${key}` }
+          }
+        ]))
+        return jsonResponse({ data: { project: { repository: data } } })
+      }
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) {
+        return jsonResponse(new URL(url).searchParams.get('page') === '1' ? firstPage : secondPage)
+      }
+      if (url.includes('/repository/commits?')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/far-history',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      [],
+      config
+    )
+
+    expect(result.email).toBe('zhangsan@corp.example')
+    expect(urls.some((url) => url.includes('author=zhangsan') && url.includes('page=2'))).toBe(true)
+  })
+
   it('rejects a same-named commit bound to another username', async () => {
     globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
       const url = String(input)
@@ -156,7 +285,7 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
           committer: { username: 'zhangsan_other' }
         } } } }
       })
-      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse([])
+      if (url.includes('/repository/commits?')) return jsonResponse([])
       throw new Error(`unexpected url ${url}`)
     }) as typeof fetch
 
@@ -175,7 +304,7 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
     globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
       const url = String(input)
       if (url.endsWith('/api/graphql')) return new Response('server error', { status: 500 })
-      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return new Response('server error', { status: 500 })
+      if (url.includes('/repository/commits?')) return new Response('server error', { status: 500 })
       throw new Error(`unexpected url ${url}`)
     }) as typeof fetch
 

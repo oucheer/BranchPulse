@@ -653,7 +653,7 @@ export class BranchService {
     // the creation event's username, so it can extend the verified chain but
     // cannot silently replace it.
     const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
-    const accountBoundCommit = !verifiedCreator.email && typeof this.gitlab.resolveCreatorCommitEmail === 'function'
+    const accountBoundCommit = !verifiedCreator.email && creator.emailResolution?.status === 'account-email-hidden' && typeof this.gitlab.resolveCreatorCommitEmail === 'function'
       ? await this.gitlab.resolveCreatorCommitEmail(projectId, branch.name, creator, [...ownCommits, ...recentCommits], config)
       : { email: '' }
     const verifiedCreatorEmail = verifiedCreator.email || verifiedCommit.email || accountBoundCommit.email

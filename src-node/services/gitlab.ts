@@ -847,28 +847,25 @@ export class GitLabService {
    */
   async resolveCreatorCommitEmail(
     projectId: number,
-    branchName: string,
+    _branchName: string,
     creator: { username?: string; accountId?: string; emailResolution?: CreatorEmailResolution },
     commits: GitLabCommitDto[],
     config?: GitLabConnectionConfig
   ): Promise<ResolvedCreatorCommitEmail> {
     const { url, token, provider } = this.resolve(config)
     const username = String(creator.username ?? '').trim()
-    if (provider !== 'gitlab' || !username || creator.emailResolution?.status !== 'account-email-hidden' || commits.length === 0) {
+    if (provider !== 'gitlab' || !username || creator.emailResolution?.status !== 'account-email-hidden') {
       return { email: '' }
     }
     const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 16)
-    const commitFingerprint = createHash('sha256')
-      .update([...new Set(commits.map((commit) => String(commit.id ?? '').trim()).filter(Boolean))].sort().join('|'))
-      .digest('hex')
-      .slice(0, 16)
+    // The account-wide commit proof is independent of a single branch. Sharing
+    // this cache keeps every branch created by the same forge account in sync.
     const cacheKey = [
+      'creator-email-v2',
       provider,
       url.replace(/\/+$/, '').toLowerCase(),
       tokenFingerprint,
       projectId,
-      branchName,
-      commitFingerprint,
       creator.accountId || username.toLowerCase()
     ].join('|')
     const cached = this.creatorCommitEmailCache.get(cacheKey)
@@ -892,24 +889,25 @@ export class GitLabService {
           checkedShas.add(sha)
           return true
         })
-        .slice(0, 100)
-      if (ordered.length === 0) return ''
-      let identities: Map<string, { author?: string; committer?: string }>
-      try {
-        identities = await this.graphqlCommitIdentities(projectId, ordered.map((commit) => String(commit.id)), config)
-      } catch (error) {
-        lastLookupError = error
-        return ''
-      }
-      for (const commit of ordered) {
-        const identity = identities.get(String(commit.id ?? ''))
-        const authorEmail = String(commit.author_email ?? '').trim()
-        const committerEmail = String(commit.committer_email ?? '').trim()
-        if (String(identity?.author ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authorEmail)) {
-          return authorEmail
+      for (let offset = 0; offset < ordered.length; offset += 100) {
+        const batch = ordered.slice(offset, offset + 100)
+        let identities: Map<string, { author?: string; committer?: string }>
+        try {
+          identities = await this.graphqlCommitIdentities(projectId, batch.map((commit) => String(commit.id)), config)
+        } catch (error) {
+          lastLookupError = error
+          return ''
         }
-        if (String(identity?.committer ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(committerEmail)) {
-          return committerEmail
+        for (const commit of batch) {
+          const identity = identities.get(String(commit.id ?? ''))
+          const authorEmail = String(commit.author_email ?? '').trim()
+          const committerEmail = String(commit.committer_email ?? '').trim()
+          if (String(identity?.author ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authorEmail)) {
+            return authorEmail
+          }
+          if (String(identity?.committer ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(committerEmail)) {
+            return committerEmail
+          }
         }
       }
       return ''
@@ -918,8 +916,23 @@ export class GitLabService {
     let email = await findBoundEmail(commits)
     if (!email) {
       try {
-        const authored = await this.listCommitsByAuthor(projectId, branchName, username, config)
+        // A creator may have commits elsewhere in the project but none in the
+        // branch window we happened to fetch. Resolve the account project-wide;
+        // GraphQL still verifies every commit SHA against the exact username
+        // before its address can be used.
+        const authored = await this.listProjectCommitsByAuthor(projectId, username, config)
         email = await findBoundEmail(authored)
+      } catch (error) {
+        lastLookupError = lastLookupError ?? error
+      }
+    }
+    if (!email) {
+      try {
+        // GitLab's author filter is based on the commit identity string, which
+        // may omit or lag an imported account. A bounded recent-history scan
+        // gives GraphQL a second chance to bind a SHA to this exact account.
+        const recent = await this.listRecentProjectCommits(projectId, config)
+        email = await findBoundEmail(recent)
       } catch (error) {
         lastLookupError = lastLookupError ?? error
       }
@@ -943,7 +956,7 @@ export class GitLabService {
         lookupFailed && (status === undefined || isTransientStatus(status)),
         lookupFailed
           ? `account identity verified; commit identity lookup failed${status ? ` (${status})` : ''}`
-          : 'account identity verified; no branch commit was bound to that account with a valid email'
+          : 'account identity verified; no commit in the checked project history was bound to that account with a valid email'
       )
     }
     this.creatorCommitEmailCache.set(cacheKey, { value: noMatch, expiresAt: Date.now() + PROFILE_HIDDEN_TTL_MS })
@@ -1017,23 +1030,39 @@ export class GitLabService {
     return result
   }
 
-  private async listCommitsByAuthor(
+  private async listProjectCommitsByAuthor(
     projectId: number,
-    refName: string,
     username: string,
     config?: GitLabConnectionConfig
   ): Promise<GitLabCommitDto[]> {
     const projectRef = await this.projectRef(projectId, config)
-    const qs = new URLSearchParams({
-      ref_name: refName,
-      author: username,
-      per_page: '100',
-      page: '1'
-    })
-    return this.request<GitLabCommitDto[]>(
-      `/projects/${projectRef}/repository/commits?${qs.toString()}`,
-      config
-    )
+    return this.listProjectCommitPages(projectRef, { author: username }, config)
+  }
+
+  private async listRecentProjectCommits(
+    projectId: number,
+    config?: GitLabConnectionConfig
+  ): Promise<GitLabCommitDto[]> {
+    const projectRef = await this.projectRef(projectId, config)
+    return this.listProjectCommitPages(projectRef, {}, config)
+  }
+
+  private async listProjectCommitPages(
+    projectRef: string,
+    filters: Record<string, string>,
+    config?: GitLabConnectionConfig
+  ): Promise<GitLabCommitDto[]> {
+    const commits: GitLabCommitDto[] = []
+    for (let page = 1; page <= 3; page += 1) {
+      const qs = new URLSearchParams({ ...filters, per_page: '100', page: String(page) })
+      const rows = await this.request<GitLabCommitDto[]>(
+        `/projects/${projectRef}/repository/commits?${qs.toString()}`,
+        config
+      )
+      commits.push(...rows)
+      if (rows.length < 100) break
+    }
+    return commits
   }
 
   /**
