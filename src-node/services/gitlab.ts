@@ -1131,7 +1131,7 @@ export class GitLabService {
         lastError = error
       }
     }
-    if (profile) return this.completeAccountResolution(profile, { username, accountId, checkedAt }, cacheKey)
+    if (profile) return this.completeAccountResolution(profile, { username, accountId, checkedAt, config }, cacheKey)
     if (identityMismatch) {
       return {
         name: username || `Account ${accountId}`,
@@ -1167,11 +1167,11 @@ export class GitLabService {
     return notFound
   }
 
-  private completeAccountResolution(
+  private async completeAccountResolution(
     profile: Record<string, unknown>,
-    identity: { username: string; accountId: string; checkedAt: string },
+    identity: { username: string; accountId: string; checkedAt: string; config?: GitLabConnectionConfig },
     cacheKey: string
-  ): ResolvedForgeUser {
+  ): Promise<ResolvedForgeUser> {
     const profileUsername = String(profile.username ?? profile.login ?? '').trim()
     const profileId = String(profile.id ?? '').trim()
     if (identity.accountId && profileId !== identity.accountId) {
@@ -1209,11 +1209,46 @@ export class GitLabService {
         ? creatorStatus('verified-account', false, 'exact forge account profile')
         : creatorStatus('account-email-hidden', false, 'exact forge account profile did not expose an email')
     }
+    if (email) {
+      this.userProfileCache.set(cacheKey, {
+        value: result,
+        expiresAt: Date.now() + PROFILE_SUCCESS_TTL_MS
+      })
+      return result
+    }
+    // The account is already proven; an admin token can still read the
+    // private email list even when the profile hides it.
+    const adminEmail = await this.adminEmailForAccount(identity.accountId, identity.config)
+    if (adminEmail) {
+      result.email = adminEmail
+      result.source = 'account'
+      result.resolution = creatorStatus('verified-account', false, 'exact forge account private email')
+    }
     this.userProfileCache.set(cacheKey, {
       value: result,
-      expiresAt: Date.now() + (email ? PROFILE_SUCCESS_TTL_MS : PROFILE_HIDDEN_TTL_MS)
+      expiresAt: Date.now() + (adminEmail ? PROFILE_SUCCESS_TTL_MS : PROFILE_HIDDEN_TTL_MS)
     })
     return result
+  }
+
+  private async adminEmailForAccount(
+    accountId: string,
+    config?: GitLabConnectionConfig
+  ): Promise<string> {
+    if (!accountId || !/^\d+$/.test(accountId)) return ''
+    try {
+      const rows = await this.request<Array<Record<string, unknown>>>(
+        `/users/${encodeURIComponent(accountId)}/emails`,
+        config,
+        {},
+        { timeoutMs: REQUEST_TIMEOUT_MS, retries: 0 }
+      )
+      if (!Array.isArray(rows)) return ''
+      const active = rows.find((row) => Boolean(row.confirm_status ?? true))
+      return String(active?.email ?? '').trim()
+    } catch {
+      return ''
+    }
   }
 
   async resolveAccountIdentities(
