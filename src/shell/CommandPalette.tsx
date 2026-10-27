@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, Bell, CalendarClock, FileBarChart, FolderGit2, GitBranch,
+  Activity, Bell, CalendarClock, FileBarChart, FolderGit2, GitBranch, Mail,
   LayoutDashboard, ScrollText, Settings, ShieldCheck, Tags, Command, Plus
 } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
@@ -48,6 +48,7 @@ export default function CommandPalette({ open, onClose }: Props): JSX.Element | 
       { id: 'nav-naming', group: zh ? '操作' : 'Actions', label: zh ? '打开命名规则' : 'Open Naming Rules', icon: Tags, action: 'nav:/naming-rules' },
       { id: 'nav-whitelist', group: zh ? '操作' : 'Actions', label: zh ? '打开白名单' : 'Open Whitelist', icon: ShieldCheck, action: 'nav:/whitelist' },
       { id: 'nav-scheduler', group: zh ? '操作' : 'Actions', label: zh ? '打开定时调度' : 'Open Scheduler', icon: CalendarClock, action: 'nav:/scheduler' },
+      { id: 'nav-email', group: zh ? '操作' : 'Actions', label: zh ? '打开邮箱' : 'Open Email', icon: Mail, action: 'nav:/email' },
       // Settings
       { id: 'nav-audit', group: zh ? '系统' : 'System', label: zh ? '打开审计日志' : 'Open Audit Log', icon: ScrollText, action: 'nav:/audit' },
       { id: 'nav-settings', group: zh ? '系统' : 'System', label: zh ? '打开设置' : 'Open Settings', icon: Settings, action: 'nav:/settings' }

@@ -19,6 +19,7 @@ import Scheduler from './pages/Scheduler'
 import Audit from './pages/Audit'
 import Animation from './pages/Animation'
 import Settings from './pages/Settings'
+import Email from './pages/Email'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -34,7 +35,8 @@ const pages = [
   { path: '/scheduler', element: <Scheduler /> },
   { path: '/audit', element: <Audit /> },
   { path: '/animation', element: <Animation /> },
-  { path: '/settings', element: <Settings /> }
+  { path: '/settings', element: <Settings /> },
+  { path: '/email', element: <Email /> }
 ]
 
 export default function App(): JSX.Element {

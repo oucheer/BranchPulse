@@ -36,7 +36,8 @@ const ROUTES = [
   ['/scheduler', '定时'],
   ['/audit', '审计'],
   ['/animation', '动画'],
-  ['/settings', '设置']
+  ['/settings', '设置'],
+  ['/email', '邮箱']
 ]
 
 /** Terms that must never reach user-visible copy. */

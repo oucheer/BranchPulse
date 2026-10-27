@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Activity, Bell, CalendarClock, FileBarChart, FolderGit2,
+  Activity, Bell, CalendarClock, FileBarChart, FolderGit2, Mail,
   GitBranch, HardDrive, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
@@ -52,6 +52,7 @@ const sections: NavSection[] = [
     titleKey: 'navAutomation',
     items: [
       { to: '/notifications', label: 'notifications', icon: Bell },
+      { to: '/email', label: 'email', icon: Mail },
       { to: '/reports', label: 'reports', icon: FileBarChart },
       { to: '/scheduler', label: 'scheduler', icon: CalendarClock }
     ]
