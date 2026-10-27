@@ -555,7 +555,7 @@ export class BranchService {
     // v18 introduced identity-exact account evidence and persistent resolution
     // states. Cached rows must be re-analysed once so stale guessed addresses
     // and old cache hits cannot suppress creator lookups.
-    const cacheContentKey = `v18|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    const cacheContentKey = `v19|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -653,15 +653,19 @@ export class BranchService {
     // the creation event's username, so it can extend the verified chain but
     // cannot silently replace it.
     const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
-    const verifiedCreatorEmail = verifiedCreator.email || verifiedCommit.email
-    const verifiedSource = verifiedCreator.source || verifiedCommit.source
+    const accountBoundCommit = !verifiedCreator.email && typeof this.gitlab.resolveCreatorCommitEmail === 'function'
+      ? await this.gitlab.resolveCreatorCommitEmail(projectId, branch.name, creator, [...ownCommits, ...recentCommits], config)
+      : { email: '' }
+    const verifiedCreatorEmail = verifiedCreator.email || verifiedCommit.email || accountBoundCommit.email
+    const verifiedSource = verifiedCreator.source || verifiedCommit.source || (accountBoundCommit.email ? 'commit' : '')
     const resolvedCreator = sanitizeCreatorInfo({
       ...creator,
       email: verifiedCreatorEmail,
       emailSource: verifiedSource,
       emailResolution: verifiedCreatorEmail
         ? verifiedResolution(verifiedSource)
-        : creator.emailResolution?.status === 'events-unavailable'
+        : accountBoundCommit.resolution
+          ?? (creator.emailResolution?.status === 'events-unavailable'
           ? creator.emailResolution
           : eventState.status === 'unavailable'
             ? {
@@ -674,7 +678,7 @@ export class BranchService {
                 status: creatorEvent ? 'creation-event-missing' : 'creation-event-missing',
                 retryable: true,
                 checkedAt: new Date().toISOString()
-              }
+              })
     })
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null

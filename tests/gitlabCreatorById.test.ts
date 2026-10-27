@@ -96,3 +96,98 @@ describe('GitLabService.listBranchCreators', () => {
     })
   })
 })
+
+describe('GitLabService.resolveCreatorCommitEmail', () => {
+  const config = {
+    url: 'https://gitlab.example.com/api/v4',
+    apiKey: 'token',
+    provider: 'gitlab' as const,
+    projectPath: 'team/app'
+  }
+  const commits = [{
+    id: 'abc123',
+    short_id: 'abc123',
+    title: 'feat: first',
+    message: 'feat: first',
+    created_at: '2026-01-01T00:00:00Z',
+    authored_date: '2026-01-01T00:00:00Z',
+    committed_date: '2026-01-01T00:00:00Z',
+    author_name: '张三',
+    author_email: 'zhangsan@corp.example',
+    committer_name: '张三',
+    committer_email: 'zhangsan@corp.example',
+    web_url: ''
+  }]
+
+  it('binds a branch commit email to the exact creator username through GitLab GraphQL', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { username: 'zhangsan' },
+          committer: { username: 'zhangsan' }
+        } } } }
+      })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/pcie-band-crc',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result).toMatchObject({ email: 'zhangsan@corp.example', resolution: { status: 'verified-commit' } })
+    expect(urls[0]).toBe('https://gitlab.example.com/api/graphql')
+  })
+
+  it('rejects a same-named commit bound to another username', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { username: 'zhangsan_other' },
+          committer: { username: 'zhangsan_other' }
+        } } } }
+      })
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/name-collision',
+      { username: 'zhangsan', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result).toMatchObject({ email: '', resolution: { status: 'account-email-hidden' } })
+  })
+
+  it('does not turn a GraphQL failure into unverified email evidence', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.endsWith('/api/graphql')) return new Response('server error', { status: 500 })
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return new Response('server error', { status: 500 })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/lookup-failure',
+      { username: 'zhangsan', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result.email).toBe('')
+    expect(result.resolution).toMatchObject({ status: 'account-email-hidden', retryable: true })
+  })
+})

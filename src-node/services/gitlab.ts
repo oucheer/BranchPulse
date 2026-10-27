@@ -283,8 +283,18 @@ export interface BranchCreatorLookup {
   events: BranchCreatorEventState
 }
 
+export interface ResolvedCreatorCommitEmail {
+  email: string
+  resolution?: CreatorEmailResolution
+}
+
 interface ProfileCacheEntry {
   value: ResolvedForgeUser
+  expiresAt: number
+}
+
+interface CommitEmailCacheEntry {
+  value: ResolvedCreatorCommitEmail
   expiresAt: number
 }
 
@@ -340,6 +350,8 @@ export class GitLabService {
   private projectPathCache = new Map<string, string>()
   /** Account profiles are scoped by host, exact account identity, and token fingerprint. */
   private userProfileCache = new Map<string, ProfileCacheEntry>()
+  /** Account-bound commit emails are scoped to a project and the exact creator account. */
+  private creatorCommitEmailCache = new Map<string, CommitEmailCacheEntry>()
 
   private userProfileKey(identity: { username?: string; accountId?: string | null }, config?: GitLabConnectionConfig): string {
     const { url, token, provider } = this.resolve(config)
@@ -823,6 +835,205 @@ export class GitLabService {
     }
     const commits = Array.isArray(row.commits) ? (row.commits as GitLabCommitDto[]) : []
     return commits
+  }
+
+  /**
+   * Resolve a creator email from a commit only when GitLab's API binds that
+   * commit to the already verified creator username.
+   *
+   * GitLab's REST commit payload exposes the commit email but usually omits the
+   * account login. Its GraphQL commit connection exposes author/committer
+   * usernames, so pair the two by SHA. A display-name match is never accepted.
+   */
+  async resolveCreatorCommitEmail(
+    projectId: number,
+    branchName: string,
+    creator: { username?: string; accountId?: string; emailResolution?: CreatorEmailResolution },
+    commits: GitLabCommitDto[],
+    config?: GitLabConnectionConfig
+  ): Promise<ResolvedCreatorCommitEmail> {
+    const { url, token, provider } = this.resolve(config)
+    const username = String(creator.username ?? '').trim()
+    if (provider !== 'gitlab' || !username || creator.emailResolution?.status !== 'account-email-hidden' || commits.length === 0) {
+      return { email: '' }
+    }
+    const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 16)
+    const commitFingerprint = createHash('sha256')
+      .update([...new Set(commits.map((commit) => String(commit.id ?? '').trim()).filter(Boolean))].sort().join('|'))
+      .digest('hex')
+      .slice(0, 16)
+    const cacheKey = [
+      provider,
+      url.replace(/\/+$/, '').toLowerCase(),
+      tokenFingerprint,
+      projectId,
+      branchName,
+      commitFingerprint,
+      creator.accountId || username.toLowerCase()
+    ].join('|')
+    const cached = this.creatorCommitEmailCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
+
+    const expected = username.toLowerCase()
+    let lastLookupError: unknown
+    const checkedShas = new Set<string>()
+    const findBoundEmail = async (candidates: GitLabCommitDto[]): Promise<string> => {
+      const ordered = [...candidates]
+        .filter((commit) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(commit.author_email ?? '').trim())
+          || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(commit.committer_email ?? '').trim()))
+        .sort((a, b) => {
+          const aTime = new Date(a.committed_date || a.authored_date || a.created_at || 0).getTime()
+          const bTime = new Date(b.committed_date || b.authored_date || b.created_at || 0).getTime()
+          return aTime - bTime
+        })
+        .filter((commit) => {
+          const sha = String(commit.id ?? '').trim()
+          if (!sha || checkedShas.has(sha)) return false
+          checkedShas.add(sha)
+          return true
+        })
+        .slice(0, 100)
+      if (ordered.length === 0) return ''
+      let identities: Map<string, { author?: string; committer?: string }>
+      try {
+        identities = await this.graphqlCommitIdentities(projectId, ordered.map((commit) => String(commit.id)), config)
+      } catch (error) {
+        lastLookupError = error
+        return ''
+      }
+      for (const commit of ordered) {
+        const identity = identities.get(String(commit.id ?? ''))
+        const authorEmail = String(commit.author_email ?? '').trim()
+        const committerEmail = String(commit.committer_email ?? '').trim()
+        if (String(identity?.author ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authorEmail)) {
+          return authorEmail
+        }
+        if (String(identity?.committer ?? '').trim().toLowerCase() === expected && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(committerEmail)) {
+          return committerEmail
+        }
+      }
+      return ''
+    }
+
+    let email = await findBoundEmail(commits)
+    if (!email) {
+      try {
+        const authored = await this.listCommitsByAuthor(projectId, branchName, username, config)
+        email = await findBoundEmail(authored)
+      } catch (error) {
+        lastLookupError = lastLookupError ?? error
+      }
+    }
+    if (email) {
+      const value: ResolvedCreatorCommitEmail = {
+        email,
+        resolution: creatorStatus('verified-commit', false, 'commit identity exactly matches the verified creator account')
+      }
+      this.creatorCommitEmailCache.set(cacheKey, { value, expiresAt: Date.now() + PROFILE_SUCCESS_TTL_MS })
+      return value
+    }
+
+    const status = errorStatus(lastLookupError)
+    const lookupFailed = Boolean(lastLookupError)
+
+    const noMatch: ResolvedCreatorCommitEmail = {
+      email: '',
+      resolution: creatorStatus(
+        'account-email-hidden',
+        lookupFailed && (status === undefined || isTransientStatus(status)),
+        lookupFailed
+          ? `account identity verified; commit identity lookup failed${status ? ` (${status})` : ''}`
+          : 'account identity verified; no branch commit was bound to that account with a valid email'
+      )
+    }
+    this.creatorCommitEmailCache.set(cacheKey, { value: noMatch, expiresAt: Date.now() + PROFILE_HIDDEN_TTL_MS })
+    return noMatch
+  }
+
+  private async graphqlCommitIdentities(
+    projectId: number,
+    commitShas: string[],
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, { author?: string; committer?: string }>> {
+    const { url, token } = this.resolve(config)
+    const fullPath = config?.projectPath || await this.projectPath(projectId, config)
+    const graphqlUrl = `${apiBaseUrl(url, 'gitlab', config?.projectPath).replace(/\/api\/v4$/, '/api/graphql')}`
+    const wanted = [...new Set(commitShas.map((sha) => String(sha).trim()).filter(Boolean))].slice(0, 100)
+    const result = new Map<string, { author?: string; committer?: string }>()
+    for (let offset = 0; offset < wanted.length; offset += 25) {
+      const batch = wanted.slice(offset, offset + 25)
+      const fields = batch.map((sha, index) =>
+        `c${index}: commit(ref: ${JSON.stringify(sha)}) { sha author { username } committer { username } }`
+      ).join('\n')
+      const response = await fetch(graphqlUrl, {
+        method: 'POST',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: {
+          'PRIVATE-TOKEN': token,
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: `query CreatorCommitIdentity($fullPath: ID!) {
+            project(fullPath: $fullPath) {
+              repository {
+                ${fields}
+              }
+            }
+          }`,
+          variables: { fullPath }
+        })
+      })
+      if (!response.ok) {
+        const detail = apiErrorDetail(await response.text().catch(() => ''))
+        throw new GitLabApiErrorImpl(
+          `Remote repository API ${response.status}${detail ? `: ${detail}` : ''}`,
+          response.status,
+          detail
+        )
+      }
+      const payload = await response.json() as {
+        data?: { project?: { repository?: Record<string, unknown> } }
+        errors?: Array<{ message?: string }>
+      }
+      if (payload.errors?.length) {
+        throw new GitLabApiErrorImpl(`GitLab GraphQL: ${payload.errors.map((error) => error.message ?? 'request failed').join('; ')}`, 500)
+      }
+      const repository = payload.data?.project?.repository ?? {}
+      const nodes = batch
+        .map((_, index) => repository[`c${index}`])
+        .filter((node): node is Record<string, unknown> => Boolean(node && typeof node === 'object'))
+      for (const node of nodes) {
+        const sha = String(node.sha ?? '').trim()
+        if (!wanted.includes(sha)) continue
+        const author = (node.author ?? {}) as Record<string, unknown>
+        const committer = (node.committer ?? {}) as Record<string, unknown>
+        result.set(sha, {
+          author: String(author.username ?? '').trim() || undefined,
+          committer: String(committer.username ?? '').trim() || undefined
+        })
+      }
+    }
+    return result
+  }
+
+  private async listCommitsByAuthor(
+    projectId: number,
+    refName: string,
+    username: string,
+    config?: GitLabConnectionConfig
+  ): Promise<GitLabCommitDto[]> {
+    const projectRef = await this.projectRef(projectId, config)
+    const qs = new URLSearchParams({
+      ref_name: refName,
+      author: username,
+      per_page: '100',
+      page: '1'
+    })
+    return this.request<GitLabCommitDto[]>(
+      `/projects/${projectRef}/repository/commits?${qs.toString()}`,
+      config
+    )
   }
 
   /**
