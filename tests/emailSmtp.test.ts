@@ -194,7 +194,7 @@ describe('sending through the configured mailbox', () => {
   it('reuses one transport for a whole creator batch and skips invalid addresses', async () => {
     const { service: svc } = service()
     const rows: EmailIssueRow[] = [
-      { repository: 'demo', branch: 'feature/a', creator: '张三', creatorEmail: 'zhang@example.com', creatorEmailSource: 'account', lastCommitDate: '-', inactiveDays: 90, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' },
+      { repository: 'demo', branch: 'feature/a', creator: '张三', creatorEmail: 'zhang@example.com', creatorEmailSource: 'account', creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }, lastCommitDate: '-', inactiveDays: 90, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' },
       { repository: 'demo', branch: 'feature/b', creator: '李四', creatorEmail: '', creatorEmailSource: '', lastCommitDate: '-', inactiveDays: 90, namingStatus: 'valid', mergeStatus: 'not merged', healthScore: 50, state: 'stale' }
     ]
     const result = await svc.sendCreatorEmails(rows)

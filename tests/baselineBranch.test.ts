@@ -129,7 +129,14 @@ describe('cached branch snapshots never invent creator emails', () => {
 
   it('retains an address explicitly verified from the forge account', () => {
     const cached = cachedBranch({
-      creator: { name: '张三', email: 'zhang@example.com', emailSource: 'account', firstCommitAt: LONG_AGO, confidence: 'high' }
+      creator: {
+        name: '张三',
+        email: 'zhang@example.com',
+        emailSource: 'account',
+        emailResolution: { status: 'verified-account', retryable: false, checkedAt: LONG_AGO },
+        firstCommitAt: LONG_AGO,
+        confidence: 'high'
+      }
     })
     expect(backfillCachedCreatorEmail(cached).creator).toMatchObject({
       email: 'zhang@example.com',
@@ -170,7 +177,7 @@ describe('resolveRemoteCreator', () => {
 
   it('does not infer the creator from a branch-only commit', () => {
     const { creator } = resolveRemoteCreator(commit() as never, null)
-    expect(creator).toEqual({ name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' })
+    expect(creator).toMatchObject({ name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' })
   })
 
   it('uses the forge creation event when the branch has no commits of its own', () => {
@@ -178,9 +185,11 @@ describe('resolveRemoteCreator', () => {
       name: '王五',
       email: 'wang@example.com',
       username: 'wangwu',
+      accountId: '7',
       createdAt: '2026-02-02T00:00:00.000Z',
       source: 'event',
-      emailSource: 'account'
+      emailSource: 'account',
+      emailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-02-02T00:00:00.000Z' }
     })
     expect(creator.name).toBe('王五')
     expect(creator.email).toBe('wang@example.com')
@@ -195,9 +204,11 @@ describe('resolveRemoteCreator', () => {
       name: '赵六',
       email: '',
       username: 'zhaoliu',
+      accountId: '8',
       createdAt: null,
       source: 'event',
-      emailSource: ''
+      emailSource: '',
+      emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }
     })
     expect(creator.name).toBe('赵六')
     expect(creator.email).toBe('')
@@ -270,7 +281,7 @@ describe('creatorEmailFromCommits', () => {
       committer_login: 'octocat',
       web_url: ''
     }] as never)
-    expect(email).toBe('octocat@example.com')
+    expect(email).toEqual({ email: 'octocat@example.com', source: 'commit' })
   })
 
   it('rejects a same-named commit from a different account', () => {
@@ -290,7 +301,7 @@ describe('creatorEmailFromCommits', () => {
       committer_login: 'stranger',
       web_url: ''
     }] as never)
-    expect(email).toBe('')
+    expect(email).toEqual({ email: '', source: '' })
   })
 
   it('rejects commits when the creation event has no username', () => {
@@ -308,7 +319,7 @@ describe('creatorEmailFromCommits', () => {
       committer_email: 'octocat@example.com',
       web_url: ''
     }] as never)
-    expect(email).toBe('')
+    expect(email).toEqual({ email: '', source: '' })
   })
 })
 
@@ -322,7 +333,7 @@ describe('creatorEmailFromIdentityChain', () => {
     emailSource: '' as const
   }
 
-  it('reuses the last-author chain when the first own commit signature matches the creator', () => {
+  it('rejects a legacy first-commit signature that is not platform evidence', () => {
     const result = creatorEmailFromIdentityChain(
       { name: 'Octo Cat', email: '', emailSource: '', firstCommitAt: null, confidence: 'medium' },
       event,
@@ -332,7 +343,7 @@ describe('creatorEmailFromIdentityChain', () => {
       } as never,
       new Map()
     )
-    expect(result).toEqual({ email: 'octocat@example.com', source: 'account' })
+    expect(result).toEqual({ email: '', source: '' })
   })
 
   it('rejects a same-named first commit from a different login', () => {
@@ -356,7 +367,11 @@ describe('creatorEmailFromIdentityChain', () => {
       null,
       new Map([['octocat', 'profile@example.com']])
     )
-    expect(result).toEqual({ email: 'profile@example.com', source: 'account' })
+    expect(result).toEqual({
+      email: 'profile@example.com',
+      source: 'account',
+      resolution: { status: 'verified-account', retryable: false, checkedAt: expect.any(String) }
+    })
   })
 })
 

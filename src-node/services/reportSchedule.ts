@@ -8,9 +8,11 @@ import type { MonitoringService } from './monitoring'
 import {
   collectCreatorAddresses,
   creatorNotificationSection,
+  emptyCreatorAddressCollection,
   parseNotifyTarget,
   readEmailLang,
   resolveRecipients,
+  type CreatorAddressCollection,
   type EmailIssueRow
 } from './email'
 import { groupRecipients, parseGroupIds, partitionRecipientTokens, splitRecipientGroupsByDelivery } from '@shared/groups'
@@ -21,26 +23,23 @@ function reportCreatorRows(rows: EmailIssueRow[]): EmailIssueRow[] {
   return rows.filter((row) => row.state === 'stale' || row.namingStatus === 'invalid' || Boolean(row.cleanupCandidate))
 }
 
-interface CreatorRecipients {
-  addresses: string[]
-  missing: string[]
-  fallback: string[]
-}
-
-function toCreatorRecipients(collected: { to: string[]; missing: string[]; fallback?: string[] }): CreatorRecipients {
-  return { addresses: collected.to, missing: collected.missing, fallback: collected.fallback ?? [] }
-}
-
 function withCreatorNotes(
   message: string,
-  creators: CreatorRecipients
+  creators: CreatorAddressCollection
 ): string {
   const notes: string[] = []
-  if (creators.addresses.length > 0) {
-    notes.push(`创始人邮件已发送给 ${creators.addresses.slice(0, 3).join('、')}`)
+  if (creators.accountCreatorRecipients.length > 0) {
+    notes.push(`平台账号已验证创始人：${creators.accountCreatorRecipients.slice(0, 3).join('、')}`)
   }
-  if (creators.missing.length > 0) notes.push(`无有效收件人邮箱的创始人已跳过：${creators.missing.slice(0, 3).join('、')}`)
-  if (creators.fallback.length > 0) notes.push(`创始人邮箱无法确认，已改发给最后提交人：${creators.fallback.slice(0, 3).join('、')}`)
+  if (creators.commitCreatorRecipients.length > 0) {
+    notes.push(`账号精确绑定提交邮箱的创始人：${creators.commitCreatorRecipients.slice(0, 3).join('、')}`)
+  }
+  if (creators.fallbackRecipients.length > 0) {
+    notes.push(`创始人邮箱无法确认，已改发给最后提交人：${creators.fallbackRecipients.slice(0, 3).join('、')}`)
+  }
+  if (creators.skipped.length > 0) {
+    notes.push(`无有效收件人邮箱已跳过：${creators.skipped.slice(0, 3).join('、')}`)
+  }
   return notes.length > 0 ? `${message}（${notes.join('；')}）` : message
 }
 
@@ -48,13 +47,13 @@ const REPORT_FOOTER_MARKER = '<hr style="border:none;border-top:1px solid #e2e6e
 
 function appendCreatorSection(
   html: string,
-  creators: CreatorRecipients,
+  creators: CreatorAddressCollection,
   storage: StorageService
 ): string {
-  if (creators.addresses.length === 0 && creators.missing.length === 0 && creators.fallback.length === 0) return html
+  if (creators.to.length === 0 && creators.skipped.length === 0) return html
   let section = ''
   try {
-    section = creatorNotificationSection(creators.addresses, creators.missing, readEmailLang(storage), creators.fallback)
+    section = creatorNotificationSection(creators, readEmailLang(storage))
   } catch {
     return html
   }
@@ -262,13 +261,13 @@ export class ReportScheduleService {
     if (plain) to.push(...resolveRecipients(plain, []))
     const resolvedRecipients = [...new Set(to.map((recipient) => recipient.trim()).filter(Boolean))]
     const creators = parsedNotify.creator
-      ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(scope).branches)))
-      : { addresses: [], missing: [], fallback: [] }
+      ? collectCreatorAddresses(reportCreatorRows(this.reportService.getSummaryEmailData(scope).branches))
+      : emptyCreatorAddressCollection()
     const groupToRecipients = [
       ...new Set(groupToTargets.flatMap((group) => groupRecipients(group)))
     ]
     const mainRecipients = [
-      ...new Set([...resolvedRecipients, ...creators.addresses, ...groupToRecipients])
+      ...new Set([...resolvedRecipients, ...creators.to, ...groupToRecipients])
     ]
     const groupCcRecipients = [...new Set(groupCcTargets.flatMap((group) => groupRecipients(group)))]
     if (mainRecipients.length === 0 && creators.missing.length > 0) {
@@ -276,12 +275,12 @@ export class ReportScheduleService {
       this.manualSendFinishedAt = new Date().toISOString()
       this.manualSendLastResult = {
         ok: false,
-        message: `范围内没有可用的创始人或最后提交人邮箱，无法发送：${creators.missing.slice(0, 3).join('、')}`,
+        message: `范围内没有可用的创始人或最后提交人邮箱，无法发送：${creators.skipped.slice(0, 3).join('、')}`,
         emailsSent: 0
       }
       this.audit.record(
         'report_selected_repositories_sent',
-        { reason: 'creators_without_email', input: recipients, repositoryIds: scope, missing: creators.missing },
+        { reason: 'creators_without_email', input: recipients, repositoryIds: scope, missing: creators.skipped },
         'failure'
       )
       return this.manualSendLastResult
@@ -320,10 +319,10 @@ export class ReportScheduleService {
           repositoryIds: scope,
           ...(groupIds?.length ? { groupIds } : {}),
           recipients: result.recipients ?? toHeader,
-          creatorRecipients: creators.addresses,
+          creatorRecipients: creators.to,
           ...(ccHeader.length > 0 ? { cc: ccHeader } : {}),
-          creatorFallbackRecipients: creators.fallback,
-          creatorsWithoutEmail: creators.missing,
+          creatorFallbackRecipients: creators.fallbackRecipients,
+          creatorsWithoutEmail: creators.skipped,
           ok: result.ok
         },
         result.ok ? 'success' : 'failure'
@@ -393,10 +392,10 @@ export class ReportScheduleService {
           const parsedNotify = parseNotifyTarget(schedule.recipients || 'self')
           const selfAddress = emailConfig.selfEmail || emailConfig.testRecipient || emailConfig.username
           const creators = parsedNotify.creator
-            ? toCreatorRecipients(collectCreatorAddresses(reportCreatorRows(
+            ? collectCreatorAddresses(reportCreatorRows(
                 this.reportService.getSummaryEmailData(schedule.repositoryIds).branches
-              )))
-            : { addresses: [] as string[], missing: [] as string[], fallback: [] as string[] }
+              ))
+            : emptyCreatorAddressCollection()
           const targetRecipients: string[] = []
           if (parsedNotify.self && selfAddress) targetRecipients.push(selfAddress)
           // 组名 token 表示「这份报告也发给这个组的组员」：内容与发给普通收件人的报告
@@ -418,7 +417,7 @@ export class ReportScheduleService {
             ...new Set(groupToTargets.flatMap((group) => groupRecipients(group)))
           ]
           const recipients = [
-            ...new Set([...resolvedRecipients, ...creators.addresses, ...groupToRecipients])
+            ...new Set([...resolvedRecipients, ...creators.to, ...groupToRecipients])
           ]
           const groupCcRecipients = [...new Set(groupCcTargets.flatMap((group) => groupRecipients(group)))]
 
@@ -433,7 +432,7 @@ export class ReportScheduleService {
                 name: schedule.name,
                 reason: !selfAddress ? 'self_email_missing' : 'recipients_empty',
                 input: schedule.recipients,
-                creatorsWithoutEmail: creators.missing
+                creatorsWithoutEmail: creators.skipped
               }, 'failure')
             }
             const auditedGroups = [
@@ -465,10 +464,12 @@ export class ReportScheduleService {
               await send(toHeader, ccHeader)
               this.audit.record('report_schedule_creator_recipients', {
                 id: schedule.id,
-                verifiedCreatorRecipients: creators.addresses,
+                accountCreatorRecipients: creators.accountCreatorRecipients,
+                commitCreatorRecipients: creators.commitCreatorRecipients,
+                verifiedCreatorRecipients: creators.verifiedCreatorRecipients,
                 fallbackRecipients: creators.fallback,
-                skipped: creators.missing
-              }, creators.missing.length > 0 ? 'failure' : 'success')
+                skipped: creators.skipped
+              }, creators.skipped.length > 0 ? 'failure' : 'success')
               for (const { group, delivery } of auditedGroups) {
                 const members = groupRecipients(group)
                 if (members.length === 0) continue

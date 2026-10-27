@@ -1,4 +1,12 @@
-import type { GitLabConnectionConfig, GitLabProject, GitLabTestResult } from '@shared/types'
+import { createHash } from 'node:crypto'
+import type {
+  CreatorEmailResolution,
+  CreatorEmailResolutionStatus,
+  CreatorEmailSource,
+  GitLabConnectionConfig,
+  GitLabProject,
+  GitLabTestResult
+} from '@shared/types'
 import type { SettingsService } from './settings'
 import { logger } from '../utils/logger'
 import { decryptSecret, encryptSecret } from '../utils/secrets'
@@ -66,10 +74,29 @@ export interface BranchCreatorDto {
   username: string
   /** Stable account id from the creation event, when the API exposes it. */
   userId?: number | null
+  /** Same account id normalized for cached JSON. */
+  accountId?: string
   createdAt: string | null
   source: 'event'
-  /** Only a forge account lookup or public account email can set this. */
-  emailSource: 'account' | ''
+  /** Only forge-bound account data or an identity-matched commit can set this. */
+  emailSource: CreatorEmailSource
+  /** Filled by the resolver; optional for test fixtures and cache migration. */
+  emailResolution?: CreatorEmailResolution
+}
+
+/** Compatibility view for callers that only need the branch map. */
+export type BranchCreatorLookupResult = BranchCreatorLookup & {
+  get(branch: string): BranchCreatorDto | undefined
+  has(branch: string): boolean
+  keys(): MapIterator<string>
+  size: number
+}
+
+function creatorLookup(
+  creators: Map<string, BranchCreatorDto>,
+  events: BranchCreatorEventState
+): BranchCreatorLookupResult {
+  return Object.assign(creators, { creators, events })
 }
 
 export interface GitLabCommitDto {
@@ -231,24 +258,95 @@ function apiErrorDetail(body: string): string {
   return collapsed.length > 240 ? `${collapsed.slice(0, 237)}...` : collapsed
 }
 
-/** Upper bound on profile lookups per scan, so a huge repository stays responsive. */
-const MAX_CREATOR_EMAIL_LOOKUPS = 50
+const PROFILE_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000
+const PROFILE_HIDDEN_TTL_MS = 60 * 60 * 1000
+const PROFILE_LOOKUP_CONCURRENCY = 6
+
+export interface ResolvedForgeUser {
+  name: string
+  username: string
+  accountId: string
+  email: string
+  source: CreatorEmailSource
+  resolution: CreatorEmailResolution
+}
+
+export interface BranchCreatorEventState {
+  status: 'available' | 'partial' | 'unavailable'
+  retryable: boolean
+  checkedAt: string
+  detail?: string
+}
+
+export interface BranchCreatorLookup {
+  creators: Map<string, BranchCreatorDto>
+  events: BranchCreatorEventState
+}
+
+interface ProfileCacheEntry {
+  value: ResolvedForgeUser
+  expiresAt: number
+}
+
+function creatorStatus(
+  status: CreatorEmailResolutionStatus,
+  retryable: boolean,
+  detail?: string
+): CreatorEmailResolution {
+  return {
+    status,
+    retryable,
+    checkedAt: new Date().toISOString(),
+    ...(detail ? { detail } : {})
+  }
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return error instanceof GitLabApiErrorImpl ? error.status : undefined
+}
+
+function accountLookupFailure(error: unknown): CreatorEmailResolution {
+  const status = errorStatus(error)
+  if (status === 401 || status === 403) {
+    return creatorStatus('account-lookup-forbidden', false, status === 401 ? 'account token rejected' : 'account lookup forbidden')
+  }
+  if (status === 429) return creatorStatus('account-lookup-rate-limited', true, 'account lookup rate limited')
+  if (status === 404) return creatorStatus('account-not-found', false, 'account not found')
+  return creatorStatus('account-lookup-failed', true, status ? `account lookup returned ${status}` : 'account lookup failed')
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  limit: number,
+  worker: (value: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length)
+  let next = 0
+  const run = async (): Promise<void> => {
+    for (;;) {
+      const index = next
+      next += 1
+      if (index >= values.length) return
+      results[index] = await worker(values[index])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => run()))
+  return results
+}
 
 export class GitLabService {
   constructor(private readonly settings: SettingsService) {}
 
   private projectPathCache = new Map<string, string>()
-  /** `<host>|<username>` -> public address; empty string means "looked up, none public". */
-  private userEmailCache = new Map<string, string>()
-  /** `<host>|<username>` -> display name and public address; null means "looked up, none exposed". */
-  private userProfileCache = new Map<string, { name: string; email: string } | null>()
+  /** Account profiles are scoped by host, exact account identity, and token fingerprint. */
+  private userProfileCache = new Map<string, ProfileCacheEntry>()
 
-  /** Cache key: the same login can exist on two hosts with different addresses. */
-  private userEmailKey(username: string, config?: GitLabConnectionConfig): string {
-    const host = String(config?.url?.trim() || this.settings.get().gitlabUrl)
-      .replace(/\/+$/, '')
-      .toLowerCase()
-    return `${host}|${username.toLowerCase()}`
+  private userProfileKey(identity: { username?: string; accountId?: string | null }, config?: GitLabConnectionConfig): string {
+    const { url, token, provider } = this.resolve(config)
+    const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 16)
+    const account = String(identity.accountId ?? '').trim()
+      || String(identity.username ?? '').trim().toLowerCase()
+    return `${provider}|${url.replace(/\/+$/, '').toLowerCase()}|${tokenFingerprint}|${account}`
   }
 
   private resolve(config?: GitLabConnectionConfig): { url: string; token: string; provider: 'gitlab' | 'github' | 'gitee' } {
@@ -748,18 +846,18 @@ export class GitLabService {
   async listBranchCreators(
     projectId: number,
     config?: GitLabConnectionConfig
-  ): Promise<Map<string, BranchCreatorDto>> {
+  ): Promise<BranchCreatorLookupResult> {
     const creators = new Map<string, BranchCreatorDto>()
     const { provider } = this.resolve(config)
     const projectRef = await this.projectRef(projectId, config)
     if (provider === 'github') {
-      let events: Array<Record<string, unknown>>
+      let events: Array<Record<string, unknown>> = []
+      let eventError: unknown
       try {
         events = await this.paginate(`/repos/${projectRef}/events?per_page=100`, config)
-      } catch {
-        return creators
+      } catch (error) {
+        eventError = error
       }
-      const usernames = new Set<string>()
       for (const event of events) {
         if (event.type !== 'PushEvent') continue
         const payload = (event.payload ?? {}) as Record<string, unknown>
@@ -774,32 +872,33 @@ export class GitLabService {
           name,
           email: '',
           username,
+          accountId: undefined,
           createdAt: typeof event.created_at === 'string' ? event.created_at : null,
           source: 'event',
-          emailSource: ''
+          emailSource: '',
+          emailResolution: username
+            ? creatorStatus('account-lookup-failed', true, 'GitHub account profile pending')
+            : creatorStatus('identity-missing', false, 'GitHub event did not include an actor login')
         })
-        if (username) usernames.add(username)
       }
-      await Promise.all([...usernames].map(async (username) => {
-        try {
-          const profile = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(username)}`, config)
-          const profileLogin = String(profile.login ?? '').trim()
-          if (!profileLogin || profileLogin.toLowerCase() !== username.toLowerCase()) {
-            throw new Error(`GitHub profile login mismatch for ${username}`)
+      await this.applyResolvedAccounts(creators, config)
+      return creatorLookup(creators, eventError
+        ? {
+            status: 'unavailable',
+            retryable: true,
+            checkedAt: new Date().toISOString(),
+            detail: errorStatus(eventError) ? `events returned ${errorStatus(eventError)}` : 'events request failed'
           }
-          for (const creator of creators.values()) {
-            if (creator.username !== username) continue
-            creator.name = String(profile.name ?? '').trim() || creator.name
-            creator.email = String(profile.email ?? '').trim()
-            if (creator.email) creator.emailSource = 'account'
-          }
-        } catch {
-          // The event actor remains usable when profile access is restricted.
-        }
-      }))
-      return creators
+        : { status: 'available', retryable: false, checkedAt: new Date().toISOString() })
     }
-    if (provider !== 'gitlab') return creators
+    if (provider !== 'gitlab') {
+      return creatorLookup(creators, {
+          status: 'unavailable',
+          retryable: false,
+          checkedAt: new Date().toISOString(),
+          detail: `${provider} has no supported branch creation event stream`
+      })
+    }
     // Newest first. Events only cover a bounded window, so older branches may
     // simply not appear. Some self-hosted GitLab versions ignore `action` or
     // expose the author fields in a slightly different shape; query both forms
@@ -820,9 +919,15 @@ export class GitLabService {
     }
 
     let rows: Array<Record<string, unknown>> = []
+    let filteredError: unknown
+    let unfilteredError: unknown
+    let filteredAvailable = false
+    let unfilteredAvailable = false
     try {
       rows = await eventPages(true)
+      filteredAvailable = true
     } catch (error) {
+      filteredError = error
       logger.warn(`Could not read filtered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
     const parseEvents = (events: Array<Record<string, unknown>>): void => {
@@ -849,107 +954,286 @@ export class GitLabService {
           email: String(author.public_email ?? '').trim(),
           username,
           userId: Number.isFinite(authorId) ? authorId : null,
+          accountId: Number.isFinite(authorId) ? String(authorId) : undefined,
           createdAt: typeof row.created_at === 'string' ? row.created_at : null,
           source: 'event',
-          emailSource: String(author.public_email ?? '').trim() ? 'account' : ''
+          emailSource: String(author.public_email ?? '').trim() ? 'account' : '',
+          emailResolution: String(author.public_email ?? '').trim()
+            ? creatorStatus('verified-account', false, 'public_email from branch creation event')
+            : username || Number.isFinite(authorId)
+              ? creatorStatus('account-lookup-failed', true, 'GitLab account profile pending')
+              : creatorStatus('identity-missing', false, 'GitLab creation event did not include an account identity')
         })
       }
     }
     parseEvents(rows)
     try {
       parseEvents(await eventPages(false))
+      unfilteredAvailable = true
     } catch (error) {
+      unfilteredError = error
       logger.warn(`Could not read unfiltered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
-    const usersToResolve = [...creators.values()].filter((creator) => creator.username)
-    if (usersToResolve.length > 0) {
-      const profiles = await this.resolveGitLabUsers(
-        usersToResolve.map((creator) => ({ username: creator.username, userId: creator.userId ?? null })),
-        config
-      )
-      for (const creator of creators.values()) {
-        if (!creator.username) continue
-        const profile = profiles.get(creator.username.toLowerCase())
-        if (!profile) continue
-        creator.name = profile.name || creator.name
-        if (!creator.email && profile.email) {
-          creator.email = profile.email
-          creator.emailSource = 'account'
-        }
-      }
-    }
-    // Non-admin tokens are often rejected by the user directory
-    // (`/users?username=`), but any authenticated user can fetch one account
-    // by its stable id. The event proves only a numeric author id, so the
-    // response must carry that same id before its address can be trusted.
-    const unresolvedById = [...creators.values()].filter((creator) => creator.userId && !creator.email)
-    for (const creator of unresolvedById.slice(0, MAX_CREATOR_EMAIL_LOOKUPS)) {
-      try {
-        const profile = await this.request<Record<string, unknown>>(`/users/${creator.userId}`, config)
-        if (Number(profile.id ?? NaN) !== creator.userId) continue
-        creator.name = String(profile.name ?? '').trim() || creator.name
-        if (!creator.username) creator.username = String(profile.username ?? '').trim()
-        const email = String(profile.public_email ?? '').trim() || String(profile.email ?? '').trim()
-        if (email) {
-          creator.email = email
-          creator.emailSource = 'account'
-        }
-      } catch {
-        // The creation event remains valid even when profile access is restricted.
-      }
-    }
-    return creators
+    await this.applyResolvedAccounts(creators, config)
+    const eventError = filteredError ?? unfilteredError
+    const status = filteredAvailable && unfilteredAvailable
+      ? 'available'
+      : filteredAvailable || unfilteredAvailable
+        ? 'partial'
+        : 'unavailable'
+    return creatorLookup(creators, {
+        status,
+        retryable: Boolean(eventError),
+        checkedAt: new Date().toISOString(),
+        ...(eventError
+          ? { detail: errorStatus(eventError) ? `creation events returned ${errorStatus(eventError)}` : 'creation events request failed' }
+          : {})
+    })
   }
 
-  private async resolveGitLabUsers(
-    entries: Array<{ username: string; userId: number | null }>,
+  private async applyResolvedAccounts(
+    creators: Map<string, BranchCreatorDto>,
     config?: GitLabConnectionConfig
-  ): Promise<Map<string, { name: string; email: string }>> {
-    const profiles = new Map<string, { name: string; email: string }>()
-    const pending = [...new Map(entries.map((entry) => [entry.username.trim().toLowerCase(), entry])).values()]
-      .filter((entry) => {
-        const cached = this.userProfileCache.get(this.userEmailKey(entry.username, config))
-        if (cached === undefined) return true
-        if (cached) profiles.set(entry.username.toLowerCase(), cached)
-        return false
-      })
-      .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
-    for (const entry of pending) {
-      const username = entry.username
-      const qs = new URLSearchParams({ username })
-      try {
-        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
-        const match = Array.isArray(rows)
-          ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
-          : undefined
-        // A user-directory miss can mean either "no such account" or "the
-        // token may not enumerate users". Only retry by id when the directory
-        // returned an empty (not an error) response, so real 403s stay
-        // retryable for the id path below.
-        if (Array.isArray(rows) && rows.length === 0 && entry.userId) {
-          const byId = await this.request<Record<string, unknown>>(`/users/${entry.userId}`, config)
-          if (Number(byId.id ?? NaN) === entry.userId && String(byId.username ?? '').toLowerCase() === username.toLowerCase()) {
-            const profile = {
-              name: String(byId.name ?? '').trim(),
-              email: String(byId.public_email ?? '').trim() || String(byId.email ?? '').trim()
-            }
-            this.userProfileCache.set(this.userEmailKey(username, config), profile)
-            profiles.set(username.toLowerCase(), profile)
-          }
-          continue
-        }
-        this.userProfileCache.set(this.userEmailKey(username, config), match ? {
-          name: String(match.name ?? '').trim(),
-          email: String(match.public_email ?? '').trim() || String(match.email ?? '').trim()
-        } : null)
-        if (match) {
-          profiles.set(username.toLowerCase(), this.userProfileCache.get(this.userEmailKey(username, config))!)
-        }
-      } catch {
-        // Event identity remains valid even when profile access is restricted.
+  ): Promise<void> {
+    const entries = [...new Map(
+      [...creators.values()]
+        .filter((creator) => creator.username || creator.accountId || creator.userId)
+        .map((creator) => [
+          creator.accountId || creator.username.toLowerCase(),
+          { username: creator.username, accountId: creator.accountId || (creator.userId ? String(creator.userId) : undefined) }
+        ])
+    ).values()]
+    const resolved = await this.resolveAccountIdentities(entries, config)
+    for (const creator of creators.values()) {
+      // A public address on the creation event is already bound to the actor.
+      if (creator.emailSource === 'account' && creator.email) continue
+      const key = creator.accountId || creator.username.toLowerCase()
+      const account = resolved.get(key)
+      if (!account) continue
+      if (account.name && account.name !== account.username) creator.name = account.name || creator.name
+      creator.username = account.username || creator.username
+      creator.accountId = account.accountId || creator.accountId
+      creator.userId = account.accountId && /^\d+$/.test(account.accountId)
+        ? Number(account.accountId)
+        : creator.userId
+      creator.email = account.email
+      creator.emailSource = account.source
+      creator.emailResolution = account.resolution
+    }
+  }
+
+  /**
+   * Resolve an exact forge account. GitLab is queried by stable id first and
+   * then by exact username; GitHub is queried by exact login. Display-name
+   * search results and account-id mismatches are never accepted.
+   */
+  async resolveAccountIdentity(
+    identity: { username?: string; accountId?: string | null },
+    config?: GitLabConnectionConfig
+  ): Promise<ResolvedForgeUser> {
+    const username = String(identity.username ?? '').trim()
+    const accountId = String(identity.accountId ?? '').trim()
+    const checkedAt = new Date().toISOString()
+    if (!username && !accountId) {
+      return {
+        name: username || (accountId ? `Account ${accountId}` : ''),
+        username,
+        accountId,
+        email: '',
+        source: '',
+        resolution: creatorStatus('identity-missing', false, 'creation event has no account id or username')
       }
     }
-    return profiles
+    const { provider } = this.resolve(config)
+    const cacheKey = this.userProfileKey({ username, accountId }, config)
+    const cached = this.userProfileCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
+    if (cached) this.userProfileCache.delete(cacheKey)
+
+    let lastError: unknown
+    let identityMismatch = false
+    if (provider === 'github') {
+      if (!username) {
+        return {
+          name: username,
+          username,
+          accountId,
+          email: '',
+          source: '',
+          resolution: creatorStatus('identity-missing', false, 'GitHub lookup requires a login')
+        }
+      }
+      try {
+        const profile = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(username)}`, config)
+        const login = String(profile.login ?? '').trim()
+        if (login.toLowerCase() !== username.toLowerCase()) {
+          return {
+            name: String(profile.name ?? '').trim() || username,
+            username,
+            accountId,
+            email: '',
+            source: '',
+            resolution: creatorStatus('identity-mismatch', false, 'GitHub profile login does not match the event actor')
+          }
+        }
+        return this.completeAccountResolution(profile, { username, accountId, checkedAt }, cacheKey)
+      } catch (error) {
+        return {
+          name: username,
+          username,
+          accountId,
+          email: '',
+          source: '',
+          resolution: accountLookupFailure(error)
+        }
+      }
+    }
+    if (provider !== 'gitlab') {
+      return {
+        name: username,
+        username,
+        accountId,
+        email: '',
+        source: '',
+        resolution: creatorStatus('account-lookup-failed', true, `${provider} creator account resolution is not implemented`)
+      }
+    }
+
+    let profile: Record<string, unknown> | undefined
+    if (accountId && /^\d+$/.test(accountId)) {
+      try {
+        const byId = await this.request<Record<string, unknown>>(`/users/${encodeURIComponent(accountId)}`, config)
+        if (String(byId.id ?? '').trim() === accountId) {
+          profile = byId
+        } else {
+          identityMismatch = true
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+    if (!profile && username) {
+      try {
+        const qs = new URLSearchParams({ username })
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const exact = Array.isArray(rows)
+          ? rows.find((row) => String(row.username ?? '').trim().toLowerCase() === username.toLowerCase())
+          : undefined
+        if (exact) {
+          const responseId = String(exact.id ?? '').trim()
+          if (accountId && (!responseId || responseId !== accountId)) {
+            identityMismatch = true
+          } else {
+            profile = exact
+          }
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+    if (profile) return this.completeAccountResolution(profile, { username, accountId, checkedAt }, cacheKey)
+    if (identityMismatch) {
+      return {
+        name: username || `Account ${accountId}`,
+        username,
+        accountId,
+        email: '',
+        source: '',
+        resolution: creatorStatus('identity-mismatch', false, 'forge account response does not match the creation identity')
+      }
+    }
+    if (lastError) {
+      return {
+        name: username || `Account ${accountId}`,
+        username,
+        accountId,
+        email: '',
+        source: '',
+        resolution: accountLookupFailure(lastError)
+      }
+    }
+    const notFound: ResolvedForgeUser = {
+      name: username || `Account ${accountId}`,
+      username,
+      accountId,
+      email: '',
+      source: '',
+      resolution: creatorStatus('account-not-found', false, 'no exact forge account matched the creation identity')
+    }
+    this.userProfileCache.set(cacheKey, {
+      value: notFound,
+      expiresAt: Date.now() + PROFILE_HIDDEN_TTL_MS
+    })
+    return notFound
+  }
+
+  private completeAccountResolution(
+    profile: Record<string, unknown>,
+    identity: { username: string; accountId: string; checkedAt: string },
+    cacheKey: string
+  ): ResolvedForgeUser {
+    const profileUsername = String(profile.username ?? profile.login ?? '').trim()
+    const profileId = String(profile.id ?? '').trim()
+    if (identity.accountId && profileId !== identity.accountId) {
+      return {
+        name: identity.username || `Account ${identity.accountId}`,
+        username: identity.username,
+        accountId: identity.accountId,
+        email: '',
+        source: '',
+        resolution: creatorStatus('identity-mismatch', false, 'forge account id does not match the creation event')
+      }
+    }
+    if (!profileUsername || (identity.username && profileUsername.toLowerCase() !== identity.username.toLowerCase())) {
+      return {
+        name: identity.username || `Account ${identity.accountId}`,
+        username: identity.username,
+        accountId: identity.accountId || profileId,
+        email: '',
+        source: '',
+        resolution: creatorStatus('identity-mismatch', false, 'forge account username does not match the creation event')
+      }
+    }
+    const email = [
+      profile.public_email,
+      profile.email,
+      profile.commit_email
+    ].map((value) => String(value ?? '').trim()).find((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) ?? ''
+    const result: ResolvedForgeUser = {
+      name: String(profile.name ?? profile.display_name ?? '').trim() || identity.username || profileUsername,
+      username: profileUsername || identity.username,
+      accountId: profileId || identity.accountId,
+      email,
+      source: email ? 'account' : '',
+      resolution: email
+        ? creatorStatus('verified-account', false, 'exact forge account profile')
+        : creatorStatus('account-email-hidden', false, 'exact forge account profile did not expose an email')
+    }
+    this.userProfileCache.set(cacheKey, {
+      value: result,
+      expiresAt: Date.now() + (email ? PROFILE_SUCCESS_TTL_MS : PROFILE_HIDDEN_TTL_MS)
+    })
+    return result
+  }
+
+  async resolveAccountIdentities(
+    identities: Array<{ username?: string; accountId?: string | null }>,
+    config?: GitLabConnectionConfig
+  ): Promise<Map<string, ResolvedForgeUser>> {
+    const unique = new Map<string, { username?: string; accountId?: string | null }>()
+    for (const identity of identities) {
+      const username = String(identity.username ?? '').trim()
+      const accountId = String(identity.accountId ?? '').trim()
+      if (!username && !accountId) continue
+      unique.set(accountId || username.toLowerCase(), { username, accountId })
+    }
+    const entries = [...unique.entries()]
+    const resolvedEntries = await mapWithConcurrency(
+      entries,
+      PROFILE_LOOKUP_CONCURRENCY,
+      async ([, identity]) => [identity.accountId || String(identity.username).toLowerCase(), await this.resolveAccountIdentity(identity, config)] as const
+    )
+    return new Map(resolvedEntries)
   }
 
   /**
@@ -973,32 +1257,14 @@ export class GitLabService {
     config?: GitLabConnectionConfig
   ): Promise<Map<string, string>> {
     const resolved = new Map<string, string>()
-    const { provider } = this.resolve(config)
-    if (provider !== 'gitlab') return resolved
-    const pending = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
-      .filter((username) => {
-        const cached = this.userEmailCache.get(this.userEmailKey(username, config))
-        // Empty misses may come from a transient or permission-filtered
-        // directory response and must remain retryable.
-        if (!cached) return true
-        resolved.set(username.toLowerCase(), cached)
-        return false
-      })
-      .slice(0, MAX_CREATOR_EMAIL_LOOKUPS)
-    for (const username of pending) {
-      const qs = new URLSearchParams({ username })
-      let rows: Array<Record<string, unknown>>
-      try {
-        rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
-      } catch {
-        continue
+    const accounts = await this.resolveAccountIdentities(
+      [...new Set(usernames.map((name) => name.trim()).filter(Boolean))].map((username) => ({ username })),
+      config
+    )
+    for (const account of accounts.values()) {
+      if (account.source === 'account' && account.email) {
+        resolved.set(account.username.toLowerCase(), account.email)
       }
-      const match = Array.isArray(rows)
-        ? rows.find((row) => String(row.username ?? '').toLowerCase() === username.toLowerCase())
-        : undefined
-      const email = String(match?.public_email ?? '').trim() || String(match?.email ?? '').trim()
-      this.userEmailCache.set(this.userEmailKey(username, config), email)
-      if (email) resolved.set(username, email)
     }
     return resolved
   }

@@ -22,6 +22,7 @@ function row(partial: Partial<EmailIssueRow>): EmailIssueRow {
     creator: '张三',
     creatorEmail: 'zhangsan@example.com',
     creatorEmailSource: 'account',
+    creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' },
     lastAuthor: '张三',
     lastAuthorEmail: '',
     lastCommitDate: '2026-01-01',

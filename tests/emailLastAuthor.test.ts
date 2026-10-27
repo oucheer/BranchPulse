@@ -155,13 +155,28 @@ describe('last-author notification fallback', () => {
       creator: '张三',
       creatorEmail: 'creator@example.com',
       creatorEmailSource: 'account',
+      creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' },
       lastAuthor: '王五',
       lastAuthorEmail: 'last@example.com'
     }))
     expect(decision).toEqual({
-      kind: 'creator',
+      kind: 'account',
       address: 'creator@example.com',
-      reason: 'verified-creator'
+      reason: 'verified-account-creator'
+    })
+  })
+
+  it('uses a commit email only when its provenance is exactly account-bound', () => {
+    const decision = resolveCreatorRecipient(row({
+      creator: '张三',
+      creatorEmail: 'commit@example.com',
+      creatorEmailSource: 'commit',
+      creatorEmailResolution: { status: 'verified-commit', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }
+    }))
+    expect(decision).toEqual({
+      kind: 'commit',
+      address: 'commit@example.com',
+      reason: 'verified-commit-creator'
     })
   })
 
@@ -170,6 +185,7 @@ describe('last-author notification fallback', () => {
       creator: '张三',
       creatorEmail: 'wrong-person@example.com',
       creatorEmailSource: '',
+      creatorEmailResolution: { status: 'legacy-unverified', retryable: true, checkedAt: '2026-01-01T00:00:00.000Z' },
       lastAuthor: '王五',
       lastAuthorEmail: 'last@example.com'
     }))
@@ -185,6 +201,7 @@ describe('last-author notification fallback', () => {
       creator: '张三',
       creatorEmail: 'still-untrusted@example.com',
       creatorEmailSource: '',
+      creatorEmailResolution: { status: 'legacy-unverified', retryable: true, checkedAt: '2026-01-01T00:00:00.000Z' },
       lastAuthor: '王五',
       lastAuthorEmail: 'not-an-email'
     }))
@@ -208,11 +225,12 @@ describe('last-author notification fallback', () => {
         branch: 'feature/verified',
         creator: '张三',
         creatorEmail: 'Shared@Example.com',
-        creatorEmailSource: 'account'
+        creatorEmailSource: 'account',
+        creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }
       })
     ])
     expect(grouped.groups).toHaveLength(1)
-    expect(grouped.groups[0]).toMatchObject({ kind: 'creator', address: 'shared@example.com' })
+    expect(grouped.groups[0]).toMatchObject({ kind: 'account', address: 'shared@example.com' })
     expect(grouped.groups[0].rows).toHaveLength(2)
   })
 
@@ -221,7 +239,8 @@ describe('last-author notification fallback', () => {
       row({
         branch: 'feature/verified',
         creatorEmail: 'creator@example.com',
-        creatorEmailSource: 'account'
+        creatorEmailSource: 'account',
+        creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }
       }),
       row({
         branch: 'feature/fallback',
@@ -243,6 +262,8 @@ describe('last-author notification fallback', () => {
     const svc = service()
     const result = await svc.sendCreatorEmails(rows)
     expect(collected.to).toEqual(['creator@example.com', 'fallback@example.com'])
+    expect(collected.accountCreatorRecipients).toEqual(['creator@example.com'])
+    expect(collected.commitCreatorRecipients).toEqual([])
     expect(collected.verifiedCreatorRecipients).toEqual(['creator@example.com'])
     expect(collected.fallbackRecipients).toEqual(['fallback@example.com'])
     expect(collected.skipped).toHaveLength(1)
@@ -259,7 +280,8 @@ describe('last-author notification fallback', () => {
       row({
         branch: 'feature/verified',
         creatorEmail: 'creator@example.com',
-        creatorEmailSource: 'account'
+        creatorEmailSource: 'account',
+        creatorEmailResolution: { status: 'verified-account', retryable: false, checkedAt: '2026-01-01T00:00:00.000Z' }
       }),
       row({
         branch: 'feature/fallback',
@@ -278,10 +300,12 @@ describe('last-author notification fallback', () => {
     ])
     const sentAudit = records.find((record) => record.action === 'email_creator_sent')
     expect(sentAudit?.detail).toMatchObject({
+      accountCreatorRecipients: ['creator@example.com'],
+      commitCreatorRecipients: [],
       verifiedCreatorRecipients: ['creator@example.com'],
       fallbackRecipients: ['fallback@example.com'],
       recipientPlan: [
-        expect.objectContaining({ kind: 'creator', address: 'creator@example.com' }),
+        expect.objectContaining({ kind: 'account', address: 'creator@example.com' }),
         expect.objectContaining({ kind: 'last-author', address: 'fallback@example.com' })
       ]
     })
@@ -291,14 +315,19 @@ describe('last-author notification fallback', () => {
   })
 
   it('states verified creators, fallbacks and skips in the report notification section', () => {
-    const html = creatorNotificationSection(
-      ['creator@example.com'],
-      ['赵六（创始人邮箱无法确认，最后提交人无有效邮箱）'],
-      'zh',
-      ['fallback@example.com']
-    )
-    expect(html).toContain('平台账号已验证创始人收件人（1）')
-    expect(html).toContain('最后提交人回退收件人（1')
+    const html = creatorNotificationSection({
+      to: ['creator@example.com', 'fallback@example.com'],
+      accountCreatorRecipients: ['creator@example.com'],
+      commitCreatorRecipients: [],
+      verifiedCreatorRecipients: ['creator@example.com'],
+      fallbackRecipients: ['fallback@example.com'],
+      fallback: ['fallback@example.com'],
+      missing: ['赵六（创始人邮箱无法确认，最后提交人无有效邮箱）'],
+      skipped: ['赵六（创始人邮箱无法确认，最后提交人无有效邮箱）'],
+      skippedReasons: ['赵六（创始人邮箱无法确认，最后提交人无有效邮箱）']
+    }, 'zh')
+    expect(html).toContain('平台账号已验证创始人（1）')
+    expect(html).toContain('最后提交人回退（1')
     expect(html).toContain('已跳过并记录原因')
     expect(html).toContain('creator@example.com')
     expect(html).toContain('fallback@example.com')

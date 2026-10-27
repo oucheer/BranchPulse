@@ -200,6 +200,7 @@ export class GroupService {
 function groupCsv(group: EmailGroup, branches: BranchSummary[]): string {
   const header = [
     'group', 'repository', 'branch', 'type', 'state', 'inactive_days', 'creator', 'creator_email',
+    'creator_email_source', 'creator_email_resolution', 'creator_email_checked_at', 'creator_username', 'creator_account_id',
     'last_commit', 'naming', 'health', 'cleanup_candidate'
   ]
   const esc = (value: unknown): string => `"${String(value ?? '').replace(/"/g, '""')}"`
@@ -214,6 +215,11 @@ function groupCsv(group: EmailGroup, branches: BranchSummary[]): string {
       branch.inactiveDays,
       branch.creator.name,
       branch.creator.email,
+      branch.creator.emailSource,
+      branch.creator.emailResolution?.status ?? '',
+      branch.creator.emailResolution?.checkedAt ?? '',
+      branch.creator.username ?? '',
+      branch.creator.accountId ?? '',
       branch.lastCommitAt ?? '',
       branch.naming.status,
       branch.health.score,

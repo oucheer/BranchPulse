@@ -176,9 +176,9 @@ function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
     { label: zh ? '分支创始人' : 'Creator', value: b.creator.name === 'Unknown' ? '—' : b.creator.name || '—' },
     {
       label: zh ? '分支创始人邮箱' : 'Creator email',
-      value: b.creator.emailSource === 'account' && b.creator.email
-        ? `${b.creator.email} ${zh ? '（平台账号已验证）' : '(verified)'}`
-        : (zh ? '未验证，通知回退最后提交人' : 'Unverified; fall back to last author')
+      value: b.creator.emailSource && b.creator.email
+        ? `${b.creator.email} ${b.creator.emailSource === 'account' ? (zh ? '（平台账号已验证）' : '(account verified)') : (zh ? '（账号绑定提交邮箱）' : '(account-bound commit email)')}`
+        : `${zh ? '未验证' : 'Unverified'}${b.creator.emailResolution ? ` (${b.creator.emailResolution.status})` : ''}; ${zh ? '通知回退最后提交人' : 'fall back to last author'}`
     },
     { label: zh ? '最后提交' : 'Last commit', value: formatDateTime(b.lastCommitAt) },
     { label: zh ? '最后提交哈希' : 'Commit SHA', value: b.lastCommitSha ? b.lastCommitSha.slice(0, 8) : '—' },
@@ -417,7 +417,12 @@ export default function Branches(): JSX.Element {
         b.name.toLowerCase().includes(q)
         || b.displayName.toLowerCase().includes(q)
         || b.creator.name.toLowerCase().includes(q)
+        || b.creator.email.toLowerCase().includes(q)
+        || (b.creator.username ?? '').toLowerCase().includes(q)
+        || (b.creator.accountId ?? '').toLowerCase().includes(q)
+        || (b.creator.emailResolution?.status ?? '').toLowerCase().includes(q)
         || b.lastAuthor.toLowerCase().includes(q)
+        || (b.lastAuthorEmail ?? '').toLowerCase().includes(q)
       )
     }
     if (issueFilter) list = list.filter((b) => matchesIssue(issueFilter, b))

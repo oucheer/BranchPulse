@@ -4,6 +4,7 @@ import type {
   BranchSummary,
   CommitInfo,
   CreatorInfo,
+  CreatorEmailResolution,
   HealthResult,
   MonitoringConfig,
   NamingResult,
@@ -20,7 +21,7 @@ import type { HealthService } from './health'
 import type { StorageService } from './storage'
 import type { AuditService } from './audit'
 import type { SettingsService } from './settings'
-import type { BranchCreatorDto, GitLabBranchDto, GitLabCommitDto, GitLabService } from './gitlab'
+import type { BranchCreatorDto, BranchCreatorEventState, GitLabBranchDto, GitLabCommitDto, GitLabService } from './gitlab'
 import { newId } from '../utils/ids'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -31,18 +32,57 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * forge account. Legacy snapshots and commit signatures do not carry that
  * proof and must not become notification targets by accident.
  */
+function verifiedResolution(
+  source: CreatorInfo['emailSource'],
+  checkedAt = new Date().toISOString()
+): CreatorEmailResolution | undefined {
+  if (source !== 'account' && source !== 'commit') return undefined
+  return {
+    status: source === 'account' ? 'verified-account' : 'verified-commit',
+    retryable: false,
+    checkedAt
+  }
+}
+
+function hasVerifiedCreatorEmail(creator: CreatorInfo): boolean {
+  if (!EMAIL_PATTERN.test(String(creator.email ?? '').trim())) return false
+  if (creator.emailSource === 'account') return creator.emailResolution?.status === 'verified-account'
+  if (creator.emailSource === 'commit') return creator.emailResolution?.status === 'verified-commit'
+  return false
+}
+
+function creatorEmailMatchesSource(creator: CreatorInfo, email: string): boolean {
+  return hasVerifiedCreatorEmail({ ...creator, email })
+}
+
 export function sanitizeCreatorInfo(creator: CreatorInfo): CreatorInfo {
   const name = String(creator.name ?? '').trim()
   const email = String(creator.email ?? '').trim()
-  const emailSource = creator.emailSource === 'account' && EMAIL_PATTERN.test(email) ? 'account' : ''
-  if (emailSource === 'account') {
-    return { ...creator, name, email, emailSource, confidence: 'high' }
+  const emailSource: CreatorInfo['emailSource'] = creator.emailSource === 'account' || creator.emailSource === 'commit'
+    ? creator.emailSource
+    : ''
+  const emailResolution = creator.emailResolution
+    ? {
+        status: creator.emailResolution.status,
+        retryable: Boolean(creator.emailResolution.retryable),
+        checkedAt: creator.emailResolution.checkedAt || new Date().toISOString(),
+        ...(creator.emailResolution.detail ? { detail: creator.emailResolution.detail } : {})
+      }
+    : {
+        status: email || emailSource ? 'legacy-unverified' as const : 'legacy-unverified' as const,
+        retryable: true,
+        checkedAt: new Date().toISOString(),
+        detail: 'creator record was saved without email resolution evidence'
+      }
+  if (emailSource && creatorEmailMatchesSource({ ...creator, emailSource, emailResolution }, email)) {
+    return { ...creator, name, email, emailSource, emailResolution, confidence: 'high' }
   }
   return {
     ...creator,
     name,
     email: '',
     emailSource: '',
+    emailResolution,
     confidence: !name || name === 'Unknown' ? 'unknown' : 'medium'
   }
 }
@@ -68,12 +108,32 @@ export function resolveRemoteCreator(
         name: creationEvent.name,
         email: creationEvent.email,
         emailSource: creationEvent.emailSource,
+        username: creationEvent.username,
+        accountId: creationEvent.accountId || (creationEvent.userId ? String(creationEvent.userId) : undefined),
+        emailResolution: creationEvent.emailResolution ?? {
+          status: creationEvent.email ? 'legacy-unverified' : 'creation-event-missing',
+          retryable: Boolean(creationEvent.username || creationEvent.userId),
+          checkedAt: new Date().toISOString()
+        },
         firstCommitAt: creationEvent.createdAt,
         confidence: creationEvent.email ? 'high' : 'medium'
       })
     }
   }
-  return { creator: { name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' } }
+  return {
+    creator: {
+      name: 'Unknown',
+      email: '',
+      emailSource: '',
+      emailResolution: {
+        status: 'creation-event-missing',
+        retryable: true,
+        checkedAt: new Date().toISOString()
+      },
+      firstCommitAt: null,
+      confidence: 'unknown'
+    }
+  }
 }
 
 /**
@@ -93,58 +153,59 @@ export function backfillCachedCreatorEmail(cached: BranchSummary): BranchSummary
 export function creatorEmailFromCommits(
   creationEvent: BranchCreatorDto | null,
   commits: GitLabCommitDto[]
-): string {
+): { email: string; source: 'commit' | '' } {
   const username = creationEvent?.username?.trim().toLowerCase()
-  if (!username) return ''
-  return [...commits]
-    .filter((commit) => {
-      const login = String(commit.author_login ?? commit.committer_login ?? '').trim().toLowerCase()
-      return login === username
-    })
+  if (!username) return { email: '', source: '' }
+  const candidates = [...commits]
+    .filter((commit) =>
+      String(commit.author_login ?? '').trim().toLowerCase() === username
+      || String(commit.committer_login ?? '').trim().toLowerCase() === username
+    )
     .sort((a, b) => {
       const aTime = new Date(a.committed_date || a.authored_date || a.created_at || 0).getTime()
       const bTime = new Date(b.committed_date || b.authored_date || b.created_at || 0).getTime()
       return aTime - bTime
     })
-    .map((commit) => String(commit.author_email ?? '').trim() || String(commit.committer_email ?? '').trim())
-    .find((email) => Boolean(email)) ?? ''
+  for (const commit of candidates) {
+    const authorLogin = String(commit.author_login ?? '').trim().toLowerCase()
+    const committerLogin = String(commit.committer_login ?? '').trim().toLowerCase()
+    const authorEmail = String(commit.author_email ?? '').trim()
+    const committerEmail = String(commit.committer_email ?? '').trim()
+    if (authorLogin === username && EMAIL_PATTERN.test(authorEmail)) {
+      return { email: authorEmail, source: 'commit' }
+    }
+    if (committerLogin === username && EMAIL_PATTERN.test(committerEmail)) {
+      return { email: committerEmail, source: 'commit' }
+    }
+  }
+  return { email: '', source: '' }
 }
 
 const normalizeIdentity = (value: string | null | undefined): string => String(value ?? '').trim().toLowerCase()
 
-/**
- * Use the same evidence chain as the last-author email, but require the
- * candidate to match the creator identity. Event/profile data is platform
- * proof; a first-commit signature is accepted only when the author name or
- * forge login matches the creator, so a same-named stranger cannot be
- * attached by accident.
- */
+/** Accept a creator address only from an exact forge-account lookup. */
 export function creatorEmailFromIdentityChain(
   creator: CreatorInfo,
   creationEvent: BranchCreatorDto | null,
-  firstOwn: GitLabCommitDto | null,
+  _firstOwn: GitLabCommitDto | null,
   emailsByUsername: Map<string, string>
-): { email: string; source: 'account' | '' } {
-  if (creator.emailSource === 'account' && creator.email) {
-    return { email: creator.email, source: 'account' }
+): { email: string; source: 'account' | 'commit' | ''; resolution?: CreatorEmailResolution } {
+  if (creator.emailSource === 'account' && hasVerifiedCreatorEmail(creator)) {
+    return { email: creator.email, source: 'account', resolution: creator.emailResolution }
   }
-  const username = normalizeIdentity(creationEvent?.username || creator.name)
+  const username = normalizeIdentity(creationEvent?.username || creator.username)
   const profileEmail = username ? emailsByUsername.get(username) ?? emailsByUsername.get(username.toLowerCase()) : undefined
   if (profileEmail && EMAIL_PATTERN.test(profileEmail)) {
-    return { email: profileEmail, source: 'account' }
+    return {
+      email: profileEmail,
+      source: 'account',
+      resolution: {
+        status: 'verified-account',
+        retryable: false,
+        checkedAt: new Date().toISOString()
+      }
+    }
   }
-  const commitEmail = firstOwn?.author_email?.trim() || firstOwn?.committer_email?.trim()
-  if (!commitEmail || !EMAIL_PATTERN.test(commitEmail)) return { email: '', source: '' }
-  const creatorName = normalizeIdentity(creator.name)
-  const commitLogins = [normalizeIdentity(firstOwn?.author_login), normalizeIdentity(firstOwn?.committer_login)].filter(Boolean)
-  const eventUsername = normalizeIdentity(creationEvent?.username)
-  if (eventUsername && commitLogins.length > 0) {
-    if (!commitLogins.includes(eventUsername)) return { email: '', source: '' }
-    return { email: commitEmail, source: 'account' }
-  }
-  const nameMatches = Boolean(creatorName)
-    && (normalizeIdentity(firstOwn?.author_name) === creatorName || normalizeIdentity(firstOwn?.committer_name) === creatorName)
-  if (nameMatches) return { email: commitEmail, source: 'account' }
   return { email: '', source: '' }
 }
 
@@ -362,7 +423,8 @@ export class BranchService {
     progress(`Analyzing ${branches.length} GitLab branches...`)
     // Branch creation is not derivable from commits, so ask the forge who
     // created each branch. Empty for providers without that event stream.
-    const branchCreators = await this.gitlab.listBranchCreators(projectId, remoteConfig)
+    const creatorLookup = await this.gitlab.listBranchCreators(projectId, remoteConfig)
+    const branchCreators = creatorLookup.creators
     const analyzed: BranchSummary[] = []
     const failedBranches: Array<{ name: string; reason: string }> = []
     const batchSize = 6
@@ -373,7 +435,17 @@ export class BranchService {
       // and keep the ones that succeeded. A partial result is then refused below
       // so stale/complete cache data is never replaced by an incomplete snapshot.
       const results = await Promise.allSettled(
-        batch.map((branch) => this.analyzeGitLabBranch(repo, projectId, branch, defaultBranch, branchCreators, monitoring, fp, remoteConfig))
+        batch.map((branch) => this.analyzeGitLabBranch(
+          repo,
+          projectId,
+          branch,
+          defaultBranch,
+          branchCreators,
+          creatorLookup.events,
+          monitoring,
+          fp,
+          remoteConfig
+        ))
       )
       results.forEach((entry, index) => {
         if (entry.status === 'fulfilled') {
@@ -434,6 +506,26 @@ export class BranchService {
       namingInvalid: analyzed.filter((b) => b.naming.status === 'invalid').length,
       merged: analyzed.filter((b) => b.merged).length
     })
+    const resolutionCounts: Record<string, number> = {}
+    for (const branch of analyzed) {
+      const status = branch.creator.emailResolution?.status ?? 'legacy-unverified'
+      resolutionCounts[status] = (resolutionCounts[status] ?? 0) + 1
+    }
+    this.audit.record('creator_email_resolution', {
+      repository: repo.name,
+      events: creatorLookup.events.status,
+      eventsRetryable: creatorLookup.events.retryable,
+      counts: resolutionCounts,
+      retryable: analyzed.filter((branch) => branch.creator.emailResolution?.retryable).length,
+      samples: analyzed
+        .filter((branch) => !hasVerifiedCreatorEmail(branch.creator))
+        .slice(0, 5)
+        .map((branch) => ({
+          branch: branch.name,
+          username: branch.creator.username || undefined,
+          status: branch.creator.emailResolution?.status ?? 'legacy-unverified'
+        }))
+    })
     return analyzed
   }
 
@@ -443,6 +535,7 @@ export class BranchService {
     branch: GitLabBranchDto,
     defaultBranch: string,
     branchCreators: Map<string, BranchCreatorDto>,
+    eventState: BranchCreatorEventState,
     monitoring: MonitoringConfig,
     fp: string,
     config?: GitLabConnectionConfig
@@ -459,17 +552,20 @@ export class BranchService {
     // v12: invalidate caches saved by the web build before creator email lookup
     // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    // v17: the creator email chain now reuses the last-author profile lookup
-    // with an identity gate. Re-analyse cached rows once so branches scanned
-    // under v16 pick up account-verified addresses instead of stale blanks.
-    const cacheContentKey = `v17|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    // v18 introduced identity-exact account evidence and persistent resolution
+    // states. Cached rows must be re-analysed once so stale guessed addresses
+    // and old cache hits cannot suppress creator lookups.
+    const cacheContentKey = `v18|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
       try {
         const cached = JSON.parse(String(existing.data_json)) as BranchSummary
-        if (cached.lastAuthorEmail || cached.creator.email || (!cached.lastAuthor && cached.creator.name === 'Unknown')) {
-          return this.refreshComputed(backfillCachedCreatorEmail(cached), monitoring, { name: branch.name } as GitRefInfo, '')
+        const creator = backfillCachedCreatorEmail(cached).creator
+        const resolution = creator.emailResolution
+        const canReuse = hasVerifiedCreatorEmail(creator) && resolution?.retryable !== true
+        if (canReuse && (cached.lastAuthorEmail || cached.lastAuthor)) {
+          return this.refreshComputed({ ...cached, creator }, monitoring, { name: branch.name } as GitRefInfo, '')
         }
       } catch {
         /* fall through */
@@ -515,7 +611,20 @@ export class BranchService {
     // A creation event is the only authoritative remote creator source. The
     // branch-only and tip commits remain useful for age and last-author data,
     // but must never be presented as the creator.
-    const { creator } = resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
+    const cachedCreator = (() => {
+      if (!existing?.data_json) return null
+      try {
+        return sanitizeCreatorInfo((JSON.parse(String(existing.data_json)) as BranchSummary).creator)
+      } catch {
+        return null
+      }
+    })()
+    const fallbackCreator = eventState.status !== 'available' && cachedCreator && hasVerifiedCreatorEmail(cachedCreator)
+      ? cachedCreator
+      : null
+    const { creator } = fallbackCreator
+      ? { creator: fallbackCreator }
+      : resolveRemoteCreator(firstOwn, creatorEvent, latestCommit ?? null)
     const identityNames = [
       creatorEvent?.username,
       latestCommit?.author_login,
@@ -543,12 +652,29 @@ export class BranchService {
     // creatorEmailFromCommits only accepts commits whose forge login matches
     // the creation event's username, so it can extend the verified chain but
     // cannot silently replace it.
-    const verifiedCreatorEmail = verifiedCreator.email
-      || creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
+    const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
+    const verifiedCreatorEmail = verifiedCreator.email || verifiedCommit.email
+    const verifiedSource = verifiedCreator.source || verifiedCommit.source
     const resolvedCreator = sanitizeCreatorInfo({
       ...creator,
       email: verifiedCreatorEmail,
-      emailSource: verifiedCreatorEmail ? 'account' : ''
+      emailSource: verifiedSource,
+      emailResolution: verifiedCreatorEmail
+        ? verifiedResolution(verifiedSource)
+        : creator.emailResolution?.status === 'events-unavailable'
+          ? creator.emailResolution
+          : eventState.status === 'unavailable'
+            ? {
+                status: 'events-unavailable',
+                retryable: eventState.retryable,
+                checkedAt: eventState.checkedAt,
+                ...(eventState.detail ? { detail: eventState.detail } : {})
+              }
+            : creator.emailResolution ?? {
+                status: creatorEvent ? 'creation-event-missing' : 'creation-event-missing',
+                retryable: true,
+                checkedAt: new Date().toISOString()
+              }
     })
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
@@ -669,10 +795,26 @@ export class BranchService {
           name: firstCommit.authorName,
           email: '',
           emailSource: '',
+          emailResolution: {
+            status: 'creation-event-missing',
+            retryable: true,
+            checkedAt: new Date().toISOString()
+          },
           firstCommitAt: firstCommit.committedAt,
           confidence: 'medium'
         }
-      : { name: 'Unknown', email: '', emailSource: '', firstCommitAt: null, confidence: 'unknown' }
+      : {
+          name: 'Unknown',
+          email: '',
+          emailSource: '',
+          emailResolution: {
+            status: 'creation-event-missing',
+            retryable: true,
+            checkedAt: new Date().toISOString()
+          },
+          firstCommitAt: null,
+          confidence: 'unknown'
+        }
 
     const createdAt = firstCommit?.committedAt ?? ref.committedAt
     const mergedInto = aheadBehind.ahead === 0 ? defaultBranch : null
@@ -891,6 +1033,15 @@ export class BranchService {
 
 function creatorKeyForCache(creator: BranchCreatorDto | undefined): string {
   return creator
-    ? `${creator.username}|${creator.name}|${creator.email}|${creator.emailSource}|${creator.userId ?? ''}|${creator.createdAt ?? ''}`
+    ? [
+        creator.username,
+        creator.name,
+        creator.email,
+        creator.emailSource,
+        creator.accountId ?? creator.userId ?? '',
+        creator.emailResolution?.status ?? '',
+        creator.emailResolution?.retryable ?? '',
+        creator.createdAt ?? ''
+      ].join('|')
     : 'unknown'
 }

@@ -11,6 +11,29 @@ export type ColorTheme = 'default' | 'ocean' | 'forest' | 'violet' | 'rose' | 'c
 export type BackgroundTheme = 'dark' | 'light'
 export type LanguageCode = 'en' | 'zh'
 
+export type CreatorEmailSource = 'account' | 'commit' | ''
+
+export type CreatorEmailResolutionStatus =
+  | 'verified-account'
+  | 'verified-commit'
+  | 'account-email-hidden'
+  | 'account-lookup-forbidden'
+  | 'account-lookup-rate-limited'
+  | 'account-lookup-failed'
+  | 'account-not-found'
+  | 'identity-mismatch'
+  | 'identity-missing'
+  | 'creation-event-missing'
+  | 'events-unavailable'
+  | 'legacy-unverified'
+
+export interface CreatorEmailResolution {
+  status: CreatorEmailResolutionStatus
+  retryable: boolean
+  checkedAt: string
+  detail?: string
+}
+
 export interface CreatorInfo {
   name: string
   /**
@@ -19,7 +42,13 @@ export interface CreatorInfo {
    * notifications fall back to the last author.
    */
   email: string
-  emailSource: 'account' | ''
+  emailSource: CreatorEmailSource
+  /** Exact forge login captured from the creation event or account lookup. */
+  username?: string
+  /** Stable account id as a string so it can round-trip through cached JSON. */
+  accountId?: string
+  /** Legacy cached rows may omit this; the sanitizer fills it in. */
+  emailResolution?: CreatorEmailResolution
   firstCommitAt: string | null
   confidence: 'high' | 'medium' | 'low' | 'unknown'
 }

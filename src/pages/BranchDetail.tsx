@@ -86,12 +86,20 @@ export default function BranchDetail(): JSX.Element {
             <div className="flex justify-between gap-3">
               <span className="text-muted">分支创始人邮箱</span>
               <span
-                className={`max-w-[60%] truncate text-right font-mono text-xs ${branch.creator.emailSource === 'account' ? 'text-canvas-fg' : 'text-warn'}`}
-                title={branch.creator.emailSource === 'account' ? branch.creator.email : '邮箱未验证'}
+                className={`max-w-[60%] truncate text-right font-mono text-xs ${branch.creator.emailSource ? 'text-canvas-fg' : 'text-warn'}`}
+                title={branch.creator.emailSource ? branch.creator.email : (branch.creator.emailResolution?.detail || '邮箱未验证')}
               >
-                {branch.creator.emailSource === 'account' ? branch.creator.email : '未验证'}
+                {branch.creator.emailSource ? branch.creator.email : '未验证'}
               </span>
             </div>
+            {branch.creator.username || branch.creator.accountId ? (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted">创始人账号</span>
+                <span className="max-w-[60%] truncate text-right font-mono text-xs text-canvas-fg">
+                  {branch.creator.username || '-'}{branch.creator.accountId ? ` · ${branch.creator.accountId}` : ''}
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-3">
               <span className="text-muted">最后提交人</span>
               <span className="max-w-[60%] truncate text-right text-xs text-canvas-fg" title={branch.lastAuthor || '未知'}>{branch.lastAuthor || '未知'}</span>
@@ -127,14 +135,14 @@ export default function BranchDetail(): JSX.Element {
                 无法确定分支创始人。通知不会猜测收件人；有有效最后提交人邮箱时会明确回退给最后提交人，否则跳过并记录原因。
               </div>
             ) : null}
-            {branch.creator.confidence !== 'unknown' && branch.creator.emailSource !== 'account' ? (
+            {branch.creator.confidence !== 'unknown' && !branch.creator.emailSource ? (
               <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
-                创始人邮箱未通过平台账号验证。通知将回退到最后提交人{branch.lastAuthorEmail ? `（${branch.lastAuthorEmail}）` : '；当前最后提交人也没有有效邮箱，将跳过并记录原因'}。
+                创始人邮箱未通过平台身份验证{branch.creator.emailResolution ? `（${branch.creator.emailResolution.status}${branch.creator.emailResolution.retryable ? '，可重试' : ''}）` : ''}。通知将回退到最后提交人{branch.lastAuthorEmail ? `（${branch.lastAuthorEmail}）` : '；当前最后提交人也没有有效邮箱，将跳过并记录原因'}。
               </div>
             ) : null}
-            {branch.creator.emailSource === 'account' ? (
+            {branch.creator.emailSource ? (
               <div className="rounded-md border border-ok/30 bg-ok/5 px-3 py-2 text-xs text-ok">
-                创始人邮箱已通过平台账号验证，将优先发送给创始人。
+                创始人邮箱已通过{branch.creator.emailSource === 'account' ? '平台账号' : '平台账号精确绑定的提交邮箱'}验证，将优先发送给创始人。
               </div>
             ) : null}
             <div className="flex justify-between gap-3">
