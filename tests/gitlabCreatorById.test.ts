@@ -152,7 +152,7 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
       const url = String(input)
       urls.push(url)
       if (url.includes('/repository/commits?')) {
-        if (url.includes('author=zhangsan')) {
+        if (url.includes('author=zhangsan') || url.includes('author_id=7')) {
           expect(url).not.toContain('ref_name=')
           return jsonResponse([])
         }
@@ -197,7 +197,8 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
           } } } }
         })
       }
-      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse(commits)
+      if (url.includes('/repository/commits?') && url.includes('author_id=7')) return jsonResponse(commits)
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse([])
       throw new Error(`unexpected url ${url}`)
     }) as typeof fetch
     const sharedService = new GitLabService(settings as never)
@@ -256,7 +257,7 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
         ]))
         return jsonResponse({ data: { project: { repository: data } } })
       }
-      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) {
+      if (url.includes('/repository/commits?') && (url.includes('author_id=7') || url.includes('author=zhangsan'))) {
         return jsonResponse(new URL(url).searchParams.get('page') === '1' ? firstPage : secondPage)
       }
       if (url.includes('/repository/commits?')) return jsonResponse([])
@@ -272,7 +273,135 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
     )
 
     expect(result.email).toBe('zhangsan@corp.example')
-    expect(urls.some((url) => url.includes('author=zhangsan') && url.includes('page=2'))).toBe(true)
+    expect(urls.some((url) => url.includes('author_id=7') && url.includes('page=2'))).toBe(true)
+  })
+
+  it('verifies GraphQL identities by account id even when the login changed', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { id: 'gid://gitlab/User/7', username: 'zhangsan-renamed' },
+          committer: { id: 'gid://gitlab/User/8', username: 'someone-else' }
+        } } } }
+      })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/account-id',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result).toMatchObject({ email: 'zhangsan@corp.example', resolution: { status: 'verified-commit' } })
+    expect(urls[0]).toBe('https://gitlab.example.com/api/graphql')
+  })
+
+  it('falls back to exact-author history when an older GitLab rejects author_id', async () => {
+    const urls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.includes('/repository/commits?') && url.includes('author_id=7')) {
+        return new Response('unknown author_id', { status: 400 })
+      }
+      if (url.includes('/repository/commits?') && url.includes('author=zhangsan')) return jsonResponse(commits)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { id: 'gid://gitlab/User/7', username: 'zhangsan' },
+          committer: { username: '' }
+        } } } }
+      })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/legacy-author-filter',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      [],
+      config
+    )
+
+    expect(result.email).toBe('zhangsan@corp.example')
+    expect(urls.some((url) => url.includes('author_id=7'))).toBe(true)
+    expect(urls.some((url) => url.includes('author=zhangsan'))).toBe(true)
+  })
+
+  it('rejects a commit bound to a different account id with the same display login', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { id: 'gid://gitlab/User/99', username: 'zhangsan' },
+          committer: { id: 'gid://gitlab/User/99', username: 'zhangsan' }
+        } } } }
+      })
+      if (url.includes('/repository/commits?')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/id-collision',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result.email).toBe('')
+  })
+
+  it('pages through more than 300 author commits', async () => {
+    const urls: string[] = []
+    const page = (offset: number) => Array.from({ length: 100 }, (_, index) => ({
+      ...commits[0],
+      id: `commit-${offset + index}`,
+      authored_date: new Date(Date.parse('2026-01-01T00:00:00Z') - (offset + index) * 1000).toISOString(),
+      committed_date: new Date(Date.parse('2026-01-01T00:00:00Z') - (offset + index) * 1000).toISOString()
+    }))
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const url = String(input)
+      urls.push(url)
+      if (url.endsWith('/api/graphql')) {
+        const query = JSON.parse(String(init?.body ?? '{}')).query as string
+        const aliases = [...query.matchAll(/c(\d+): commit\(ref: "([^"]+)"\)/g)]
+        const data = Object.fromEntries(aliases.map(([, key, sha]) => [
+          `c${key}`,
+          {
+            sha,
+            author: { id: sha === 'commit-350' ? 'gid://gitlab/User/7' : 'gid://gitlab/User/99', username: sha === 'commit-350' ? 'zhangsan' : 'someone' },
+            committer: { id: 'gid://gitlab/User/99', username: 'someone' }
+          }
+        ]))
+        return jsonResponse({ data: { project: { repository: data } } })
+      }
+      if (url.includes('/repository/commits?') && url.includes('author_id=7')) {
+        const pageNumber = Number(new URL(url).searchParams.get('page'))
+        if (pageNumber <= 4) return jsonResponse(page((pageNumber - 1) * 100))
+        return jsonResponse([])
+      }
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/deep-history',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-email-hidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      [],
+      config
+    )
+
+    expect(result.email).toBe('zhangsan@corp.example')
+    expect(urls.some((url) => url.includes('author_id=7') && url.includes('page=4'))).toBe(true)
   })
 
   it('rejects a same-named commit bound to another username', async () => {
