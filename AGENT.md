@@ -124,9 +124,9 @@
 - GitLab 的 `/projects/:id/events?action=pushed` 是**唯一**能查到「无提交分支的创建人」的接口：`push_data.action === "created" && push_data.ref_type === "branch"`，`commit_count` 可以是 0。GitHub REST **没有**等价端点（`CreateEvent` 不出现在 `/repos/:o/:r/events`，实测 3 个仓库 100 条事件为 0 条），所以 `listBranchCreators()` 对非 GitLab 直接返回空 Map 且**不发请求**。
 - GitLab 事件的两个已知限制，不要当成 bug：① 事件有保留窗口（大仓库 400 条事件只覆盖约 10 小时），老分支查不到属正常，`listBranchCreators()` 失败或为空必须降级为空 Map 而不是抛错；② 一次扫描只请求一次，不要按分支循环调 events。
 - 分支创始人邮箱只接受平台身份证据：`account` 是精确账号资料里的 `public_email` / `email` / `commit_email`；`commit` 只能来自 `author_login` 或 `committer_login` 与创建事件账号精确一致的提交。同名显示名、同名搜索结果、普通提交签名都不能当作创始人邮箱。
-- GitLab 先用事件里的稳定账号 ID 查 `/users/:id`，失败再用 `/users?username=` 精确匹配；响应的 ID 或用户名不匹配必须拒绝。账号资料按 provider、host、账号与 Token 指纹缓存，成功 24 小时，隐藏/不存在 1 小时，403、429、5xx、超时和网络错误不缓存。相关账号去重后用有界并发查询，不再固定 50 条截断。
+- GitLab 先用事件里的稳定账号 ID 查 `/users/:id`，失败再用 `/users?username=` 精确匹配；响应的 ID 或用户名不匹配必须拒绝。账号资料按 provider、host、账号与 Token 指纹缓存，成功 24 小时，隐藏/不存在 1 小时；`/users/:id/emails` 是管理员接口，普通 Token 的 403 必须显示为 `account-lookup-forbidden`，429/5xx/超时/网络错误显示为可重试状态并最多缓存 1 分钟，不能全部折叠成 `account-email-hidden`。相关账号去重后用有界并发查询，不再固定 50 条截断。
 - 收件优先级固定为：平台账号已验证创始人 > 精确账号绑定提交邮箱 > 有效最后提交人邮箱 > 跳过并记录原因。立即发送、定时报告、报告汇总和监控共用 `resolveCreatorRecipient()` / `collectCreatorAddresses()`，正文与审计分别列出账号、提交、回退、跳过四类。
-- 归因语义变更时必须同时 bump 分支缓存 key（当前是 `v18`，`src-node/services/branch.ts` 的 `cacheContentKey`，远程与本地两处）。`v18` 强制旧快照重新分析一次，清除无来源旧邮箱；只要创始人解析可重试或不是已验证状态，就不能仅因存在最后提交人邮箱而提前返回缓存。
+- 归因语义变更时必须同时 bump 分支缓存 key（当前是 `v20`，`src-node/services/branch.ts` 的 `cacheContentKey`，远程与本地两处）。`v20` 强制旧快照重新分析一次，清除无来源旧邮箱；只要创始人解析可重试或不是已验证状态，就不能仅因存在最后提交人邮箱而提前返回缓存。
 
 ## Git 工作流
 

@@ -23,7 +23,7 @@ function clamp(value: number, min: number, max: number): number {
 export class HealthService {
   compute(input: HealthInput): HealthResult {
     // 基准分支本身是评分参照物，保持满分且不参与生命周期扣分。
-    const isBaselineBranch = input.isDefault || input.branchName === input.baseBranch || /^(main|develop)$/i.test(input.branchName)
+    const isBaselineBranch = input.isDefault || input.branchName === input.baseBranch || /^(main|develop)$/i.test(input.branchName) || input.branchName === 'develop_XC'
     if (isBaselineBranch) {
       const factors: HealthFactor[] = [
         { label: '基准分支', score: 100, weight: 100, detail: '基准分支固定满分，不参与其他分支的计分规则' }

@@ -137,7 +137,9 @@ export default function BranchDetail(): JSX.Element {
             ) : null}
             {branch.creator.confidence !== 'unknown' && !branch.creator.emailSource ? (
               <div className="rounded-md border border-line bg-elevated px-3 py-2 text-xs text-muted">
-                创始人邮箱未通过平台身份验证{branch.creator.emailResolution ? `（${branch.creator.emailResolution.status}${branch.creator.emailResolution.retryable ? '，可重试' : ''}）` : ''}。通知将回退到最后提交人{branch.lastAuthorEmail ? `（${branch.lastAuthorEmail}）` : '；当前最后提交人也没有有效邮箱，将跳过并记录原因'}。
+                创始人邮箱未通过平台身份验证{branch.creator.emailResolution ? `（${branch.creator.emailResolution.status}${branch.creator.emailResolution.retryable ? '，可重试' : ''}）` : ''}
+                {branch.creator.emailResolution?.detail ? `：${branch.creator.emailResolution.detail}` : ''}。
+                通知将回退到最后提交人{branch.lastAuthorEmail ? `（${branch.lastAuthorEmail}）` : '；当前最后提交人也没有有效邮箱，将跳过并记录原因'}。
               </div>
             ) : null}
             {branch.creator.emailSource ? (

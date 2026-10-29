@@ -33,7 +33,7 @@ function matchesIssue(issue: Exclude<IssueFilter, ''>, branch: BranchSummary): b
 
 function branchCategory(name: string): { label: string; color: string } {
   const n = name.toLowerCase()
-  if (n === 'main' || n === 'master' || n === 'develop' || n.startsWith('origin/main') || n.startsWith('origin/master') || n.startsWith('origin/develop')) return { label: 'Main', color: 'rgb(var(--primary))' }
+  if (n === 'main' || n === 'master' || n === 'develop' || n === 'develop_XC' || n.startsWith('origin/main') || n.startsWith('origin/master') || n.startsWith('origin/develop')) return { label: 'Main', color: 'rgb(var(--primary))' }
   if (n.includes('feature/')) return { label: 'Feature', color: 'rgb(var(--secondary))' }
   if (n.includes('fix/') || n.includes('bugfix/')) return { label: 'Fix', color: 'rgb(var(--danger))' }
   if (n.includes('hotfix/')) return { label: 'Hotfix', color: 'rgb(var(--danger))' }
@@ -178,7 +178,7 @@ function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
       label: zh ? '分支创始人邮箱' : 'Creator email',
       value: b.creator.emailSource && b.creator.email
         ? `${b.creator.email} ${b.creator.emailSource === 'account' ? (zh ? '（平台账号已验证）' : '(account verified)') : (zh ? '（账号绑定提交邮箱）' : '(account-bound commit email)')}`
-        : `${zh ? '未验证' : 'Unverified'}${b.creator.emailResolution ? ` (${b.creator.emailResolution.status})` : ''}; ${zh ? '通知回退最后提交人' : 'fall back to last author'}`
+        : `${zh ? '未验证' : 'Unverified'}${b.creator.emailResolution ? ` (${b.creator.emailResolution.status})` : ''}${b.creator.emailResolution?.detail ? ` - ${b.creator.emailResolution.detail}` : ''}; ${zh ? '通知回退最后提交人' : 'fall back to last author'}`
     },
     { label: zh ? '最后提交' : 'Last commit', value: formatDateTime(b.lastCommitAt) },
     { label: zh ? '最后提交哈希' : 'Commit SHA', value: b.lastCommitSha ? b.lastCommitSha.slice(0, 8) : '—' },

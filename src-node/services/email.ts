@@ -673,8 +673,8 @@ function repositoryContext(rows: EmailIssueRow[], lang: EmailLang): string {
 
 function namingRulesSummary(lang: EmailLang): string {
   return lang === 'zh'
-    ? '<p>规范：a/b_c。main 禁止后缀；develop 不允许带 /（临时规则允许 develop_XX）；feature|bugfix|hotfix/b_c；release/完整项目名（如 release/LP-7265V1R1）。b/c 以字母或数字开头，可含字母、数字、_、.，没有项目名时不要用 - 连接；禁止中文。</p>'
-    : '<p>Naming convention: a/b_c. main has no suffix; develop disallows / (temporary develop_XX allowed); feature|bugfix|hotfix/b_c; release/full project name (e.g. release/LP-7265V1R1). b/c starts with a letter or digit and may contain letters, digits, _, .; Chinese is not allowed.</p>'
+    ? '<p>规范：a/b_c。main 禁止后缀；develop 不允许带 /（白名单仅允许 develop_XC）；feature|bugfix|hotfix/b_c；release/完整项目名（如 release/LP-7265V1R1）。b/c 以字母或数字开头，可含字母、数字、_、.，没有项目名时不要用 - 连接；禁止中文。</p>'
+    : '<p>Naming convention: a/b_c. main has no suffix; develop disallows / (whitelisted develop_XC only); feature|bugfix|hotfix/b_c; release/full project name (e.g. release/LP-7265V1R1). b/c starts with a letter or digit and may contain letters, digits, _, .; Chinese is not allowed.</p>'
 }
 
 /** 一个创始人对应一封邮件：停更与命名问题合并，避免同一人多封通知。 */

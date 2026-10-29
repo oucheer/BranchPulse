@@ -34,10 +34,10 @@ const namingTemplates = [
     description: 'release/完整项目名，如 release/LP-7265V1R1，仅项目名可带 -'
   },
   {
-    label: '临时开发分支 develop_XX',
-    name: 'Develop 临时规则',
-    pattern: '^develop_[A-Za-z0-9][A-Za-z0-9_.]*$',
-    description: '特殊（临时规则）允许 develop_XX，如 develop_XC；develop 不允许带 /'
+    label: '白名单开发分支 develop_XC',
+    name: 'Develop 白名单规则',
+    pattern: '^develop_XC$',
+    description: '特殊白名单分支仅允许 develop_XC；develop 不允许其他后缀或 /'
   }
 ]
 
@@ -114,7 +114,7 @@ export default function NamingRules(): JSX.Element {
           <div className="mb-1 text-sm font-semibold text-canvas-fg">命名规则说明</div>
           分支命名风格为 <span className="font-mono">a/b_c</span>：
           <span className="font-mono">main</span> 禁止后缀、禁止删除；
-          <span className="font-mono">develop</span> 不允许带 <span className="font-mono">/</span>，特殊临时规则允许 <span className="font-mono">develop_XX</span>（如 develop_XC）；
+          <span className="font-mono">develop</span> 不允许带 <span className="font-mono">/</span>，白名单特殊分支仅允许 <span className="font-mono">develop_XC</span>；
           feature 为短期过渡分支，长期保留需申请记录在案；
           release 为长期分支，b 必须为完整项目名（如 <span className="font-mono">release/LP-7265V1R1</span>），仅项目名可带 <span className="font-mono">-</span>；
           bugfix 建议 <span className="font-mono">bugfix/bug_id</span>（如 bugfix/123456）。

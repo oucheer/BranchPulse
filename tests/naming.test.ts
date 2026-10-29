@@ -108,8 +108,9 @@ describe('base naming rules', () => {
     expect(baseNamingIssue('-feature/x')).toBe('不能以 / 或 - 开头')
     expect(baseNamingIssue('main2')).toBe('main 为长期分支，禁止带后缀，必须直接为 main')
     expect(baseNamingIssue('main/foo')).toBe('main 为长期分支，禁止带后缀，必须直接为 main')
-    expect(baseNamingIssue('develop/foo')).toBe('develop 只能为 develop 或特殊临时形式 develop_XX（_ 后以字母或数字开头，可含字母、数字、_、.），不允许带 /')
-    expect(baseNamingIssue('develop2')).toBe('develop 只能为 develop 或特殊临时形式 develop_XX（_ 后以字母或数字开头，可含字母、数字、_、.），不允许带 /')
+    expect(baseNamingIssue('develop/foo')).toBe('develop 只能为 develop 或白名单特殊分支 develop_XC，不允许其他后缀或 /')
+    expect(baseNamingIssue('develop2')).toBe('develop 只能为 develop 或白名单特殊分支 develop_XC，不允许其他后缀或 /')
+    expect(baseNamingIssue('develop_XD')).not.toBeNull()
     expect(baseNamingIssue('feature')).toContain('缺少具体功能描述')
     expect(baseNamingIssue('feature/')).toBe('不能以 / 结尾')
     for (const name of ['xyz/foo', 'admin/config', 'fix/login', 'refactor/core', 'test/unit']) {
@@ -131,8 +132,8 @@ describe('base naming rules', () => {
 
   it('rejects naming outside the new a/b_c policy', () => {
     expect(baseNamingIssue('feature/中文')).toContain('禁止中文')
-    expect(baseNamingIssue('develop/sub')).toContain('不允许带 /')
-    expect(baseNamingIssue('develop_/x')).toContain('develop 只能为 develop 或特殊临时形式 develop_XX')
+    expect(baseNamingIssue('develop/sub')).toContain('不允许其他后缀或 /')
+    expect(baseNamingIssue('develop_/x')).toContain('develop 只能为 develop 或白名单特殊分支 develop_XC')
     expect(baseNamingIssue('feature/123')).toContain('禁止过于随意')
     expect(baseNamingIssue('feature/1.2.3')).toContain('禁止拉取版本分支')
     expect(baseNamingIssue('release/LP-7265/extra')).toContain('release 分支 b 必须为完整项目名')

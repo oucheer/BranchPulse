@@ -68,8 +68,8 @@ export function baseNamingIssue(name: string): string | null {
     return 'main 为长期分支，禁止带后缀，必须直接为 main'
   }
   if (name !== 'develop' && name.startsWith('develop')) {
-    if (/^develop_[A-Za-z0-9][A-Za-z0-9_.]*$/.test(name)) return null
-    return 'develop 只能为 develop 或特殊临时形式 develop_XX（_ 后以字母或数字开头，可含字母、数字、_、.），不允许带 /'
+    if (name === 'develop_XC') return null
+    return 'develop 只能为 develop 或白名单特殊分支 develop_XC，不允许其他后缀或 /'
   }
   if (name === 'main' || name === 'develop') return null
 
@@ -125,7 +125,7 @@ export class NamingService {
   validate(name: string, rules?: NamingRule[]): NamingResult {
     const list = rules ?? this.listRules()
     const baseIssue = baseNamingIssue(name)
-    if (!baseIssue && (name === 'main' || name === 'develop')) {
+    if (!baseIssue && (name === 'main' || name === 'develop' || name === 'develop_XC')) {
       const explicit = list.find((rule) => rule.enabled && matchPattern(rule.pattern, rule.type, name))
       if (explicit) {
         return explicit.mode === 'exclude'

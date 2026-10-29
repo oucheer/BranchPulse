@@ -260,6 +260,7 @@ function apiErrorDetail(body: string): string {
 
 const PROFILE_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000
 const PROFILE_HIDDEN_TTL_MS = 60 * 60 * 1000
+const PROFILE_RETRY_TTL_MS = 60 * 1000
 const PROFILE_LOOKUP_CONCURRENCY = 6
 
 export interface ResolvedForgeUser {
@@ -869,7 +870,18 @@ export class GitLabService {
     const { url, token, provider } = this.resolve(config)
     const username = String(creator.username ?? '').trim()
     const accountId = forgeUserId(creator.accountId)
-    if (provider !== 'gitlab' || (!username && !accountId) || creator.emailResolution?.status !== 'account-email-hidden') {
+    const currentStatus = creator.emailResolution?.status
+    // A hidden profile, a forbidden private-email endpoint and a transient
+    // profile lookup failure all leave the same question open: can an exact
+    // account-bound commit prove the address? Keep trying in those cases. A
+    // verified address never needs another lookup, and an identity mismatch
+    // without a stable account id must never be repaired by a username guess.
+    const canTryCommitEvidence = Boolean(accountId)
+      || Boolean(username && currentStatus !== 'identity-mismatch' && currentStatus !== 'identity-missing')
+    if (provider !== 'gitlab'
+      || !canTryCommitEvidence
+      || currentStatus === 'verified-account'
+      || currentStatus === 'verified-commit') {
       return { email: '' }
     }
     const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 16)
@@ -970,14 +982,26 @@ export class GitLabService {
     const noMatch: ResolvedCreatorCommitEmail = {
       email: '',
       resolution: creatorStatus(
-        'account-email-hidden',
+        status === 401 || status === 403
+          ? 'account-lookup-forbidden'
+          : status === 429
+            ? 'account-lookup-rate-limited'
+            : lookupFailed
+              ? 'account-lookup-failed'
+              : 'account-email-hidden',
         lookupFailed && (status === undefined || isTransientStatus(status)),
         lookupFailed
           ? `account identity verified; commit identity lookup failed${status ? ` (${status})` : ''}`
           : 'account identity verified; no commit in the checked project history was bound to that account with a valid email'
       )
     }
-    this.creatorCommitEmailCache.set(cacheKey, { value: noMatch, expiresAt: Date.now() + PROFILE_HIDDEN_TTL_MS })
+    // A rate limit or transient forge failure must not suppress a retry for an
+    // hour. Cache it only long enough to avoid a burst of duplicate lookups
+    // during one scan; definitive results can be reused for the normal window.
+    this.creatorCommitEmailCache.set(cacheKey, {
+      value: noMatch,
+      expiresAt: Date.now() + (noMatch.resolution?.retryable ? PROFILE_RETRY_TTL_MS : PROFILE_HIDDEN_TTL_MS)
+    })
     return noMatch
   }
 
@@ -1490,26 +1514,41 @@ export class GitLabService {
       })
       return result
     }
-    // The account is already proven; an admin token can still read the
-    // private email list even when the profile hides it.
-    const adminEmail = await this.adminEmailForAccount(identity.accountId, identity.config)
-    if (adminEmail) {
-      result.email = adminEmail
+    // The account is already proven; an admin token can still read the private
+    // email list even when the profile hides it. Preserve the real failure
+    // reason instead of collapsing 403/429/5xx into "email hidden".
+    const privateEmail = this.resolve(identity.config).provider === 'gitlab'
+      ? await this.adminEmailForAccount(identity.accountId, identity.config)
+      : {
+          email: '',
+          resolution: creatorStatus('account-email-hidden', false, 'account profile did not expose an email')
+        }
+    if (privateEmail.email) {
+      result.email = privateEmail.email
       result.source = 'account'
       result.resolution = creatorStatus('verified-account', false, 'exact forge account private email')
+    } else {
+      result.resolution = privateEmail.resolution
     }
-    this.userProfileCache.set(cacheKey, {
-      value: result,
-      expiresAt: Date.now() + (adminEmail ? PROFILE_SUCCESS_TTL_MS : PROFILE_HIDDEN_TTL_MS)
-    })
+    const ttl = result.email
+      ? PROFILE_SUCCESS_TTL_MS
+      : result.resolution.retryable
+        ? PROFILE_RETRY_TTL_MS
+        : PROFILE_HIDDEN_TTL_MS
+    this.userProfileCache.set(cacheKey, { value: result, expiresAt: Date.now() + ttl })
     return result
   }
 
   private async adminEmailForAccount(
     accountId: string,
     config?: GitLabConnectionConfig
-  ): Promise<string> {
-    if (!accountId || !/^\d+$/.test(accountId)) return ''
+  ): Promise<{ email: string; resolution: CreatorEmailResolution }> {
+    if (!accountId || !/^\d+$/.test(accountId)) {
+      return {
+        email: '',
+        resolution: creatorStatus('account-email-hidden', false, 'account profile did not expose an email and has no stable account id')
+      }
+    }
     try {
       const rows = await this.request<Array<Record<string, unknown>>>(
         `/users/${encodeURIComponent(accountId)}/emails`,
@@ -1517,11 +1556,59 @@ export class GitLabService {
         {},
         { timeoutMs: REQUEST_TIMEOUT_MS, retries: 0 }
       )
-      if (!Array.isArray(rows)) return ''
-      const active = rows.find((row) => Boolean(row.confirm_status ?? true))
-      return String(active?.email ?? '').trim()
-    } catch {
-      return ''
+      if (!Array.isArray(rows)) {
+        return {
+          email: '',
+          resolution: creatorStatus('account-email-hidden', false, 'private email endpoint returned no address list')
+        }
+      }
+      const active = rows.find((row) => row.confirm_status === true || Boolean(row.confirmed_at))
+        ?? rows.find((row) => Boolean(row.email))
+      const email = String(active?.email ?? '').trim()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return {
+          email: '',
+          resolution: creatorStatus('account-email-hidden', false, 'account profile and private email list expose no confirmed address')
+        }
+      }
+      return {
+        email,
+        resolution: creatorStatus('verified-account', false, 'exact forge account private email')
+      }
+    } catch (error) {
+      const status = errorStatus(error)
+      if (status === 401 || status === 403) {
+        return {
+          email: '',
+          resolution: creatorStatus(
+            'account-lookup-forbidden',
+            false,
+            status === 401
+              ? 'account profile hides email and the token was rejected by the private email endpoint'
+              : 'account profile hides email; the private email endpoint requires an administrator token'
+          )
+        }
+      }
+      if (status === 429) {
+        return {
+          email: '',
+          resolution: creatorStatus('account-lookup-rate-limited', true, 'private email lookup was rate limited')
+        }
+      }
+      if (status === 404) {
+        return {
+          email: '',
+          resolution: creatorStatus('account-email-hidden', false, 'private email endpoint is unavailable on this GitLab instance')
+        }
+      }
+      return {
+        email: '',
+        resolution: creatorStatus(
+          'account-lookup-failed',
+          true,
+          status ? `private email lookup returned ${status}` : 'private email lookup failed'
+        )
+      }
     }
   }
 

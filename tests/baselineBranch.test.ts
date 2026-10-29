@@ -379,6 +379,7 @@ describe('isBaselineBranch', () => {
   it('treats main and develop as baseline branches so they never join stale counting', () => {
     expect(isBaselineBranch('main', 'main')).toBe(true)
     expect(isBaselineBranch('develop', 'main')).toBe(true)
+    expect(isBaselineBranch('develop_XC', 'main')).toBe(true)
     expect(isBaselineBranch('Main', 'main')).toBe(true)
     expect(isBaselineBranch('DEVELOP', 'main')).toBe(true)
   })
@@ -390,6 +391,7 @@ describe('isBaselineBranch', () => {
 
   it('keeps ordinary feature branches eligible for lifecycle scoring', () => {
     expect(isBaselineBranch('feature/login', 'main')).toBe(false)
+    expect(isBaselineBranch('develop_XD', 'main')).toBe(false)
     expect(isBaselineBranch('maintenance/patch', 'main')).toBe(false)
     expect(isBaselineBranch('feature/login', null)).toBe(false)
   })

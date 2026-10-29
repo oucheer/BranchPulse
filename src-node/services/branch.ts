@@ -354,13 +354,13 @@ export function effectiveThreshold(
  * 不参与生命周期评比：不计已停更、不进清理候选、不进需要关注的列表。
  */
 export function isBaselineBranch(name: string, baseBranch?: string | null): boolean {
-  if (/^(main|develop)$/i.test(name)) return true
+  if (/^(main|develop)$/i.test(name) || name === 'develop_XC') return true
   return Boolean(baseBranch) && name === baseBranch
 }
 
 /** main 和 develop 完全不进入检查、报告和邮件范围。 */
 export function isMonitoredBranch(name: string): boolean {
-  return !/^(main|develop)$/i.test(name)
+  return !/^(main|develop)$/i.test(name) && name !== 'develop_XC'
 }
 
 export interface RepositoryScanOptions {
@@ -523,7 +523,8 @@ export class BranchService {
         .map((branch) => ({
           branch: branch.name,
           username: branch.creator.username || undefined,
-          status: branch.creator.emailResolution?.status ?? 'legacy-unverified'
+          status: branch.creator.emailResolution?.status ?? 'legacy-unverified',
+          reason: branch.creator.emailResolution?.detail || undefined
         }))
     })
     return analyzed
@@ -552,10 +553,10 @@ export class BranchService {
     // v12: invalidate caches saved by the web build before creator email lookup
     // keys matched pantum-exe, so a deployed database cannot keep old creators.
     const creatorKey = creatorKeyForCache(branchCreators.get(branch.name))
-    // v18 introduced identity-exact account evidence and persistent resolution
-    // states. Cached rows must be re-analysed once so stale guessed addresses
-    // and old cache hits cannot suppress creator lookups.
-    const cacheContentKey = `v19|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
+    // v20 separates hidden account emails from forbidden, rate-limited and
+    // transient private-email lookups. Re-analyse cached rows once so an old
+    // account-email-hidden status cannot mask a retryable or permission issue.
+    const cacheContentKey = `v20|${latestCommit?.id ?? ''}|${creatorKey}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -653,32 +654,40 @@ export class BranchService {
     // the creation event's username, so it can extend the verified chain but
     // cannot silently replace it.
     const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
-    const accountBoundCommit = !verifiedCreator.email && creator.emailResolution?.status === 'account-email-hidden' && typeof this.gitlab.resolveCreatorCommitEmail === 'function'
+    // A hidden profile, a forbidden private-email endpoint and a transient
+    // account lookup all leave the same question open. The GitLab resolver
+    // still verifies every candidate commit against the exact account id or
+    // login before using its address, so attempt it for any unresolved creator.
+    const accountBoundCommit = !verifiedCreator.email && typeof this.gitlab.resolveCreatorCommitEmail === 'function'
       ? await this.gitlab.resolveCreatorCommitEmail(projectId, branch.name, creator, [...ownCommits, ...recentCommits], config)
       : { email: '' }
     const verifiedCreatorEmail = verifiedCreator.email || verifiedCommit.email || accountBoundCommit.email
     const verifiedSource = verifiedCreator.source || verifiedCommit.source || (accountBoundCommit.email ? 'commit' : '')
+    const baseResolution = creator.emailResolution?.status === 'events-unavailable'
+      ? creator.emailResolution
+      : eventState.status === 'unavailable'
+        ? {
+            status: 'events-unavailable' as const,
+            retryable: eventState.retryable,
+            checkedAt: eventState.checkedAt,
+            ...(eventState.detail ? { detail: eventState.detail } : {})
+          }
+        : creator.emailResolution ?? {
+            status: 'creation-event-missing' as const,
+            retryable: true,
+            checkedAt: new Date().toISOString()
+          }
+    // A commit lookup that simply finds nothing must not erase a more specific
+    // account-side reason (for example, the private email endpoint is
+    // admin-only). A real commit-lookup failure is more recent and wins.
+    const unresolvedResolution = accountBoundCommit.resolution?.status === 'account-email-hidden'
+      ? baseResolution
+      : accountBoundCommit.resolution ?? baseResolution
     const resolvedCreator = sanitizeCreatorInfo({
       ...creator,
       email: verifiedCreatorEmail,
       emailSource: verifiedSource,
-      emailResolution: verifiedCreatorEmail
-        ? verifiedResolution(verifiedSource)
-        : accountBoundCommit.resolution
-          ?? (creator.emailResolution?.status === 'events-unavailable'
-          ? creator.emailResolution
-          : eventState.status === 'unavailable'
-            ? {
-                status: 'events-unavailable',
-                retryable: eventState.retryable,
-                checkedAt: eventState.checkedAt,
-                ...(eventState.detail ? { detail: eventState.detail } : {})
-              }
-            : creator.emailResolution ?? {
-                status: creatorEvent ? 'creation-event-missing' : 'creation-event-missing',
-                retryable: true,
-                checkedAt: new Date().toISOString()
-              })
+      emailResolution: verifiedCreatorEmail ? verifiedResolution(verifiedSource) : unresolvedResolution
     })
 
     const lastCommitAt = latestCommit?.committed_date ?? latestCommit?.authored_date ?? latestCommit?.created_at ?? null
@@ -744,7 +753,7 @@ export class BranchService {
     const type = ref.refType === 'heads' ? 'local' : 'remote'
     const cacheKey = `${repositoryId}|${type}|${ref.name}`
     const snapshot = this.storage.get<Record<string, unknown>>('SELECT sha FROM branch_snapshots WHERE key = ?', [cacheKey])
-    const cacheContentKey = `v6|${ref.sha}|${fp}`
+    const cacheContentKey = `v20|${ref.sha}|${fp}`
     const existing = this.storage.get<Record<string, unknown>>('SELECT data_json FROM branches WHERE key = ?', [cacheKey])
 
     if (snapshot?.sha === cacheContentKey && existing?.data_json) {
@@ -873,7 +882,7 @@ export class BranchService {
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
       state,
       namingStatus: naming.status,
-      namingExempt: facts.name === 'main' || facts.name === 'develop',
+      namingExempt: facts.name === 'main' || facts.name === 'develop' || facts.name === 'develop_XC',
       branchName: facts.name,
       baseBranch: facts.baseBranch,
       merged: facts.merged,
@@ -943,7 +952,7 @@ export class BranchService {
       staleThresholdDays: Math.max(thresholdHours / 24, 1 / 1440),
       state,
       namingStatus: naming.status,
-      namingExempt: cached.name === 'main' || cached.name === 'develop',
+      namingExempt: cached.name === 'main' || cached.name === 'develop' || cached.name === 'develop_XC',
       branchName: cached.name,
       baseBranch: cached.baseBranch,
       merged: cached.merged,

@@ -284,10 +284,10 @@ function defaultNamingRules(): Array<Record<string, unknown>> {
     { name: 'release/项目名', pattern: 'release/*', type: 'glob', mode: 'allow', description: 'Release 长期发布分支，如 release/LP-7265V1R1', priority: 50 },
     {
       name: 'Conventional prefix',
-      pattern: '^(?:develop(?:_[A-Za-z0-9][A-Za-z0-9_.]*)?|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$',
+      pattern: '^(?:develop|develop_XC|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$',
       type: 'regex',
       mode: 'allow',
-      description: 'a/b_c 标准命名：main、develop（含 develop_XX 临时规则）、feature|bugfix|hotfix/b_c、release/项目名',
+      description: 'a/b_c 标准命名：main、develop（白名单仅 develop_XC）、feature|bugfix|hotfix/b_c、release/项目名',
       priority: 100
     }
   ]
@@ -401,7 +401,7 @@ export class StorageService {
     this.run(`DELETE FROM protected_branches WHERE rowid NOT IN (SELECT MIN(rowid) FROM protected_branches GROUP BY pattern)`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('fix/*', 'refactor/*', 'test/*') AND type = 'glob' AND mode = 'allow'`)
     this.run(`DELETE FROM branch_naming_rules WHERE name = pattern AND pattern IN ('docs/*', 'chore/*') AND type = 'glob' AND mode = 'allow'`)
-    this.run(`UPDATE branch_naming_rules SET pattern = '^(?:develop(?:_[A-Za-z0-9][A-Za-z0-9_.]*)?|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$', type = 'regex', mode = 'allow', description = 'a/b_c 标准命名：main、develop（含 develop_XX 临时规则）、feature|bugfix|hotfix/b_c、release/项目名' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$'`)
+    this.run(`UPDATE branch_naming_rules SET pattern = '^(?:develop|develop_XC|(?:feature|bugfix|hotfix)\\/[A-Za-z0-9][A-Za-z0-9_.]*|release\\/[A-Za-z0-9][A-Za-z0-9_.-]*)$', type = 'regex', mode = 'allow', description = 'a/b_c 标准命名：main、develop（白名单仅 develop_XC）、feature|bugfix|hotfix/b_c、release/项目名' WHERE name = 'Conventional prefix' AND pattern = '^(feature|bugfix|hotfix|release|chore|docs)\\/[a-z0-9._-]+$'`)
     this.run(`UPDATE monitoring_rules SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
     this.run(`UPDATE monitoring_rules_repo SET stale_threshold_days = 180 WHERE stale_threshold_days = 14`)
     this.dropColumn('monitoring_rules', 'grace_period_days')

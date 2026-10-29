@@ -87,7 +87,7 @@ export class ReportService {
     const invalid = issueCount((b) => b.naming.status === 'invalid')
     const excluded = issueCount((b) => b.naming.status === 'excluded')
     const total = Math.max(1, branches.length)
-    const scoredBranches = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+    const scoredBranches = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
     const averageHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (branches.length ? 100 : 0)
     return {
       totalBranches: branches.length,

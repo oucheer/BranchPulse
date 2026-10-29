@@ -28,11 +28,12 @@ describe('GitLabService.listBranchCreators', () => {
       if (url === 'https://gitlab.example.com/api/v4/users/7') {
         return jsonResponse({ id: 7, username: 'zhangsan', name: '张三', public_email: '' })
       }
+      if (url.endsWith('/users/7/emails')) return new Response('forbidden', { status: 403 })
       if (url.includes('/repository/branches')) return jsonResponse([])
       throw new Error(`unexpected url ${url}`)
     }
     globalThis.fetch = fetchMock as typeof fetch
-    const creators = await service.listBranchCreators(42)
+    const creators = await new GitLabService(settings as never).listBranchCreators(42)
     expect(creators.get('feature/pcie-band-crc')).toMatchObject({ username: 'zhangsan', name: '张三' })
     expect(urls).toContain('https://gitlab.example.com/api/v4/users/7')
   })
@@ -70,7 +71,7 @@ describe('GitLabService.listBranchCreators', () => {
     expect(urls).toContain('https://gitlab.example.com/api/v4/users/7/emails')
   })
 
-  it('keeps an identity-verified account hidden when private email access is forbidden', async () => {
+  it('reports forbidden private email access instead of claiming the email is hidden', async () => {
     globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
       const url = String(input)
       if (url.includes('/projects/42/events')) return jsonResponse([{
@@ -92,6 +93,75 @@ describe('GitLabService.listBranchCreators', () => {
       emailSource: '',
       username: 'zhangsan',
       accountId: '7',
+      emailResolution: { status: 'account-lookup-forbidden', retryable: false }
+    })
+  })
+
+  it('reports private email rate limiting as retryable', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.includes('/projects/42/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        created_at: '2026-01-01T00:00:00Z',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/rate-limited' },
+        author: { id: 7, name: '张三', username: 'zhangsan' }
+      }])
+      if (url === 'https://gitlab.example.com/api/v4/users/7') {
+        return jsonResponse({ id: 7, username: 'zhangsan', name: '张三', public_email: '' })
+      }
+      if (url.endsWith('/users/7/emails')) return new Response('rate limited', { status: 429 })
+      if (url.includes('/repository/branches')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+    const creators = await new GitLabService(settings as never).listBranchCreators(42)
+    expect(creators.get('feature/rate-limited')).toMatchObject({
+      email: '',
+      emailResolution: { status: 'account-lookup-rate-limited', retryable: true }
+    })
+  })
+
+  it('reports private email server failures as retryable', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.includes('/projects/42/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        created_at: '2026-01-01T00:00:00Z',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/lookup-failed' },
+        author: { id: 7, name: '张三', username: 'zhangsan' }
+      }])
+      if (url === 'https://gitlab.example.com/api/v4/users/7') {
+        return jsonResponse({ id: 7, username: 'zhangsan', name: '张三', public_email: '' })
+      }
+      if (url.endsWith('/users/7/emails')) return new Response('server error', { status: 500 })
+      if (url.includes('/repository/branches')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+    const creators = await new GitLabService(settings as never).listBranchCreators(42)
+    expect(creators.get('feature/lookup-failed')).toMatchObject({
+      email: '',
+      emailResolution: { status: 'account-lookup-failed', retryable: true }
+    })
+  })
+
+  it('keeps account-email-hidden only when the private email list is readable but empty', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.includes('/projects/42/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        created_at: '2026-01-01T00:00:00Z',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/empty' },
+        author: { id: 7, name: '张三', username: 'zhangsan' }
+      }])
+      if (url === 'https://gitlab.example.com/api/v4/users/7') {
+        return jsonResponse({ id: 7, username: 'zhangsan', name: '张三', public_email: '' })
+      }
+      if (url.endsWith('/users/7/emails')) return jsonResponse([])
+      if (url.includes('/repository/branches')) return jsonResponse([])
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+    const creators = await new GitLabService(settings as never).listBranchCreators(42)
+    expect(creators.get('feature/empty')).toMatchObject({
+      email: '',
       emailResolution: { status: 'account-email-hidden', retryable: false }
     })
   })
@@ -144,6 +214,30 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
 
     expect(result).toMatchObject({ email: 'zhangsan@corp.example', resolution: { status: 'verified-commit' } })
     expect(urls[0]).toBe('https://gitlab.example.com/api/graphql')
+  })
+
+  it('still uses exact commit evidence when private email access is forbidden', async () => {
+    globalThis.fetch = (async (input: string | URL | Request): Promise<Response> => {
+      const url = String(input)
+      if (url.endsWith('/api/graphql')) return jsonResponse({
+        data: { project: { repository: { c0: {
+          sha: 'abc123',
+          author: { id: 'gid://gitlab/User/7', username: 'zhangsan' },
+          committer: { id: 'gid://gitlab/User/7', username: 'zhangsan' }
+        } } } }
+      })
+      throw new Error(`unexpected url ${url}`)
+    }) as typeof fetch
+
+    const result = await new GitLabService(settings as never).resolveCreatorCommitEmail(
+      42,
+      'feature/forbidden-profile',
+      { username: 'zhangsan', accountId: '7', emailResolution: { status: 'account-lookup-forbidden', retryable: false, checkedAt: '2026-01-01T00:00:00Z' } },
+      commits,
+      config
+    )
+
+    expect(result).toMatchObject({ email: 'zhangsan@corp.example', resolution: { status: 'verified-commit' } })
   })
 
   it('finds a verified account commit when the branch itself has no commits', async () => {
@@ -446,6 +540,6 @@ describe('GitLabService.resolveCreatorCommitEmail', () => {
     )
 
     expect(result.email).toBe('')
-    expect(result.resolution).toMatchObject({ status: 'account-email-hidden', retryable: true })
+    expect(result.resolution).toMatchObject({ status: 'account-lookup-failed', retryable: true })
   })
 })

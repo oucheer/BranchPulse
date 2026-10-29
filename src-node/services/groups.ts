@@ -63,7 +63,7 @@ export class GroupService {
     const count = (fn: (branch: BranchSummary) => boolean): number => branches.filter(fn).length
     const valid = count((b) => b.naming.status === 'valid')
     const excluded = count((b) => b.naming.status === 'excluded')
-    const scored = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+    const scored = branches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
     return {
       totalBranches: branches.length,
       validBranches: valid,

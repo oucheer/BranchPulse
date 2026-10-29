@@ -325,6 +325,18 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
   // 上半区的点位向下展开详情，下半区向上弹出，保证弹层始终贴着分支点且不出图框。
   const popupDown = selectedPosition ? parseFloat(selectedPosition.bottom) >= 50 : false
 
+  useEffect(() => {
+    if (!selectedRisk) return
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (!target?.closest('[data-risk-dot], [data-risk-popup]')) {
+        setSelectedRisk(null)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [selectedRisk])
+
 
   const hasBranches = snapshot.total > 0
   const metrics: Array<{ label: string; value: number | string; tone: string; key: string }> = [
@@ -407,6 +419,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
                   <button
                     key={point.id}
                     type="button"
+                    data-risk-dot={point.id}
                     className="absolute h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full border-2 border-surface shadow-sm transition-transform hover:scale-125"
                     style={{ left: position.left, bottom: position.bottom, background: point.color }}
                     onMouseEnter={() => setHoveredRisk(point.id)}
@@ -418,6 +431,7 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
               })}
               {selectedPoint && selectedPosition && selectedBranch ? (
                 <div
+                  data-risk-popup={selectedPoint.id}
                   className="absolute z-20 w-56 rounded-lg border border-line bg-surface px-3 py-2 shadow-lg"
                   style={{
                     left: `clamp(120px, ${selectedPosition.left}, calc(100% - 120px))`,
@@ -514,7 +528,7 @@ export default function Dashboard(): JSX.Element {
   )
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
   const lastRun = visibleScanRuns[0]
-  const scoredBranches = visibleBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name))
+  const scoredBranches = visibleBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
   const avgHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (visibleBranches.length ? 100 : 0)
   const count = useCallback((fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length, [visibleBranches])
   const validBranches = count((b) => b.naming.status === 'valid')
