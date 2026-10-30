@@ -29,3 +29,7 @@ error-screen.png
 debug-run.ps1
 debug-run-asar.ps1
 index.js
+*.local
+.env
+.env.*
+!.env.example

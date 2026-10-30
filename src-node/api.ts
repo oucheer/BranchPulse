@@ -709,6 +709,13 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
           }
         }
       }
+      if (!matchedEmail) {
+        // Fine-grained tokens may lack `/user/emails`, configured repos may hold
+        // only noreply identities, and the user may commit elsewhere. Public
+        // authorship still proves the exact email/account binding.
+        const publicMatch = await gitlab.isEmailBoundToAccount(address, account, loginConfig).catch(() => false)
+        if (publicMatch) matchedEmail = address
+      }
       if (!matchedEmail) throw new Error(`邮箱与该 ${provider === 'github' ? 'GitHub' : provider === 'gitee' ? 'Gitee' : 'GitLab'} Access Token 的账号不匹配。`)
       const identity: GitLabIdentity = {
         userId: account.id,

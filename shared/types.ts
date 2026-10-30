@@ -175,6 +175,7 @@ export interface PersonalStats {
   commitCount: number
   linesAdded: number
   linesRemoved: number
+  linesAddedByRepository: Array<{ repositoryId: string; repositoryName: string; added: number; removed: number }>
   branchCount: number
   validBranches: number
   invalidBranches: number
@@ -186,6 +187,13 @@ export interface PersonalActivity {
   commits: PersonalCommit[]
   mergeRequests: PersonalMergeRequest[]
   stats: PersonalStats
+  commitDetails: Array<{
+    sha: string
+    repositoryId: string
+    added: number
+    removed: number
+    files: Array<{ path: string; added: number; removed: number }>
+  }>
 }
 
 export interface Repository {

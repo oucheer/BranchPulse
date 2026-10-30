@@ -1796,7 +1796,9 @@ export class GitLabService {
     }
     const since = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString()
     for (let page = 1; page <= 3; page += 1) {
-      const qs = new URLSearchParams({ sha: 'all', since, per_page: '100', page: String(page) })
+      // GitHub rejects `sha=all` with 404; omitting `sha` covers the default
+      // branch and other refs already appear in the same history feed.
+      const qs = new URLSearchParams({ since, per_page: '100', page: String(page) })
       const rows = await this.request<Array<Record<string, unknown>>>(
         `/repos/${projectRef}/commits?${qs.toString()}`,
         config
@@ -1817,6 +1819,39 @@ export class GitLabService {
     return [...new Set(emails)]
   }
 
+  /**
+   * Public commit authorship binds an email to the token account.
+   *
+   * A user may commit from repositories not configured in GitManager, and the
+   * configured repos may contain only noreply identities. GitHub's commit
+   * search covers those public commits; the author account must match the
+   * token account exactly, so a random email found on someone else's commit is
+   * never accepted.
+   */
+  async isEmailBoundToAccount(
+    email: string,
+    account: { id: number; username: string },
+    config?: GitLabConnectionConfig
+  ): Promise<boolean> {
+    const { provider } = this.resolve(config)
+    if (provider !== 'github') return false
+    const query = `author-email:${email.trim()} author:${account.username}`
+    const result = await this.request<{ items?: Array<Record<string, unknown>> }>(
+      `/search/commits?q=${encodeURIComponent(query)}&per_page=10`,
+      config
+    )
+    for (const item of Array.isArray(result.items) ? result.items : []) {
+      const author = (item.author ?? {}) as Record<string, unknown>
+      const commit = (item.commit ?? {}) as Record<string, unknown>
+      const commitAuthor = (commit.author ?? {}) as Record<string, unknown>
+      const loginMatch = String(author.login ?? '').trim().toLowerCase() === account.username.toLowerCase()
+      const idMatch = Number(author.id ?? NaN) === account.id
+      const emailMatch = String(commitAuthor.email ?? '').trim().toLowerCase() === email.trim().toLowerCase()
+      if ((loginMatch || idMatch) && emailMatch) return true
+    }
+    return false
+  }
+
   /** All commits authored by one exact email, oldest window bounded by `since`. */
   async listProjectCommits(projectId: number, authorEmail: string, since: string, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
@@ -1825,7 +1860,7 @@ export class GitLabService {
       const commits: GitLabCommitDto[] = []
       for (let page = 1; page <= 10; page += 1) {
         const rows = await this.request<Array<Record<string, unknown>>>(
-          `/repos/${projectRef}/commits?sha=all&since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
+          `/repos/${projectRef}/commits?since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
           config
         )
         commits.push(...rows.map((row) => this.mapGitHubCommit(row)))
@@ -1869,17 +1904,51 @@ export class GitLabService {
     return this.sumDiffEntries(diffs)
   }
 
-  private sumDiffEntries(diffs: Array<Record<string, unknown>>): { added: number; removed: number } {
+  async commitDiffDetails(
+    projectId: number,
+    sha: string,
+    config?: GitLabConnectionConfig
+  ): Promise<Array<{ path: string; added: number; removed: number }>> {
+    const projectRef = await this.projectRef(projectId, config)
+    const { provider } = this.resolve(config)
+    if (provider === 'github' || provider === 'gitee') {
+      const diffs = await this.request<Array<Record<string, unknown>>>(
+        `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
+        config
+      )
+      return this.sumDiffEntries(diffs, true).files
+    }
+    const diffs = await this.request<Array<Record<string, unknown>>>(
+      `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
+      config
+    )
+    return this.sumDiffEntries(diffs, true).files
+  }
+
+  private sumDiffEntries(
+    diffs: Array<Record<string, unknown>>,
+    withFiles = false
+  ): { added: number; removed: number; files: Array<{ path: string; added: number; removed: number }> } {
     let added = 0
     let removed = 0
+    const files: Array<{ path: string; added: number; removed: number }> = []
     for (const entry of Array.isArray(diffs) ? diffs : []) {
       const patch = String(entry.patch ?? entry.diff ?? '')
+      let fileAdded = 0
+      let fileRemoved = 0
       for (const line of patch.split('\n')) {
-        if (line.startsWith('+') && !line.startsWith('+++')) added += 1
-        else if (line.startsWith('-') && !line.startsWith('---')) removed += 1
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          added += 1
+          fileAdded += 1
+        }
+        else if (line.startsWith('-') && !line.startsWith('---')) {
+          removed += 1
+          fileRemoved += 1
+        }
       }
+      if (withFiles) files.push({ path: String(entry.new_path ?? entry.filename ?? ''), added: fileAdded, removed: fileRemoved })
     }
-    return { added, removed }
+    return { added, removed, files }
   }
 
   /** Merge requests where the account is the author or an assigned reviewer. */

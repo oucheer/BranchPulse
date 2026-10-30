@@ -16,7 +16,10 @@ interface CachedMergeRequest {
   sourceBranch: string; targetBranch: string; createdAt: string; webUrl?: string; role: 'author' | 'reviewer'
 }
 
-interface CommitDiffTotals { added: number; removed: number }
+interface CommitDiffTotals {
+  added: number; removed: number
+  files: Array<{ path: string; added: number; removed: number }>
+}
 
 export class UserActivityService {
   private lastCommitDiffs = new Map<string, CommitDiffTotals>()
@@ -39,16 +42,22 @@ export class UserActivityService {
     since.setMonth(since.getMonth() - normalizedMonths)
     const sinceIso = since.toISOString()
 
-    const commits = await this.collectCommits(session, email, repos, sinceIso, accessToken)
+    const { commits, details } = await this.collectCommits(session, email, repos, sinceIso, accessToken)
     const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, accessToken)
-    const stats = this.buildStats(session, commits, mergeRequests, repos, normalizedMonths)
-    return { commits, mergeRequests, stats }
+    const stats = this.buildStats(session, commits, details, repos, normalizedMonths)
+    return { commits, mergeRequests, stats, commitDetails: details }
   }
 
-  private async collectCommits(session: UserSession, email: string, repos: Repository[], sinceIso: string, gitlabToken: string): Promise<PersonalCommit[]> {
+  private async collectCommits(
+    session: UserSession,
+    email: string,
+    repos: Repository[],
+    sinceIso: string,
+    gitlabToken: string
+  ): Promise<{ commits: PersonalCommit[]; details: PersonalActivity['commitDetails'] }> {
     const cached = this.loadCache<CachedCommit>(session.email, 'commits')
     const results: PersonalCommit[] = []
-    const linesBySha = new Map<string, { added: number; removed: number }>()
+    const linesBySha = new Map<string, { added: number; removed: number; files: Array<{ path: string; added: number; removed: number }> }>()
     for (const repo of repos) {
       if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
       const key = String(repo.gitlabProjectId)
@@ -73,14 +82,26 @@ export class UserActivityService {
       const shas = results.filter((c) => c.repositoryId === repo.id).map((c) => c.sha)
       for (const sha of shas) {
         try {
-          linesBySha.set(sha, await this.gitlab.commitDiffTotals(repo.gitlabProjectId, sha, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath }))
+          const details = await this.gitlab.commitDiffDetails(repo.gitlabProjectId, sha, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
+          linesBySha.set(sha, {
+            added: details.reduce((sum, file) => sum + file.added, 0),
+            removed: details.reduce((sum, file) => sum + file.removed, 0),
+            files: details
+          })
         } catch {
-          linesBySha.set(sha, { added: 0, removed: 0 })
+          linesBySha.set(sha, { added: 0, removed: 0, files: [] })
         }
       }
     }
     this.lastCommitDiffs = linesBySha
-    return results
+    const details = results.map((commit) => ({
+      sha: commit.sha,
+      repositoryId: commit.repositoryId,
+      added: this.lastCommitDiffs.get(commit.sha)?.added ?? 0,
+      removed: this.lastCommitDiffs.get(commit.sha)?.removed ?? 0,
+      files: this.lastCommitDiffs.get(commit.sha)?.files ?? []
+    }))
+    return { commits: results, details }
   }
 
   private async fetchCommits(repo: Repository, email: string, since: string, gitlabToken: string): Promise<CachedCommit[]> {
@@ -143,7 +164,13 @@ export class UserActivityService {
     return out
   }
 
-  private buildStats(session: UserSession, commits: PersonalCommit[], mrs: PersonalMergeRequest[], repos: Repository[], months: number): PersonalStats {
+  private buildStats(
+    session: UserSession,
+    commits: PersonalCommit[],
+    details: PersonalActivity['commitDetails'],
+    repos: Repository[],
+    months: number
+  ): PersonalStats {
     const allBranches = this.branchService.listBranches()
     const email = session.email.toLowerCase().trim()
     const myBranches = allBranches.filter((b) => (b.creator?.email ?? '').toLowerCase().trim() === email)
@@ -182,10 +209,25 @@ export class UserActivityService {
 
     const linesAdded = [...this.lastCommitDiffs.values()].reduce((sum, v) => sum + v.added, 0)
     const linesRemoved = [...this.lastCommitDiffs.values()].reduce((sum, v) => sum + v.removed, 0)
+    const linesByRepository = new Map<string, { repositoryId: string; repositoryName: string; added: number; removed: number }>()
+    for (const commit of commits) {
+      const totals = details.find((detail) => detail.sha === commit.sha && detail.repositoryId === commit.repositoryId)
+      if (!totals) continue
+      const entry = linesByRepository.get(commit.repositoryId) ?? {
+        repositoryId: commit.repositoryId,
+        repositoryName: commit.repositoryName,
+        added: 0,
+        removed: 0
+      }
+      entry.added += totals.added
+      entry.removed += totals.removed
+      linesByRepository.set(commit.repositoryId, entry)
+    }
     return {
       commitCount: commits.length,
       linesAdded,
       linesRemoved,
+      linesAddedByRepository: [...linesByRepository.values()],
       branchCount: myBranches.length,
       validBranches,
       invalidBranches,
