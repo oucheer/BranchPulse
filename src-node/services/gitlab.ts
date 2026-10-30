@@ -1744,12 +1744,77 @@ export class GitLabService {
     const emails = [row.email, row.public_email, row.commit_email, ...(Array.isArray(row.emails) ? row.emails : [])]
       .map((value) => String(value ?? '').trim())
       .filter(Boolean)
+    // GitHub and newer GitLab instances expose the token-bound address list
+    // through a separate endpoint. The account row alone is unreliable on
+    // GitHub because it may hide the profile email even from its owner.
+    try {
+      const addressRows = await this.request<Array<Record<string, unknown>>>('/user/emails', config)
+      if (Array.isArray(addressRows)) {
+        emails.push(...addressRows.map((item) => String(item.email ?? item.address ?? '').trim()))
+      }
+    } catch {
+      // Scope or instance limitations are expected; commit binding below is the fallback.
+    }
     return {
       id: Number(row.id ?? 0),
-      emails: [...new Set(emails)],
+      emails: [...new Set(emails)].filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)),
       name: String(row.name ?? row.username ?? ''),
       username: String(row.username ?? '')
     }
+  }
+
+  /**
+   * Email identities committed by an already token-verified account.
+   *
+   * Forges hide profile emails for privacy, and GitLab users may commit with a
+   * protected address instead of the account address. Bind commits to the exact
+   * account id/login first, then return only addresses that those commits used.
+   */
+  async listAccountCommitEmails(
+    projectId: number,
+    account: { id: number; username: string },
+    config?: GitLabConnectionConfig
+  ): Promise<string[]> {
+    const { provider } = this.resolve(config)
+    const projectRef = await this.projectRef(projectId, config)
+    const emails: string[] = []
+    const addEmail = (value: unknown): void => {
+      const email = String(value ?? '').trim()
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) emails.push(email.toLowerCase())
+    }
+    if (provider === 'gitlab') {
+      const commits = await this.listProjectCommitsByAuthor(
+        projectId,
+        { username: account.username, accountId: String(account.id) },
+        config
+      )
+      for (const commit of commits) {
+        addEmail(commit.author_email)
+        addEmail(commit.committer_email)
+      }
+      return [...new Set(emails)]
+    }
+    const since = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString()
+    for (let page = 1; page <= 3; page += 1) {
+      const qs = new URLSearchParams({ sha: 'all', since, per_page: '100', page: String(page) })
+      const rows = await this.request<Array<Record<string, unknown>>>(
+        `/repos/${projectRef}/commits?${qs.toString()}`,
+        config
+      )
+      for (const row of rows) {
+        const author = (row.author ?? {}) as Record<string, unknown>
+        const commit = (row.commit ?? {}) as Record<string, unknown>
+        const commitAuthor = (commit.author ?? {}) as Record<string, unknown>
+        const commitCommitter = (commit.committer ?? {}) as Record<string, unknown>
+        const loginMatch = String(author.login ?? '').trim().toLowerCase() === account.username.toLowerCase()
+        const idMatch = Number(author.id ?? NaN) === account.id
+        if (!loginMatch && !idMatch) continue
+        addEmail(commitAuthor.email)
+        addEmail(commitCommitter.email)
+      }
+      if (rows.length < 100) break
+    }
+    return [...new Set(emails)]
   }
 
   /** All commits authored by one exact email, oldest window bounded by `since`. */

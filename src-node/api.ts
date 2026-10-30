@@ -676,8 +676,40 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
           : message)
       }
       if (!account) throw new Error('Access Token 无效或已失效。')
-      const matchedEmail = account.emails.find((value) => value.toLowerCase() === address)
-      if (!matchedEmail) throw new Error('邮箱与该 GitLab Access Token 的账号不匹配。')
+      let matchedEmail = account.emails.find((value) => value.toLowerCase() === address)
+      if (!matchedEmail && provider !== 'gitlab') {
+        // GitHub/Gitee may hide profile emails. A token-bound account is still
+        // proven when the user's email appears on a recent commit authorship.
+        for (const repo of repository.list()) {
+          if (repo.source !== provider || !repo.gitlabProjectId) continue
+          const accountEmails: string[] = await gitlab.listAccountCommitEmails(
+            Number(repo.gitlabProjectId),
+            account,
+            { apiKey: token, url: repo.gitlabUrl, provider, projectPath: repo.remoteProjectPath }
+          ).catch(() => [])
+          if (accountEmails.includes(address)) {
+            matchedEmail = address
+            break
+          }
+        }
+      } else if (!matchedEmail && provider === 'gitlab') {
+        // GitLab can hide the authenticated user's address and commits may use a
+        // protected or imported identity. The token still proves the account, and
+        // commit bindings can prove which exact email belongs to it.
+        for (const repo of repository.list()) {
+          if (repo.source !== 'gitlab' || !repo.gitlabProjectId) continue
+          const accountEmails: string[] = await gitlab.listAccountCommitEmails(
+            Number(repo.gitlabProjectId),
+            account,
+            { apiKey: token, url: repo.gitlabUrl, provider, projectPath: repo.remoteProjectPath }
+          ).catch(() => [])
+          if (accountEmails.includes(address)) {
+            matchedEmail = address
+            break
+          }
+        }
+      }
+      if (!matchedEmail) throw new Error(`邮箱与该 ${provider === 'github' ? 'GitHub' : provider === 'gitee' ? 'Gitee' : 'GitLab'} Access Token 的账号不匹配。`)
       const identity: GitLabIdentity = {
         userId: account.id,
         email: matchedEmail,
