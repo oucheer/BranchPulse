@@ -166,6 +166,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ startupError: 'GitManager 后端不可用：请通过 npm run dev 或 npm start 启动服务后访问本页面。' })
         return
       }
+
+      // The login screen only needs the public dashboard snapshot. A full
+      // bootstrap before authentication hits protected endpoints, and each 401
+      // reloads the page before the user can ever log in.
+      if (!get().session) {
+        const snapshot = await window.gitmanager.init()
+        set({
+          ready: true,
+          appVersion: '',
+          repositories: snapshot.repositories,
+          branches: snapshot.branches,
+          scanRuns: snapshot.scanRuns,
+          notifications: snapshot.notifications,
+          selectedRepositoryIds: snapshot.selectedRepositoryIds ?? snapshot.settings.selectedRepositoryIds ?? [],
+          settings: snapshot.settings
+        })
+        localStorage.setItem(LANGUAGE_KEY, snapshot.settings.language)
+        set({ language: snapshot.settings.language })
+        return
+      }
+
       const snapshot = await window.gitmanager.init()
       const selected = snapshot.selectedRepositoryIds ?? snapshot.settings.selectedRepositoryIds ?? []
       const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups, appVersion] = await Promise.all([

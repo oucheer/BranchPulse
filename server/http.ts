@@ -129,7 +129,7 @@ export function createServer(options: ServerOptions): GitManagerServer {
 
   async function handleRpc(req: http.IncomingMessage, res: http.ServerResponse, method: string): Promise<void> {
     const session = readSession(req)
-    if (!session && method !== 'login') {
+    if (!session && method !== 'login' && method !== 'init') {
       sendJson(res, 401, { error: '请先登录。' })
       return
     }
