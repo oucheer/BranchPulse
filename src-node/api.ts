@@ -44,6 +44,7 @@ import type { NamingService } from './services/naming'
 import type { ProtectionService } from './services/protection'
 import type { MonitoringService } from './services/monitoring'
 import type { EmailService } from './services/email'
+import { detectRemoteProvider } from './services/gitlab'
 import type { GitLabService } from './services/gitlab'
 import type { SchedulerService } from './services/scheduler'
 import type { ReportService } from './services/report'
@@ -642,14 +643,24 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       const address = String(email ?? '').trim()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
       let identity: GitLabIdentity | null = null
-      try {
-        const account = await gitlab.findUserByEmail(address)
-        if (account) identity = { userId: account.id, email: account.email, displayName: account.name || account.username }
-      } catch {
-        identity = null
+      const provider = detectRemoteProvider(settings.get().gitlabUrl ?? '')
+      if (provider === 'gitlab') {
+        try {
+          const account = await gitlab.findUserByEmail(address)
+          if (account) identity = { userId: account.id, email: account.email, displayName: account.name || account.username }
+        } catch {
+          identity = null
+        }
+      }
+      if (!identity) {
+        // No GitLab connection (or the lookup failed): still let the user in
+        // with an email-only identity. Branch scoping, commits and stats match
+        // by email, so nothing breaks; only reviewer-role MRs need a userId
+        // and stay empty until a GitLab token is configured.
+        identity = { userId: 0, email: address, displayName: address.split('@')[0] ?? address }
       }
       const session = await users.loginUser(address, identity)
-      if (!session) throw new Error('邮箱没有匹配到 GitLab 账号，请使用注册 GitLab 时的邮箱。')
+      if (!session) throw new Error('登录失败，请稍后重试。')
       bindSession(session)
       audit.record('user_login', { role: session.role, email: address })
       return session

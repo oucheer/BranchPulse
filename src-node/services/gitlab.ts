@@ -1701,6 +1701,7 @@ export class GitLabService {
     if (provider !== 'gitlab') return null
     const needle = email.trim().toLowerCase()
     if (!needle) return null
+    const localPart = needle.split('@')[0] ?? ''
     const qs = new URLSearchParams({ search: email.trim(), per_page: '100' })
     const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
     for (const row of Array.isArray(rows) ? rows : []) {
@@ -1714,6 +1715,22 @@ export class GitLabService {
           name: String(row.name ?? row.username ?? ''),
           username: String(row.username ?? '')
         }
+      }
+    }
+    // GitLab hides private emails from non-admin tokens, so `search` can
+    // return the right account without exposing any address to compare. When
+    // exactly one result shares the email's local part as its username, that
+    // is the best available match for the typed address.
+    const usernameMatches = (Array.isArray(rows) ? rows : []).filter(
+      (row) => localPart && String(row.username ?? '').trim().toLowerCase() === localPart
+    )
+    if (usernameMatches.length === 1) {
+      const row = usernameMatches[0]!
+      return {
+        id: Number(row.id ?? 0),
+        email: needle,
+        name: String(row.name ?? row.username ?? ''),
+        username: String(row.username ?? '')
       }
     }
     return null
