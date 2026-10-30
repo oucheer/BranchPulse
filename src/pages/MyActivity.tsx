@@ -8,7 +8,7 @@ export default function MyActivity(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
-  const [months, setMonths] = useState<6 | 12>(6)
+  const [months, setMonths] = useState<number>(6)
   const [data, setData] = useState<PersonalActivity | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -16,7 +16,7 @@ export default function MyActivity(): JSX.Element {
     void load(months)
   }, [months]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const load = async (range: 6 | 12): Promise<void> => {
+  const load = async (range: number): Promise<void> => {
     setBusy(true)
     try {
       const result = await window.gitmanager.getMyActivity(range)
@@ -39,17 +39,23 @@ export default function MyActivity(): JSX.Element {
           <p className="mt-0.5 text-xs text-muted">{zh ? '我的提交、合并请求与统计' : 'My commits, merge requests and statistics'}</p>
         </div>
         <div className="flex gap-2">
-          {([6, 12] as const).map((value) => (
-            <button
-              key={value}
-              className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
-                months === value ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
-              }`}
-              onClick={() => setMonths(value)}
-            >
-              {value === 6 ? (zh ? '最近半年' : 'Last 6 months') : (zh ? '最近一年' : 'Last 12 months')}
-            </button>
-          ))}
+          <select
+            value={months}
+            onChange={(e) => setMonths(Number(e.target.value))}
+            className="rounded-md border border-line bg-elevated px-3 py-1.5 text-sm text-canvas-fg outline-none transition-colors focus:border-primary/50"
+            title={zh ? '选择统计时间范围' : 'Choose activity range'}
+          >
+            {[1, 3, 6, 12, 24, 36].map((value) => (
+              <option key={value} value={value}>
+                {value === 1 ? (zh ? '最近 1 个月' : 'Last 1 month')
+                  : value === 3 ? (zh ? '最近 3 个月' : 'Last 3 months')
+                  : value === 6 ? (zh ? '最近半年' : 'Last 6 months')
+                  : value === 12 ? (zh ? '最近一年' : 'Last 12 months')
+                  : value === 24 ? (zh ? '最近两年' : 'Last 24 months')
+                  : (zh ? '最近三年' : 'Last 36 months')}
+              </option>
+            ))}
+          </select>
           <button className="btn btn-primary" disabled={busy} onClick={() => void load(months)}>
             <Activity size={14} /> {zh ? '刷新' : 'Refresh'}
           </button>

@@ -18,6 +18,7 @@ export default function Repositories(): JSX.Element {
   const toggleRepositorySelection = useAppStore((s) => s.toggleRepositorySelection)
   const selectAllRepositories = useAppStore((s) => s.selectAllRepositories)
   const clearRepositorySelection = useAppStore((s) => s.clearRepositorySelection)
+  const role = useAppStore((s) => s.role)
   const [allRepositoryBranches, setAllRepositoryBranches] = useState<typeof branches>([])
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [gitlabUrl, setGitlabUrl] = useState(settings.gitlabUrl)
@@ -48,6 +49,7 @@ export default function Repositories(): JSX.Element {
     if (!gitlabApiKeyTouched) setGitlabApiKey(settings.gitlabApiKey ?? '')
   }, [gitlabApiKeyTouched, settings.gitlabApiKey])
 
+  const isAdmin = role === 'admin'
   const gitlabConfig = (): GitLabConnectionConfig => ({
     url: gitlabUrl,
     ...((gitlabApiKey || settings.gitlabApiKey) ? { apiKey: gitlabApiKey || settings.gitlabApiKey } : {})
@@ -140,9 +142,11 @@ export default function Repositories(): JSX.Element {
           <div className="text-xs text-muted">{repositories.length} {tr('repositories').toLowerCase()} · {branches.length} 分支</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
-            <Plus size={15} /> 连接仓库
-          </button>
+            {isAdmin ? (
+              <button className="btn btn-primary" disabled={gitlabBusy || !gitlabUrl} onClick={() => void connect()}>
+                <Plus size={15} /> 连接仓库
+              </button>
+            ) : null}
         </div>
       </div>
 
@@ -190,17 +194,21 @@ export default function Repositories(): JSX.Element {
                       title={selectedRepositoryIds.includes(repo.id) ? '取消勾选该仓库' : '勾选该仓库'}
                       onChange={() => void toggleRepositorySelection(repo.id)}
                     />
-                    <button
-                      className="btn px-2"
-                      onClick={() => void scan(repo.id)}
-                      disabled={scanning}
-                      title={tr('scanAll')}
-                    >
-                      <ScanLine size={15} />
-                    </button>
-                    <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={tr('removeRemote')}>
-                      <Trash2 size={15} className="text-danger" />
-                    </button>
+                    {isAdmin ? (
+                      <>
+                        <button
+                          className="btn px-2"
+                          onClick={() => void scan(repo.id)}
+                          disabled={scanning}
+                          title={tr('scanAll')}
+                        >
+                          <ScanLine size={15} />
+                        </button>
+                        <button className="btn px-2" onClick={() => setConfirmId(repo.id)} title={tr('removeRemote')}>
+                          <Trash2 size={15} className="text-danger" />
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </Card>
@@ -209,6 +217,7 @@ export default function Repositories(): JSX.Element {
         </div>
       )}
 
+      {isAdmin ? (
       <Card className="p-5">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
           <Cloud size={15} className="text-primary" /> 远程仓库连接
@@ -280,6 +289,7 @@ export default function Repositories(): JSX.Element {
           </div>
         ) : null}
       </Card>
+      ) : null}
 
       {confirmId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

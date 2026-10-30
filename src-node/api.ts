@@ -185,7 +185,7 @@ export interface GitManagerApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: 6 | 12): Promise<PersonalActivity>
+  getMyActivity(months?: number): Promise<PersonalActivity>
 }
 
 function dateStamp(): string {
@@ -611,6 +611,9 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     getAppVersion: async () => options.appVersion(),
     saveSettings: async (s) => {
       try {
+        if (currentSession && currentSession.role !== 'admin') {
+          throw new Error('普通用户没有修改设置的权限。')
+        }
         const saved = settings.save(s)
         audit.record('settings_updated', {
           theme: saved.theme,
@@ -677,10 +680,11 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
     changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
 
-    getMyActivity: async (months: 6 | 12 = 6) => {
+    getMyActivity: async (months: number = 6) => {
       if (!currentSession) throw new Error('请先登录。')
       return userActivity.getActivity(currentSession, months)
-    }
+    },
+
   }
 
   monitoring.onProgress = (progress) => progressSink(progress)

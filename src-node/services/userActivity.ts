@@ -29,16 +29,17 @@ export class UserActivityService {
     private readonly namingService: NamingService
   ) {}
 
-  async getActivity(session: UserSession, months: 6 | 12 = 6): Promise<PersonalActivity> {
+  async getActivity(session: UserSession, months: number = 6): Promise<PersonalActivity> {
+    const normalizedMonths = Math.max(1, Math.min(Number(months) || 6, 36))
     const email = session.email.toLowerCase().trim()
     const repos = this.repositoryService.list()
     const since = new Date()
-    since.setMonth(since.getMonth() - months)
+    since.setMonth(since.getMonth() - normalizedMonths)
     const sinceIso = since.toISOString()
 
     const commits = await this.collectCommits(session, email, repos, sinceIso)
     const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso)
-    const stats = this.buildStats(session, commits, mergeRequests, repos, months)
+    const stats = this.buildStats(session, commits, mergeRequests, repos, normalizedMonths)
     return { commits, mergeRequests, stats }
   }
 

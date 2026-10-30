@@ -19,7 +19,8 @@ const USER_ALLOWED_METHODS = new Set([
   'getMonitoring', 'listEmailGroups', 'getEmailConfig', 'listJobs', 'listRuns',
   'calendarRuns', 'listNotifications', 'listReports', 'exportReport',
   'listReportSchedules', 'listBackups', 'listAudit', 'getSettings',
-  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity'
+  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity',
+  'getMyActivity'
 ])
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024

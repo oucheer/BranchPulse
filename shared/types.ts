@@ -681,7 +681,7 @@ export interface BranchApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: 6 | 12): Promise<PersonalActivity>
+  getMyActivity(months?: number): Promise<PersonalActivity>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

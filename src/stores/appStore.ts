@@ -228,7 +228,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       localStorage.setItem(LANGUAGE_KEY, snapshot.settings.language)
       set({ language: snapshot.settings.language })
     } catch (err) {
-      set({ startupError: err instanceof Error ? err.message : String(err) })
+      // A refresh failure while the user is signed in must not throw away the
+      // current dashboard; the caller shows a toast instead.
+      if (!get().session) {
+        set({ startupError: err instanceof Error ? err.message : String(err) })
+      } else {
+        throw err
+      }
     }
   },
 

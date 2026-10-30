@@ -586,7 +586,8 @@ export default function Dashboard(): JSX.Element {
     setRefreshing(true)
     try {
       await refresh()
-    } catch {
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
       toast(zh ? '无法刷新仪表盘' : 'Unable to refresh dashboard', 'error')
     } finally {
       setRefreshing(false)
