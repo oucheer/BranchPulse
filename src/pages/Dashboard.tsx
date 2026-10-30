@@ -333,8 +333,15 @@ function HealthTrendCard({ branches, current }: { branches: BranchSummary[]; run
         setSelectedRisk(null)
       }
     }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setSelectedRisk(null)
+    }
     document.addEventListener('pointerdown', handlePointerDown, true)
-    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [selectedRisk])
 
 
