@@ -645,13 +645,20 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       }
       const address = String(email ?? '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
-      const token = String(gitlabToken ?? '').trim()
+      const token = String(gitlabToken ?? '')
+        .replace(/\u00a0|\u200b|\u200c|\u200d|\ufeff/g, ' ')
+        .trim()
+        .replace(/^["']|["']$/g, '')
+        .replace(/^(bearer|token)\s+/i, '')
+        .trim()
       if (!token) throw new Error('普通用户登录需要填写 Access Token。')
       const provider = detectRemoteProvider(settings.get().gitlabUrl ?? '')
       if (provider !== 'gitlab' && provider !== 'github' && provider !== 'gitee') throw new Error('当前远程仓库平台不受支持。')
       const account = await gitlab.currentUser({ url: settings.get().gitlabUrl, apiKey: token }).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
-        throw new Error(/401|Unauthorized/i.test(message) ? 'Access Token 无效或已失效。' : message)
+        throw new Error(/401|Unauthorized/i.test(message)
+          ? `${provider === 'github' ? 'GitHub' : provider === 'gitee' ? 'Gitee' : 'GitLab'} Access Token 无效或已失效，请确认复制完整且没有多余前缀或空格。`
+          : message)
       })
       if (!account) throw new Error('Access Token 无效或已失效。')
       const matchedEmail = account.emails.find((value) => value.toLowerCase() === address)
