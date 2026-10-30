@@ -57,6 +57,7 @@ export default function Reports(): JSX.Element {
   const isAdmin = role === 'admin'
 
   useEffect(() => {
+    if (!isAdmin) return
     let cancelled = false
     let timer: number | undefined
     let nextDelay = 5000
@@ -88,7 +89,7 @@ export default function Reports(): JSX.Element {
       cancelled = true
       if (timer) window.clearTimeout(timer)
     }
-  }, [refresh, toast])
+  }, [isAdmin, refresh, toast])
 
   const reports = selectedRepositoryIds.length
     ? allReports.filter((report) => report.repositoryIds.some((id) => selectedRepositoryIds.includes(id)))
