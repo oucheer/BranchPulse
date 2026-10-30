@@ -1737,11 +1737,14 @@ export class GitLabService {
   }
 
   /** Identity bound to the supplied token; used to validate user sign-in. */
-  async currentUser(config: GitLabConnectionConfig): Promise<{ id: number; email: string; name: string; username: string } | null> {
+  async currentUser(config: GitLabConnectionConfig): Promise<{ id: number; emails: string[]; name: string; username: string } | null> {
     const row = await this.request<Record<string, unknown>>('/user', config)
+    const emails = [row.email, row.public_email, row.commit_email]
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean)
     return {
       id: Number(row.id ?? 0),
-      email: String(row.public_email ?? row.email ?? row.commit_email ?? ''),
+      emails: [...new Set(emails)],
       name: String(row.name ?? row.username ?? ''),
       username: String(row.username ?? '')
     }

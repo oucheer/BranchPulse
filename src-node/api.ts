@@ -643,6 +643,8 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         audit.record('user_login', { role: session.role, username })
         return session
       }
+      const address = String(email ?? '').trim().toLowerCase()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
       const token = String(gitlabToken ?? '').trim()
       if (!token) throw new Error('普通用户登录需要填写 GitLab Access Token。')
       const provider = detectRemoteProvider(settings.get().gitlabUrl ?? '')
@@ -652,11 +654,11 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         throw new Error(/401|Unauthorized/i.test(message) ? 'GitLab Access Token 无效或已失效。' : message)
       })
       if (!account) throw new Error('GitLab Access Token 无效或已失效。')
-      const address = account.email?.trim() || ''
-      if (!address) throw new Error('GitLab 账号未公开邮箱，无法用于 GitManager 普通用户登录。')
+      const matchedEmail = account.emails.find((value) => value.toLowerCase() === address)
+      if (!matchedEmail) throw new Error('邮箱与该 GitLab Access Token 的账号不匹配。')
       const identity: GitLabIdentity = {
         userId: account.id,
-        email: address,
+        email: matchedEmail,
         displayName: account.name || account.username
       }
       const session = await users.loginUser(address, identity, token)

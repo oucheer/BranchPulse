@@ -13,6 +13,7 @@ export default function Login(): JSX.Element {
   const [mode, setMode] = useState<Mode>('admin')
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('')
   const [gitlabToken, setGitlabToken] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -20,7 +21,7 @@ export default function Login(): JSX.Element {
     setBusy(true)
     try {
       if (mode === 'admin') await login(username.trim(), password, null)
-      else await login(null, null, null, gitlabToken.trim())
+      else await login(null, null, email.trim(), gitlabToken.trim())
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -35,7 +36,7 @@ export default function Login(): JSX.Element {
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-gradient-to-br from-primary to-secondary">
             <GitBranch size={18} className="text-white" />
           </div>
-          <div>
+          <div className="space-y-3">
             <div className="text-base font-bold text-canvas-fg">GitManager</div>
             <div className="text-xs text-muted">{zh ? '请选择身份登录' : 'Sign in to continue'}</div>
           </div>
@@ -73,9 +74,15 @@ export default function Login(): JSX.Element {
           </div>
         ) : (
           <div>
-            <div className="label mb-1.5">{zh ? 'GitLab Access Token' : 'GitLab Access Token'}</div>
-            <input className="input w-full" type="password" value={gitlabToken} onChange={(e) => setGitlabToken(e.target.value)} autoComplete="off" />
-            <p className="mt-2 text-xs text-muted">{zh ? '使用 GitLab Personal Access Token 登录，需要 read_api 和 read_repository 权限。' : 'Use a GitLab Personal Access Token with read_api and read_repository access.'}</p>
+            <div>
+              <div className="label mb-1.5">{zh ? '邮箱' : 'Email'}</div>
+              <input className="input w-full" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
+            </div>
+            <div>
+              <div className="label mb-1.5">{zh ? 'GitLab Access Token' : 'GitLab Access Token'}</div>
+              <input className="input w-full" type="password" value={gitlabToken} onChange={(e) => setGitlabToken(e.target.value)} autoComplete="off" />
+              <p className="mt-2 text-xs text-muted">{zh ? '使用 GitLab Personal Access Token 登录，需要 read_api 和 read_repository 权限。' : 'Use a GitLab Personal Access Token with read_api and read_repository access.'}</p>
+            </div>
           </div>
         )}
 
