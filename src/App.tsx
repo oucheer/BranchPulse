@@ -179,6 +179,13 @@ export default function App(): JSX.Element {
     )
   }
 
+  // The login page belongs to the unauthenticated route tree. If an already
+  // signed-in tab lands on /login, send it to the dashboard instead of
+  // rendering the login card inside the main layout.
+  if (location.pathname === '/login') {
+    return <Navigate to="/" replace />
+  }
+
   return (
     <Layout>
       <div className="h-full overflow-auto">

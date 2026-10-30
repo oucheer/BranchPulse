@@ -263,7 +263,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   logout: async () => {
     try { await window.gitmanager.logout() } catch { /* token already gone */ }
     sessionStorage.removeItem(SESSION_KEY)
-    set({ session: null, role: null, myEmail: '', ready: false })
+    // The app itself is still initialized; only the identity changes. Resetting
+    // `ready` here would strand the tab on the root Loading screen because no
+    // startup refresh runs after logout.
+    set({ session: null, role: null, myEmail: '' })
   },
 
   setLanguage: (language) => {
