@@ -1736,6 +1736,17 @@ export class GitLabService {
     return null
   }
 
+  /** Identity bound to the supplied token; used to validate user sign-in. */
+  async currentUser(config: GitLabConnectionConfig): Promise<{ id: number; email: string; name: string; username: string } | null> {
+    const row = await this.request<Record<string, unknown>>('/user', config)
+    return {
+      id: Number(row.id ?? 0),
+      email: String(row.public_email ?? row.email ?? row.commit_email ?? ''),
+      name: String(row.name ?? row.username ?? ''),
+      username: String(row.username ?? '')
+    }
+  }
+
   /** All commits authored by one exact email, oldest window bounded by `since`. */
   async listProjectCommits(projectId: number, authorEmail: string, since: string, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
     const projectRef = await this.projectRef(projectId, config)

@@ -71,7 +71,7 @@ interface AppState {
   toasts: Toast[]
   refresh: () => Promise<void>
   restoreSession: () => Promise<UserSession | null>
-  login: (username: string | null, password: string | null, email: string | null) => Promise<void>
+  login: (username: string | null, password: string | null, email: string | null, gitlabToken?: string) => Promise<void>
   logout: () => Promise<void>
   setLanguage: (language: Language) => void
   setEffectSettings: (partial: Partial<EffectSettings>) => void
@@ -258,8 +258,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  login: async (username, password, email) => {
-    const session = await window.gitmanager.login(username, password, email)
+  login: async (username, password, email, gitlabToken) => {
+    const session = await window.gitmanager.login(username, password, email, gitlabToken)
     // 每个标签页独立保存 token，同一浏览器的多个标签页互不影响。
     sessionStorage.setItem(SESSION_KEY, session.token)
     set({ session, role: session.role, myEmail: session.email, startupError: null })

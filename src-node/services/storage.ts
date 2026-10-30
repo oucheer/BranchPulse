@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
   email TEXT,
   gitlab_user_id INTEGER,
   display_name TEXT,
+  gitlab_token_encrypted TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -420,6 +421,7 @@ export class StorageService {
     this.ensureColumn('scheduler_jobs', 'repository_id', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'group_ids', 'TEXT')
     this.ensureColumn('scheduler_jobs', 'repository_ids_json', 'TEXT')
+    this.ensureColumn('user_sessions', 'gitlab_token_encrypted', 'TEXT')
     this.ensureColumn('reports', 'repository_ids_json', 'TEXT')
     this.ensureColumn('report_schedules', 'repository_ids_json', 'TEXT')
     this.ensureColumn('report_schedules', 'group_ids', 'TEXT')

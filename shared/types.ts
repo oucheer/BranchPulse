@@ -142,6 +142,9 @@ export interface UserSession {
   email: string
   gitlabUserId: number | null
   displayName: string
+  hasGitlabToken: boolean
+  /** Server-side only; never sent to the browser. */
+  gitlabToken?: string
 }
 
 export interface PersonalCommit {
@@ -677,7 +680,7 @@ export interface BranchApi {
    * the web build the confirmation is rendered in the page before this is called.
    */
   importConfig(target?: boolean | string): Promise<ConfigImportResult>
-  login(username: string | null, password: string | null, email: string | null): Promise<UserSession>
+  login(username: string | null, password: string | null, email: string | null, gitlabToken?: string): Promise<UserSession>
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>

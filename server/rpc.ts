@@ -1,5 +1,6 @@
 import { EXPOSED_METHODS, type ExposedMethod } from '@shared/rpc'
 import type { GitManagerApi } from '../src-node/api'
+import { sanitizeUserSession } from '../src-node/services/user'
 
 export type { ExposedMethod }
 
@@ -38,7 +39,10 @@ export async function invoke(api: GitManagerApi, method: string, args: unknown[]
   }
   try {
     const value = await (fn as (...a: unknown[]) => unknown).apply(api, args)
-    return { status: 200, body: { result: value === undefined ? null : value } }
+    const result = value && typeof value === 'object' && 'hasGitlabToken' in (value as Record<string, unknown>)
+      ? sanitizeUserSession(value as import('@shared/types').UserSession)
+      : value
+    return { status: 200, body: { result: result === undefined ? null : result } }
   } catch (err) {
     return { status: 500, body: { error: errorMessage(err) } }
   }

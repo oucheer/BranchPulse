@@ -181,7 +181,7 @@ export interface GitManagerApi {
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
   resolveSession(token: string): UserSession | null
-  login(username: string | null, password: string | null, email: string | null): Promise<UserSession>
+  login(username: string | null, password: string | null, email: string | null, gitlabToken?: string): Promise<UserSession>
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
@@ -635,7 +635,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     onScanProgress: () => () => {},
     onNavigate: () => () => {},
 
-    login: async (username, password, email) => {
+    login: async (username, password, email, gitlabToken) => {
       if (username) {
         const session = await users.loginAdmin(username, password ?? '')
         if (!session) throw new Error('管理员账号或密码不正确。')
@@ -643,29 +643,26 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         audit.record('user_login', { role: session.role, username })
         return session
       }
-      const address = String(email ?? '').trim()
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
-      let identity: GitLabIdentity | null = null
+      const token = String(gitlabToken ?? '').trim()
+      if (!token) throw new Error('普通用户登录需要填写 GitLab Access Token。')
       const provider = detectRemoteProvider(settings.get().gitlabUrl ?? '')
-      if (provider === 'gitlab') {
-        try {
-          const account = await gitlab.findUserByEmail(address)
-          if (account) identity = { userId: account.id, email: account.email, displayName: account.name || account.username }
-        } catch {
-          identity = null
-        }
+      if (provider !== 'gitlab') throw new Error('当前远程仓库不是 GitLab，请先在管理员设置中配置 GitLab。')
+      const account = await gitlab.currentUser({ url: settings.get().gitlabUrl, apiKey: token }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new Error(/401|Unauthorized/i.test(message) ? 'GitLab Access Token 无效或已失效。' : message)
+      })
+      if (!account) throw new Error('GitLab Access Token 无效或已失效。')
+      const address = account.email?.trim() || ''
+      if (!address) throw new Error('GitLab 账号未公开邮箱，无法用于 GitManager 普通用户登录。')
+      const identity: GitLabIdentity = {
+        userId: account.id,
+        email: address,
+        displayName: account.name || account.username
       }
-      if (!identity) {
-        // No GitLab connection (or the lookup failed): still let the user in
-        // with an email-only identity. Branch scoping, commits and stats match
-        // by email, so nothing breaks; only reviewer-role MRs need a userId
-        // and stay empty until a GitLab token is configured.
-        identity = { userId: 0, email: address, displayName: address.split('@')[0] ?? address }
-      }
-      const session = await users.loginUser(address, identity)
+      const session = await users.loginUser(address, identity, token)
       if (!session) throw new Error('登录失败，请稍后重试。')
       bindSession(session)
-      audit.record('user_login', { role: session.role, email: address })
+      audit.record('user_login', { role: session.role, email: address, gitlabUserId: session.gitlabUserId })
       return session
     },
 
