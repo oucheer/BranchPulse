@@ -24,6 +24,7 @@ export default function Settings(): JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
+  const role = useAppStore((s) => s.role)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const zh = language === 'zh'
@@ -36,6 +37,27 @@ export default function Settings(): JSX.Element {
   const [showGitlabApiKey, setShowGitlabApiKey] = useState(false)
   const [portPicker, setPortPicker] = useState<'export' | 'import' | null>(null)
   const [pendingImport, setPendingImport] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const isAdmin = role === 'admin'
+
+  const changePassword = async (): Promise<void> => {
+    if (!newPassword) {
+      toast('请输入新密码。', 'warn')
+      return
+    }
+    try {
+      const ok = await window.gitmanager.changePassword(newPassword)
+      if (ok) {
+        setNewPassword('')
+        toast('密码已更新。', 'success')
+      } else {
+        toast('密码更新失败。', 'error')
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
   useEffect(() => {
     setDraft(settings)
   }, [settings])
@@ -173,6 +195,34 @@ export default function Settings(): JSX.Element {
             </div>
           </div>
         </Card>
+
+        {isAdmin ? (
+          <Card className="p-5">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
+              <SettingsIcon size={15} className="text-primary" /> 管理员密码
+            </div>
+            <div className="space-y-3">
+              <div>
+                <div className="label mb-1.5">新密码</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="input flex-1"
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                  <button className="btn px-2" type="button" onClick={() => setShowPassword(!showPassword)}>
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <button className="btn btn-primary" onClick={() => void changePassword()}>
+                <Save size={14} /> 更新密码
+              </button>
+            </div>
+          </Card>
+        ) : null}
 
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">

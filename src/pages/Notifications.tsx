@@ -9,6 +9,7 @@ export default function Notifications(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
+  const role = useAppStore((s) => s.role)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
 
   const scoped = selectedRepositoryIds.length
@@ -67,7 +68,7 @@ export default function Notifications(): JSX.Element {
               onClick={() => setFilter('unread')}
             >{tr('unread')}</button>
           </div>
-          {scoped.length > 0 ? (
+          {role === 'admin' && scoped.length > 0 ? (
             <button className="btn" onClick={() => void clearAll()}>
               <Trash2 size={14} /> {tr('clearAll')}
             </button>

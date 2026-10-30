@@ -1694,5 +1694,98 @@ export class GitLabService {
       }
     }
   }
+
+  /** Exact, case-insensitive email lookup. A display-name hit is never accepted. */
+  async findUserByEmail(email: string, config?: GitLabConnectionConfig): Promise<{ id: number; email: string; name: string; username: string } | null> {
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return null
+    const needle = email.trim().toLowerCase()
+    if (!needle) return null
+    const qs = new URLSearchParams({ search: email.trim(), per_page: '100' })
+    const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const addresses = [row.public_email, row.email, row.commit_email]
+        .map((value) => String(value ?? '').trim().toLowerCase())
+      const matched = addresses.find((value) => value === needle)
+      if (matched) {
+        return {
+          id: Number(row.id ?? 0),
+          email: matched,
+          name: String(row.name ?? row.username ?? ''),
+          username: String(row.username ?? '')
+        }
+      }
+    }
+    return null
+  }
+
+  /** All commits authored by one exact email, oldest window bounded by `since`. */
+  async listProjectCommits(projectId: number, authorEmail: string, since: string, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
+    const projectRef = await this.projectRef(projectId, config)
+    const needle = authorEmail.trim().toLowerCase()
+    const commits: GitLabCommitDto[] = []
+    for (let page = 1; page <= 10; page += 1) {
+      const qs = new URLSearchParams({ author: authorEmail.trim(), since, per_page: '100', page: String(page) })
+      const rows = await this.request<GitLabCommitDto[]>(
+        `/projects/${projectRef}/repository/commits?${qs.toString()}`,
+        config
+      )
+      for (const row of rows) {
+        // `author` also matches the display name on some GitLab versions, so
+        // re-check the email here; a same-named stranger must not be counted.
+        if (String(row.author_email ?? '').trim().toLowerCase() === needle) commits.push(row)
+      }
+      if (rows.length < 100) break
+    }
+    return commits
+  }
+
+  /** Per-commit diff totals. GitLab has no per-author line-count endpoint. */
+  async commitDiffTotals(projectId: number, sha: string, config?: GitLabConnectionConfig): Promise<{ added: number; removed: number }> {
+    const projectRef = await this.projectRef(projectId, config)
+    const diffs = await this.request<Array<Record<string, unknown>>>(
+      `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
+      config
+    )
+    let added = 0
+    let removed = 0
+    for (const entry of Array.isArray(diffs) ? diffs : []) {
+      const diff = String(entry.diff ?? '')
+      for (const line of diff.split('\n')) {
+        if (line.startsWith('+') && !line.startsWith('+++')) added += 1
+        else if (line.startsWith('-') && !line.startsWith('---')) removed += 1
+      }
+    }
+    return { added, removed }
+  }
+
+  /** Merge requests where the account is the author or an assigned reviewer. */
+  async listProjectMergeRequests(
+    projectId: number,
+    userId: number,
+    role: 'author' | 'reviewer',
+    since: string,
+    config?: GitLabConnectionConfig
+  ): Promise<Array<Record<string, unknown>>> {
+    const { provider } = this.resolve(config)
+    if (provider !== 'gitlab') return []
+    const projectRef = await this.projectRef(projectId, config)
+    const rows: Array<Record<string, unknown>> = []
+    for (let page = 1; page <= 5; page += 1) {
+      const qs = new URLSearchParams({
+        [role === 'author' ? 'author_id' : 'reviewer_id']: String(userId),
+        created_after: since,
+        per_page: '100',
+        page: String(page)
+      })
+      const pageRows = await this.request<Array<Record<string, unknown>>>(
+        `/projects/${projectRef}/merge_requests?${qs.toString()}`,
+        config
+      )
+      rows.push(...pageRows)
+      if (pageRows.length < 100) break
+    }
+    return rows
+  }
 }
 

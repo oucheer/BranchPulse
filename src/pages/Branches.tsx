@@ -54,7 +54,7 @@ function formatDateTime(value: string | null | undefined): string {
 
 // ─── Branch Explorer Row ─────────────────────────────────────────────────────
 
-function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView, onNotify, protected_ }: {
+function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView, onNotify, protected_, canNotify }: {
   b: BranchSummary
   selected: boolean
   onSelect: () => void
@@ -64,6 +64,7 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
   protected_: boolean
   checked: boolean
   onToggle: () => void
+  canNotify?: boolean
 }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
@@ -126,7 +127,9 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
         <button className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:border-primary/40 hover:text-primary" onClick={(e) => { e.stopPropagation(); onView() }} title={zh ? '查看' : 'View'}>
           <Eye size={11} /> {zh ? '查看' : 'View'}
         </button>
-        <button className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-canvas-fg group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onNotify() }} title={zh ? '通知' : 'Notify'}><Bell size={12} /></button>
+        {canNotify !== false ? (
+          <button className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-canvas-fg group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onNotify() }} title={zh ? '通知' : 'Notify'}><Bell size={12} /></button>
+        ) : null}
       </div>
     </div>
   )
@@ -134,12 +137,13 @@ function ExplorerRow({ b, selected, checked, onToggle, onSelect, onHover, onView
 
 // ─── Branch Details Drawer ──────────────────────────────────────────────────
 
-function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
+function DetailsDrawer({ b, onClose, onNotify, protected_, loading, canNotify }: {
   b: BranchSummary
   onClose: () => void
   onNotify: () => void
   protected_: boolean
   loading: boolean
+  canNotify?: boolean
 }): JSX.Element {
   const language = useAppStore((s) => s.language)
   const zh = language === 'zh'
@@ -284,9 +288,11 @@ function DetailsDrawer({ b, onClose, onNotify, protected_, loading }: {
         <button className="btn px-2 py-1 text-[11px]" onClick={handleCopy}>
           <Copy size={11} /> {zh ? '复制' : 'Copy'}
         </button>
-        <button className="btn px-2 py-1 text-[11px]" onClick={onNotify}>
-          <Bell size={11} /> {zh ? '通知' : 'Notify'}
-        </button>
+        {canNotify !== false ? (
+          <button className="btn px-2 py-1 text-[11px]" onClick={onNotify}>
+            <Bell size={11} /> {zh ? '通知' : 'Notify'}
+          </button>
+        ) : null}
       </div>
       {validation ? (
         <div className={`mx-4 mb-3 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] ${validation.ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
@@ -312,6 +318,8 @@ export default function Branches(): JSX.Element {
   const whitelist = useAppStore((s) => s.whitelist)
   const protectedList = useAppStore((s) => s.protected)
   const language = useAppStore((s) => s.language)
+  const role = useAppStore((s) => s.role)
+  const myEmail = useAppStore((s) => s.myEmail)
   const navigate = useNavigate()
   const zh = language === 'zh'
 
@@ -335,6 +343,8 @@ export default function Branches(): JSX.Element {
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const listScrollRef = useRef<HTMLDivElement | null>(null)
+  const [scope, setScope] = useState<'mine' | 'all'>('mine')
+  const isAdmin = role === 'admin'
 
   const noSelection = selectedRepositoryIds.length === 0
 
@@ -394,6 +404,11 @@ export default function Branches(): JSX.Element {
     [branches, selectedRepositoryIds]
   )
   const people = useMemo(() => creatorOptions(scoped), [scoped])
+  const myBranches = useMemo(() => {
+    const email = myEmail.trim().toLowerCase()
+    return email ? scoped.filter((b) => (b.creator.email ?? '').trim().toLowerCase() === email) : []
+  }, [scoped, myEmail])
+  const baseBranches = role === 'user' && scope === 'mine' ? myBranches : scoped
   const activePerson = people.find((option) => creatorOptionKey(option) === creatorFilter)
   const activeGroup = emailGroups.find((group) => group.id === groupFilter)
 
@@ -410,7 +425,7 @@ export default function Branches(): JSX.Element {
   }, [branches, selectedRepositoryIds])
 
   const filtered = useMemo(() => {
-    let list = scoped
+    let list = baseBranches
     if (search) {
       const q = search.toLowerCase()
       list = list.filter((b) =>
@@ -430,7 +445,7 @@ export default function Branches(): JSX.Element {
     if (activeGroup) list = list.filter((b) => branchBelongsToGroup(activeGroup, b))
     if (repoFilterIds !== null) list = list.filter((b) => repoFilterIds.includes(b.repositoryId))
     return [...list].sort((a, b) => b.inactiveDays - a.inactiveDays)
-  }, [scoped, search, issueFilter, activePerson, activeGroup, repoFilterIds])
+  }, [baseBranches, search, issueFilter, activePerson, activeGroup, repoFilterIds])
 
   const visibleRepositories = useMemo(
     () => (repoFilterIds === null
@@ -609,15 +624,37 @@ export default function Branches(): JSX.Element {
           <h1 className="text-lg font-bold text-canvas-fg">{tr('branches')}</h1>
           <p className="mt-0.5 text-xs text-muted">{zh ? '查看和管理仓库分支' : 'Visualize and manage repository branches'}</p>
         </div>
-        <button
-          onClick={() => void handleRefreshAll()}
-          disabled={refreshingAll || noSelection}
-          title={noSelection ? (zh ? '未选择仓库：请先在仓库页勾选仓库' : 'No repository selected') : undefined}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-primary/40 hover:text-canvas-fg disabled:opacity-40"
-        >
-          <RefreshCw size={12} className={refreshingAll ? 'animate-spin' : ''} />
-          {zh ? '同步仓库' : 'Sync'}
-        </button>
+        <div className="flex items-center gap-2">
+          {role === 'user' ? (
+            <div className="inline-flex rounded-md border border-line p-0.5">
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium ${scope === 'mine' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`}
+                onClick={() => setScope('mine')}
+              >
+                {zh ? '我的' : 'Mine'}
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium ${scope === 'all' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`}
+                onClick={() => setScope('all')}
+              >
+                {zh ? '全部' : 'All'}
+              </button>
+            </div>
+          ) : null}
+          {isAdmin ? (
+            <button
+              onClick={() => void handleRefreshAll()}
+              disabled={refreshingAll || noSelection}
+              title={noSelection ? (zh ? '未选择仓库：请先在仓库页勾选仓库' : 'No repository selected') : undefined}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-primary/40 hover:text-canvas-fg disabled:opacity-40"
+            >
+              <RefreshCw size={12} className={refreshingAll ? 'animate-spin' : ''} />
+              {zh ? '同步仓库' : 'Sync'}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -728,6 +765,7 @@ export default function Branches(): JSX.Element {
       ) : null}
 
       {/* Batch Actions Bar */}
+      {isAdmin ? (
       <Card className="shrink-0 border-danger/30 bg-danger/5 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className={selectedIds.size > 0 ? 'text-sm font-semibold text-danger' : 'text-sm font-semibold text-muted'}>
@@ -782,6 +820,7 @@ export default function Branches(): JSX.Element {
             ) : null}
           </div>
       </Card>
+      ) : null}
 
       {/* Workspace: Explorer + Details */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
@@ -886,6 +925,7 @@ export default function Branches(): JSX.Element {
                       onHover={(v) => setHoveredBranch(v ? b : null)}
                       onView={() => navigate(`/branches/${b.repositoryId}/${b.type}/${encodeURIComponent(b.name.replaceAll('/', '~'))}`)}
                       onNotify={() => void handleNotify(b)}
+                      canNotify={isAdmin}
                       protected_={isProtected(b)}
                     />
                   ))}
@@ -908,6 +948,7 @@ export default function Branches(): JSX.Element {
               b={selectedBranch}
               onClose={() => setSelectedBranch(null)}
               onNotify={() => void handleNotify(selectedBranch)}
+              canNotify={isAdmin}
               protected_={isProtected(selectedBranch)}
               loading={loadingDetails}
             />

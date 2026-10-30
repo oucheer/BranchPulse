@@ -64,11 +64,13 @@ export default function Scheduler(): JSX.Element {
   const emailConfig = useAppStore((s) => s.emailConfig)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const role = useAppStore((s) => s.role)
   const [editJob, setEditJob] = useState<Partial<SchedulerJob> & { id?: string } | null>(null)
   const [tab, setTab] = useState<'schedule' | 'history' | 'calendar'>('schedule')
   const emailDisabled = !emailConfig?.enabled
   const [deleteAllOpen, setDeleteAllOpen] = useState(false)
   const [deleteAllConfirmed, setDeleteAllConfirmed] = useState(false)
+  const isAdmin = role === 'admin'
 
   // Every job is listed regardless of the active repository. The scheduler
   // executes all enabled jobs, so hiding the ones bound to another repository
@@ -140,14 +142,16 @@ export default function Scheduler(): JSX.Element {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-canvas-fg">{tr('scheduler')}</h1>
         <div className="flex items-center gap-2">
-          {jobs.length > 0 ? (
+          {isAdmin && jobs.length > 0 ? (
             <button className="btn text-danger" onClick={() => setDeleteAllOpen(true)}>
               <Trash2 size={14} /> 删除全部定时任务
             </button>
           ) : null}
-          <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(selectedRepositoryIds) })}>
-            <Plus size={15} /> {tr('schedule')}
-          </button>
+          {isAdmin ? (
+            <button className="btn btn-primary" onClick={() => setEditJob({ ...emptyJob(selectedRepositoryIds) })}>
+              <Plus size={15} /> {tr('schedule')}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -177,7 +181,9 @@ export default function Scheduler(): JSX.Element {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-canvas-fg">{job.name}</span>
                     <Badge tone={job.kind === 'interval' ? 'secondary' : 'info'}>{job.kind}</Badge>
-                    <Toggle checked={job.enabled} onChange={async (v) => { await save({ ...job, enabled: v }) }} />
+                    {isAdmin ? (
+                      <Toggle checked={job.enabled} onChange={async (v) => { await save({ ...job, enabled: v }) }} />
+                    ) : null}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
                     {job.kind === 'interval' ? (
@@ -194,14 +200,18 @@ export default function Scheduler(): JSX.Element {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    className="btn px-2"
-                    disabled={emailDisabled && job.notifyTarget !== 'none'}
-                    title={emailDisabled && job.notifyTarget !== 'none' ? '邮件发送未启用' : '立即执行'}
-                    onClick={() => void run(job.id)}
-                  ><Play size={13} /></button>
-                  <button className="btn px-2" onClick={() => setEditJob({ ...job })}>编辑</button>
-                  <button className="btn px-2" onClick={() => void remove(job.id)}><Trash2 size={13} className="text-danger" /></button>
+                  {isAdmin ? (
+                    <>
+                      <button
+                        className="btn px-2"
+                        disabled={emailDisabled && job.notifyTarget !== 'none'}
+                        title={emailDisabled && job.notifyTarget !== 'none' ? '邮件发送未启用' : '立即执行'}
+                        onClick={() => void run(job.id)}
+                      ><Play size={13} /></button>
+                      <button className="btn px-2" onClick={() => setEditJob({ ...job })}>编辑</button>
+                      <button className="btn px-2" onClick={() => void remove(job.id)}><Trash2 size={13} className="text-danger" /></button>
+                    </>
+                  ) : null}
                 </div>
               </Card>
             ))}

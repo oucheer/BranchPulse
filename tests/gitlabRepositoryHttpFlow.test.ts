@@ -60,9 +60,15 @@ async function startGitLabMock(): Promise<void> {
 }
 
 async function rpc(method: string, args: unknown[]): Promise<unknown> {
-  const response = await fetch(`${appBase}/api/rpc/${method}`, {
+  const login = await fetch(`${appBase}/api/rpc/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(['admin', 'pantum', null])
+  })
+  const loginPayload = (await login.json()) as { result?: { token: string } }
+  const response = await fetch(`${appBase}/api/rpc/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${loginPayload.result?.token ?? ''}` },
     body: JSON.stringify(args)
   })
   const payload = (await response.json()) as { result?: unknown; error?: string }

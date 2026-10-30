@@ -18,7 +18,9 @@ import type {
   Repository,
   ScanProgress,
   ScanRun,
-  SchedulerJob
+  SchedulerJob,
+  UserRole,
+  UserSession
 } from '@shared/types'
 import { t, type Language } from '../lib/i18n'
 import { persistEffectSettings, readEffectSettings, type EffectSettings } from '../lib/effects'
@@ -28,6 +30,8 @@ import { readStorage } from '../lib/legacyKeys'
 const LANGUAGE_KEY = 'gitmanager:language'
 /** Language key used before the rename; read once and copied forward. */
 const LEGACY_LANGUAGE_KEY = 'branchpulse:language'
+/** Per-tab session token: same browser, different tabs, different identities. */
+const SESSION_KEY = 'gitmanager:session-token'
 
 interface Toast {
   id: number
@@ -38,6 +42,9 @@ interface Toast {
 interface AppState {
   ready: boolean
   startupError: string | null
+  session: UserSession | null
+  role: UserRole | null
+  myEmail: string
   appVersion: string
   language: Language
   effectSettings: EffectSettings
@@ -63,6 +70,9 @@ interface AppState {
   progress: ScanProgress | null
   toasts: Toast[]
   refresh: () => Promise<void>
+  restoreSession: () => Promise<UserSession | null>
+  login: (username: string | null, password: string | null, email: string | null) => Promise<void>
+  logout: () => Promise<void>
   setLanguage: (language: Language) => void
   setEffectSettings: (partial: Partial<EffectSettings>) => void
   setSelectedRepositoryIds: (repositoryIds: string[]) => Promise<void>
@@ -79,6 +89,15 @@ interface AppState {
 
 let toastId = 0
 
+/** Restores the per-tab session on page reload. Returns null when no token is stored. */
+export function readSessionToken(): string | null {
+  try {
+    return sessionStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
 function pushToast(state: AppState, message: string, level: Toast['level'] = 'info'): AppState {
   const id = ++toastId
   const toasts = [...state.toasts, { id, message, level }].slice(-4)
@@ -89,6 +108,9 @@ function pushToast(state: AppState, message: string, level: Toast['level'] = 'in
 export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   startupError: null,
+  session: null,
+  role: null,
+  myEmail: '',
   appVersion: '',
   language: (readStorage(LANGUAGE_KEY, LEGACY_LANGUAGE_KEY) as Language) || 'zh',
   effectSettings: readEffectSettings(),
@@ -187,6 +209,40 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       set({ startupError: err instanceof Error ? err.message : String(err) })
     }
+  },
+
+  /** Resolves the stored token into a live session after a page reload. */
+  restoreSession: async () => {
+    const token = readSessionToken()
+    if (!token) return null
+    try {
+      const session = await window.gitmanager.getSession()
+      if (!session) {
+        sessionStorage.removeItem(SESSION_KEY)
+        return null
+      }
+      set({ session, role: session.role, myEmail: session.email, ready: true })
+      await get().refresh()
+      return session
+    } catch {
+      sessionStorage.removeItem(SESSION_KEY)
+      set({ session: null, role: null, myEmail: '', ready: false })
+      return null
+    }
+  },
+
+  login: async (username, password, email) => {
+    const session = await window.gitmanager.login(username, password, email)
+    // 每个标签页独立保存 token，同一浏览器的多个标签页互不影响。
+    sessionStorage.setItem(SESSION_KEY, session.token)
+    set({ session, role: session.role, myEmail: session.email, startupError: null })
+    await get().refresh()
+  },
+
+  logout: async () => {
+    try { await window.gitmanager.logout() } catch { /* token already gone */ }
+    sessionStorage.removeItem(SESSION_KEY)
+    set({ session: null, role: null, myEmail: '', ready: false })
   },
 
   setLanguage: (language) => {

@@ -59,6 +59,34 @@ CREATE TABLE IF NOT EXISTS branch_naming_rules (
   repository_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  token TEXT PRIMARY KEY,
+  role TEXT NOT NULL,
+  email TEXT,
+  gitlab_user_id INTEGER,
+  display_name TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_activity_cache (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  UNIQUE(email, repository_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS monitoring_rules (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL DEFAULT 1,

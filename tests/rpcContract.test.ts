@@ -11,7 +11,7 @@ import { invoke, isExposedMethod } from '../server/rpc'
  * is server-side wiring, and the two `on*` subscriptions are implemented
  * locally against SSE rather than forwarded to the backend.
  */
-const LOCAL_ONLY = ['setProgressSink', 'onScanProgress', 'onNavigate'] as const
+const LOCAL_ONLY = ['setProgressSink', 'onScanProgress', 'onNavigate', 'resolveSession'] as const
 
 type ApiMember = keyof GitManagerApi
 type MissingFromWhitelist = Exclude<ApiMember, ExposedMethod | (typeof LOCAL_ONLY)[number]>

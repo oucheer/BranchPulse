@@ -4,6 +4,7 @@ const dictionaries = {
   en: {
     app: 'GitManager',
     dashboard: 'Dashboard',
+    myActivity: 'My Activity',
     repositories: 'Repositories',
     branches: 'Branches',
     monitoring: 'Monitoring',
@@ -176,6 +177,7 @@ const dictionaries = {
   zh: {
     app: 'GitManager',
     dashboard: '仪表盘',
+    myActivity: '个人活动',
     repositories: '仓库',
     branches: '分支',
     monitoring: '监控',

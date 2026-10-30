@@ -515,30 +515,42 @@ export default function Dashboard(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const refresh = useAppStore((s) => s.refresh)
   const toast = useAppStore((s) => s.toast)
+  const role = useAppStore((s) => s.role)
+  const myEmail = useAppStore((s) => s.myEmail)
   const navigate = useNavigate()
   const zh = language === 'zh'
   const [refreshing, setRefreshing] = useState(false)
+  const [scope, setScope] = useState<'mine' | 'all'>('mine')
 
   const visibleBranches = selectedRepositoryIds.length
     ? branches.filter((b) => selectedRepositoryIds.includes(b.repositoryId))
     : branches
+  const dashboardBranches = useMemo(() => {
+    if (role !== 'user' || scope === 'all') return visibleBranches
+    const email = myEmail.trim().toLowerCase()
+    return email ? visibleBranches.filter((b) => (b.creator.email ?? '').trim().toLowerCase() === email) : []
+  }, [visibleBranches, role, scope, myEmail])
+  const dashboardRepositories = useMemo(() => {
+    const repositoryIds = new Set(dashboardBranches.map((b) => b.repositoryId))
+    return repositories.filter((r) => repositoryIds.has(r.id))
+  }, [dashboardBranches, repositories])
   const visibleScanRuns = useMemo(
     () => (selectedRepositoryIds.length ? scanRuns.filter((r) => r.repositoryIds?.some((id) => selectedRepositoryIds.includes(id))) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
     [scanRuns, selectedRepositoryIds]
   )
   const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
   const lastRun = visibleScanRuns[0]
-  const scoredBranches = visibleBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
-  const avgHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (visibleBranches.length ? 100 : 0)
-  const count = useCallback((fn: (b: BranchSummary) => boolean) => visibleBranches.filter(fn).length, [visibleBranches])
+  const scoredBranches = dashboardBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
+  const avgHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (dashboardBranches.length ? 100 : 0)
+  const count = useCallback((fn: (b: BranchSummary) => boolean) => dashboardBranches.filter(fn).length, [dashboardBranches])
   const validBranches = count((b) => b.naming.status === 'valid')
   const excludedBranches = count((b) => b.naming.status === 'excluded')
   const violations = count((b) => b.naming.status === 'invalid')
-  const compliance = visibleBranches.length ? Math.round(((validBranches + excludedBranches) / visibleBranches.length) * 100) : 0
+  const compliance = dashboardBranches.length ? Math.round(((validBranches + excludedBranches) / dashboardBranches.length) * 100) : 0
   const staleCount = count((b) => b.stale)
   const activeCount = count((b) => b.state === 'active')
   const protectedCount = count((b) => b.protection.protected)
-  const hasBranches = visibleBranches.length > 0
+  const hasBranches = dashboardBranches.length > 0
   const healthDisplayColor = hasBranches ? healthColor(avgHealth) : 'rgb(var(--muted))'
   const healthDisplayLabel = hasBranches ? healthLabel(avgHealth, language) : (zh ? '暂无分支' : 'No branches')
 
@@ -556,11 +568,11 @@ export default function Dashboard(): JSX.Element {
   }, [violations, staleCount, lastRun, zh])
 
   const attention = useMemo(() =>
-    visibleBranches
+    dashboardBranches
       .filter((b) => b.stale || b.naming.status === 'invalid')
       .sort((a, b) => b.inactiveDays - a.inactiveDays)
       .slice(0, 5),
-    [visibleBranches]
+    [dashboardBranches]
   )
 
   const handleRefresh = async (): Promise<void> => {
@@ -575,8 +587,8 @@ export default function Dashboard(): JSX.Element {
   }
 
   const compactMetrics = [
-    { label: tr('repositories'), value: repositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
-    { label: tr('totalBranches'), value: visibleBranches.length, icon: GitBranch, to: '/branches', tone: 'text-muted' },
+    { label: tr('repositories'), value: dashboardRepositories.length, icon: FolderGit2, to: '/repositories', tone: 'text-muted' },
+    { label: tr('totalBranches'), value: dashboardBranches.length, icon: GitBranch, to: '/branches', tone: 'text-muted' },
     { label: tr('namingCompliance'), value: `${compliance}%`, icon: Scale, to: '/naming-rules', tone: compliance >= 90 ? 'text-ok' : compliance >= 70 ? 'text-warn' : 'text-danger' },
   ]
 
@@ -589,6 +601,24 @@ export default function Dashboard(): JSX.Element {
           <p className="mt-0.5 text-xs text-muted">{zh ? '监控和管理您的 Git 仓库与分支健康状态' : 'Monitor and manage your Git repositories and branch health'}</p>
         </div>
         <div className="flex items-center gap-3 text-xs text-muted">
+          {role === 'user' ? (
+            <div className="inline-flex rounded-md border border-line p-0.5">
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium ${scope === 'mine' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`}
+                onClick={() => setScope('mine')}
+              >
+                {zh ? '我的' : 'Mine'}
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium ${scope === 'all' ? 'bg-primary/10 text-primary' : 'text-muted hover:text-canvas-fg'}`}
+                onClick={() => setScope('all')}
+              >
+                {zh ? '全部' : 'All'}
+              </button>
+            </div>
+          ) : null}
           {lastRun ? (
             <div className="flex items-center gap-1.5">
               <span>{tr('lastCheck')}: {timeAgo(lastRun.finishedAt)}</span>
@@ -694,7 +724,7 @@ export default function Dashboard(): JSX.Element {
         {/* Left rail: Activity → Naming Compliance → Status Distribution */}
         <div className="flex h-full min-w-0 flex-col gap-3 md:col-span-1">
           <div className="w-full">
-            <ActivityChart branches={visibleBranches} />
+            <ActivityChart branches={dashboardBranches} />
           </div>
 
           {/* Compliance Donut */}
@@ -745,7 +775,7 @@ export default function Dashboard(): JSX.Element {
                   segments={statusDistribution}
                   center={
                     <div className="text-center">
-                      <div className="text-sm font-bold tabular-nums text-canvas-fg">{visibleBranches.length}</div>
+                      <div className="text-sm font-bold tabular-nums text-canvas-fg">{dashboardBranches.length}</div>
                       <div className="text-[8px] text-muted">{zh ? '总数' : 'Total'}</div>
                     </div>
                   }
@@ -766,7 +796,7 @@ export default function Dashboard(): JSX.Element {
 
         {/* Health Trend */}
         <div className="h-full md:col-span-2">
-          <HealthTrendCard branches={visibleBranches} runs={completedRuns} current={avgHealth} />
+          <HealthTrendCard branches={dashboardBranches} runs={completedRuns} current={avgHealth} />
         </div>
       </div>
 
@@ -862,14 +892,14 @@ export default function Dashboard(): JSX.Element {
       </div>
 
       {/* ─── Repository Overview (compact, only if repo exists) ── */}
-      {(selectedRepositoryIds.length ? repositories.filter((r) => selectedRepositoryIds.includes(r.id)) : repositories).length > 0 ? (
+      {dashboardRepositories.length > 0 ? (
         <Card className="p-3.5">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-canvas-fg">{tr('repositories')}</div>
             <button onClick={() => navigate('/repositories')} className="text-[10px] font-medium text-primary hover:underline">{tr('viewAll')}</button>
           </div>
           <div className="space-y-1.5">
-            {(selectedRepositoryIds.length ? repositories.filter((r) => selectedRepositoryIds.includes(r.id)) : repositories).slice(0, 4).map((r) => (
+            {dashboardRepositories.slice(0, 4).map((r) => (
               <div key={r.id} className="flex items-center gap-3 rounded-md border border-line px-3 py-2 text-sm">
                 <FolderGit2 size={15} className="shrink-0 text-muted" />
                 <span className="min-w-0 flex-1 truncate font-medium text-canvas-fg">{r.name}</span>

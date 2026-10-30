@@ -2,12 +2,25 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { URL } from 'node:url'
-import type { ScanProgress } from '@shared/types'
+import type { ScanProgress, UserSession } from '@shared/types'
 import type { GitManagerApi } from '../src-node/api'
 import { readReportFile, listFoldersForWeb } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { dataDir, reportsDir, userDataDir } from '../src-node/utils/paths'
 import { invoke } from './rpc'
+
+/**
+ * Role gate. A normal user may only read; write methods are checked here so
+ * the renderer cannot bypass them by calling the RPC endpoint directly.
+ */
+const USER_ALLOWED_METHODS = new Set([
+  'init', 'listRepositories', 'listBranches', 'getBranch',
+  'listNamingRules', 'validateBranchName', 'listWhitelist', 'listProtected',
+  'getMonitoring', 'listEmailGroups', 'getEmailConfig', 'listJobs', 'listRuns',
+  'calendarRuns', 'listNotifications', 'listReports', 'exportReport',
+  'listReportSchedules', 'listBackups', 'listAudit', 'getSettings',
+  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity'
+])
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024
 
@@ -115,6 +128,15 @@ export function createServer(options: ServerOptions): GitManagerServer {
   }
 
   async function handleRpc(req: http.IncomingMessage, res: http.ServerResponse, method: string): Promise<void> {
+    const session = readSession(req)
+    if (!session && method !== 'login') {
+      sendJson(res, 401, { error: '请先登录。' })
+      return
+    }
+    if (session && session.role !== 'admin' && !USER_ALLOWED_METHODS.has(method)) {
+      sendJson(res, 403, { error: '普通用户没有执行此操作的权限。' })
+      return
+    }
     let args: unknown[] = []
     try {
       const raw = await readBody(req)
@@ -132,6 +154,17 @@ export function createServer(options: ServerOptions): GitManagerServer {
     }
     const { status, body } = await invoke(api, method, args)
     sendJson(res, status, body)
+  }
+
+  function readSession(req: http.IncomingMessage): UserSession | null {
+    const header = req.headers.authorization ?? ''
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+    if (!token) return null
+    try {
+      return api.resolveSession(token)
+    } catch {
+      return null
+    }
   }
 
   function handleEvents(req: http.IncomingMessage, res: http.ServerResponse): void {

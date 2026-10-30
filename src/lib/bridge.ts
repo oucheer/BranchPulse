@@ -13,11 +13,16 @@ import { EVENTS_PATH, EXPOSED_METHODS, RPC_PREFIX } from '@shared/rpc'
 type Unsubscribe = () => void
 
 async function callRpc(method: string, args: unknown[]): Promise<unknown> {
+  // Token lives in sessionStorage so two tabs can hold different identities.
+  const token = sessionStorage.getItem('gitmanager:session-token') ?? ''
   let response: Response
   try {
     response = await fetch(`${RPC_PREFIX}${encodeURIComponent(method)}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify(args)
     })
   } catch (err) {
@@ -32,6 +37,13 @@ async function callRpc(method: string, args: unknown[]): Promise<unknown> {
   }
   const body = (payload ?? {}) as { result?: unknown; error?: string }
   if (!response.ok || body.error) {
+    // Session expiry has to drop the whole tab back to the login screen, not
+    // just toast once on the page where the failed call happened.
+    if (response.status === 401 && typeof window !== 'undefined') {
+      sessionStorage.removeItem('gitmanager:session-token')
+      window.location.hash = '#/login'
+      window.location.reload()
+    }
     throw new Error(body.error ?? `请求失败（HTTP ${response.status}）。`)
   }
   return body.result ?? null

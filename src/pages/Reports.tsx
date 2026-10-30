@@ -42,6 +42,7 @@ export default function Reports(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const emailGroups = useAppStore((s) => s.emailGroups)
   const emailConfig = useAppStore((s) => s.emailConfig)
+  const role = useAppStore((s) => s.role)
   const [format, setFormat] = useState('html')
   const [generating, setGenerating] = useState(false)
   const [bulkRecipients, setBulkRecipients] = useState('self')
@@ -53,6 +54,7 @@ export default function Reports(): JSX.Element {
   const [draft, setDraft] = useState(emptySchedule())
   const emailDisabled = !emailConfig?.enabled
   const noSelection = selectedRepositoryIds.length === 0
+  const isAdmin = role === 'admin'
 
   useEffect(() => {
     let cancelled = false
@@ -270,6 +272,7 @@ export default function Reports(): JSX.Element {
         </div>
       </Card>
 
+      {isAdmin ? (
       <Card className="p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm font-semibold text-canvas-fg">报告邮件</div>
@@ -395,6 +398,7 @@ export default function Reports(): JSX.Element {
           </div>
         ) : null}
       </Card>
+      ) : null}
 
       {reports.length === 0 ? (
         <EmptyState title={tr('reportsEmpty')} />
@@ -430,9 +434,11 @@ export default function Reports(): JSX.Element {
                     <Download size={12} /> {f.toUpperCase()}
                   </button>
                 ))}
-                <button className="btn px-2" onClick={() => void deleteReport(report.id)}>
-                  <Trash2 size={14} className="text-danger" />
-                </button>
+                {isAdmin ? (
+                  <button className="btn px-2" onClick={() => void deleteReport(report.id)}>
+                    <Trash2 size={14} className="text-danger" />
+                  </button>
+                ) : null}
               </div>
             </Card>
           ))}

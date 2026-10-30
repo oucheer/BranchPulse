@@ -134,6 +134,57 @@ export interface CommitInfo {
   subject: string
 }
 
+export type UserRole = 'admin' | 'user'
+
+export interface UserSession {
+  token: string
+  role: UserRole
+  email: string
+  gitlabUserId: number | null
+  displayName: string
+}
+
+export interface PersonalCommit {
+  sha: string
+  shortSha: string
+  subject: string
+  committedAt: string
+  repositoryId: string
+  repositoryName: string
+  webUrl?: string
+}
+
+export interface PersonalMergeRequest {
+  id: number
+  iid: number
+  title: string
+  state: string
+  sourceBranch: string
+  targetBranch: string
+  createdAt: string
+  repositoryId: string
+  repositoryName: string
+  webUrl?: string
+  role: 'author' | 'reviewer'
+}
+
+export interface PersonalStats {
+  commitCount: number
+  linesAdded: number
+  linesRemoved: number
+  branchCount: number
+  validBranches: number
+  invalidBranches: number
+  months: Array<{ month: string; commits: number; branches: number }>
+  byRepository: Array<{ repositoryId: string; repositoryName: string; commits: number; branches: number }>
+}
+
+export interface PersonalActivity {
+  commits: PersonalCommit[]
+  mergeRequests: PersonalMergeRequest[]
+  stats: PersonalStats
+}
+
 export interface Repository {
   id: string
   name: string
@@ -626,6 +677,11 @@ export interface BranchApi {
    * the web build the confirmation is rendered in the page before this is called.
    */
   importConfig(target?: boolean | string): Promise<ConfigImportResult>
+  login(username: string | null, password: string | null, email: string | null): Promise<UserSession>
+  logout(): Promise<boolean>
+  getSession(): Promise<UserSession | null>
+  changePassword(newPassword: string): Promise<boolean>
+  getMyActivity(months?: 6 | 12): Promise<PersonalActivity>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

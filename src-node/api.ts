@@ -22,6 +22,7 @@ import type {
   MonitoringConfig,
   NamingResult,
   NamingRule,
+  PersonalActivity,
   NotificationRecord,
   ProtectionEntry,
   ReportRecord,
@@ -30,7 +31,8 @@ import type {
   RunCheckOptions,
   ScanProgress,
   ScanRun,
-  SchedulerJob
+  SchedulerJob,
+  UserSession
 } from '@shared/types'
 import { exportAuditLogs } from './services/audit-export'
 import type { StorageService } from './services/storage'
@@ -51,6 +53,8 @@ import type { AuditService } from './services/audit'
 import type { SettingsService } from './services/settings'
 import type { BackupService } from './services/backup'
 import type { ConfigPortService } from './services/configPort'
+import type { UserService, GitLabIdentity } from './services/user'
+import type { UserActivityService } from './services/userActivity'
 import { dataDir, reportsDir, userDataDir, ensureDir } from './utils/paths'
 import { listFolders, type FolderListing } from './utils/folders'
 import { openPath } from './utils/open'
@@ -73,6 +77,8 @@ export interface AppServices {
   settings: SettingsService
   backup: BackupService
   configPort: ConfigPortService
+  users: UserService
+  userActivity: UserActivityService
 }
 
 export interface GitManagerApiOptions {
@@ -173,6 +179,12 @@ export interface GitManagerApi {
   importConfig(target?: boolean | string): Promise<ConfigImportResult>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
+  resolveSession(token: string): UserSession | null
+  login(username: string | null, password: string | null, email: string | null): Promise<UserSession>
+  logout(): Promise<boolean>
+  getSession(): Promise<UserSession | null>
+  changePassword(newPassword: string): Promise<boolean>
+  getMyActivity(months?: 6 | 12): Promise<PersonalActivity>
 }
 
 function dateStamp(): string {
@@ -213,9 +225,15 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function createGitManagerApi(services: AppServices, options: GitManagerApiOptions): GitManagerApi {
-  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort } = services
+  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort, users, userActivity } = services
 
   let progressSink = options.onProgress ?? ((): void => {})
+  // Bearer tokens arrive per request; `currentSession` only carries the role and
+  // email through the RPC call that is executing right now.
+  let currentSession: import('@shared/types').UserSession | null = null
+  function bindSession(session: UserSession | null): void {
+    currentSession = session
+  }
 
   function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {
     const rows = repositoryIds?.length
@@ -304,6 +322,12 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
   const api: GitManagerApi = {
     setProgressSink(sink) {
       progressSink = sink
+    },
+
+    resolveSession: (token) => {
+      const session = users.getSession(token)
+      bindSession(session)
+      return session
     },
 
     async init(): Promise<DashboardSnapshot> {
@@ -605,7 +629,47 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     },
 
     onScanProgress: () => () => {},
-    onNavigate: () => () => {}
+    onNavigate: () => () => {},
+
+    login: async (username, password, email) => {
+      if (username) {
+        const session = await users.loginAdmin(username, password ?? '')
+        if (!session) throw new Error('管理员账号或密码不正确。')
+        bindSession(session)
+        audit.record('user_login', { role: session.role, username })
+        return session
+      }
+      const address = String(email ?? '').trim()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
+      let identity: GitLabIdentity | null = null
+      try {
+        const account = await gitlab.findUserByEmail(address)
+        if (account) identity = { userId: account.id, email: account.email, displayName: account.name || account.username }
+      } catch {
+        identity = null
+      }
+      const session = await users.loginUser(address, identity)
+      if (!session) throw new Error('邮箱没有匹配到 GitLab 账号，请使用注册 GitLab 时的邮箱。')
+      bindSession(session)
+      audit.record('user_login', { role: session.role, email: address })
+      return session
+    },
+
+    logout: async () => {
+      const session = currentSession
+      if (session) audit.record('user_logout', { role: session.role, email: session.email || session.displayName })
+      bindSession(null)
+      return true
+    },
+
+    getSession: async () => currentSession,
+
+    changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
+
+    getMyActivity: async (months: 6 | 12 = 6) => {
+      if (!currentSession) throw new Error('请先登录。')
+      return userActivity.getActivity(currentSession, months)
+    }
   }
 
   monitoring.onProgress = (progress) => progressSink(progress)

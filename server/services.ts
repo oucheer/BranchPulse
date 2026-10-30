@@ -18,6 +18,8 @@ import { GitLabService } from '../src-node/services/gitlab'
 import { BackupService } from '../src-node/services/backup'
 import { ConfigPortService } from '../src-node/services/configPort'
 import { GroupService } from '../src-node/services/groups'
+import { UserService } from '../src-node/services/user'
+import { UserActivityService } from '../src-node/services/userActivity'
 import { createGitManagerApi, type AppServices, type GitManagerApi } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { appRoot, dataDir, dbFile, ensureDir } from '../src-node/utils/paths'
@@ -79,10 +81,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   )
   const appVersion = readAppVersion()
   const configPort = new ConfigPortService(storage, () => appVersion)
+  const users = new UserService(storage)
+  await users.init()
+  const userActivity = new UserActivityService(storage, gitlab, repository, branch, naming)
 
   const services: AppServices = {
     storage, git, gitlab, repository, branch, naming, protection,
-    monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort
+    monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort,
+    users, userActivity
   }
 
   const api = createGitManagerApi(services, {

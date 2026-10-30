@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Bell, CalendarClock, FileBarChart, FolderGit2, Mail,
-  GitBranch, HardDrive, LayoutDashboard, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge
+  GitBranch, HardDrive, LayoutDashboard, LogOut, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge, User
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
@@ -33,6 +33,7 @@ const sections: NavSection[] = [
     titleKey: 'navWorkspace',
     items: [
       { to: '/', label: 'dashboard', icon: LayoutDashboard, end: true },
+      { to: '/my-activity', label: 'myActivity', icon: User },
       { to: '/repositories', label: 'repositories', icon: FolderGit2 },
       { to: '/branches', label: 'branches', icon: GitBranch }
     ]
@@ -72,6 +73,9 @@ const flatItems = sections.flatMap((s) => s.items)
 
 export default function Sidebar(): JSX.Element {
   const language = useAppStore((s) => s.language)
+  const role = useAppStore((s) => s.role)
+  const session = useAppStore((s) => s.session)
+  const logout = useAppStore((s) => s.logout)
   // Read the version from the main process (package.json / the built exe) so the
   // footer can never drift out of sync with the package the user actually runs.
   const appVersion = useAppStore((s) => s.appVersion)
@@ -175,7 +179,11 @@ export default function Sidebar(): JSX.Element {
               {tr(section.titleKey)}
             </div>
             <div className="space-y-0.5">
-              {section.items.map((item) => {
+              {section.items.filter((item) => {
+                // 普通用户只读：这些页面的写操作按钮已经隐藏，入口也一并收起。
+                if (role === 'user' && ['/repositories', '/monitoring', '/naming-rules', '/whitelist', '/backup', '/email', '/audit'].includes(item.to)) return false
+                return true
+              }).map((item) => {
                 const Icon = item.icon
                 const active = activeItem?.to === item.to
                 const p = proximity[item.to] ?? 0
@@ -207,6 +215,21 @@ export default function Sidebar(): JSX.Element {
 
       {/* Footer */}
       <div className="shrink-0 border-t border-line p-3 text-[11px] text-muted">
+        {session ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate font-medium text-canvas-fg">
+                {session.displayName || session.email || 'Administrator'}
+              </div>
+              <div className="opacity-70">
+                {session.role === 'admin' ? (language === 'zh' ? '管理员' : 'Administrator') : (language === 'zh' ? '普通用户' : 'User')}
+              </div>
+            </div>
+            <button className="btn px-1.5 py-1" title={language === 'zh' ? '退出登录' : 'Sign out'} onClick={() => void logout()}>
+              <LogOut size={13} />
+            </button>
+          </div>
+        ) : null}
         <div className="mb-1 flex items-center gap-1.5">
           <span className={`h-2 w-2 rounded-full ${scanning ? 'animate-pulse bg-primary' : 'bg-ok'}`} />
           {language === 'zh' ? '监控服务' : 'Monitoring service'}

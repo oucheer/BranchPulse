@@ -73,7 +73,12 @@ export const EXPOSED_METHODS = [
   'saveSettings',
   'getAppVersion',
   'exportConfig',
-  'importConfig'
+  'importConfig',
+  'login',
+  'logout',
+  'getSession',
+  'changePassword',
+  'getMyActivity'
 ] as const
 
 export type ExposedMethod = (typeof EXPOSED_METHODS)[number]

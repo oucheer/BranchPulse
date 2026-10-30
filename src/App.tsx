@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
 import { isEffectOn, useEffectSettings } from './lib/effects'
 import { Toasts } from './components/ui'
@@ -20,6 +20,8 @@ import Audit from './pages/Audit'
 import Animation from './pages/Animation'
 import Settings from './pages/Settings'
 import Email from './pages/Email'
+import Login from './pages/Login'
+import MyActivity from './pages/MyActivity'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -36,13 +38,17 @@ const pages = [
   { path: '/audit', element: <Audit /> },
   { path: '/animation', element: <Animation /> },
   { path: '/settings', element: <Settings /> },
-  { path: '/email', element: <Email /> }
+  { path: '/email', element: <Email /> },
+  { path: '/my-activity', element: <MyActivity /> },
+  { path: '/login', element: <Login /> }
 ]
 
 export default function App(): JSX.Element {
   const ready = useAppStore((s) => s.ready)
   const startupError = useAppStore((s) => s.startupError)
+  const session = useAppStore((s) => s.session)
   const refresh = useAppStore((s) => s.refresh)
+  const restoreSession = useAppStore((s) => s.restoreSession)
   const settings = useAppStore((s) => s.settings)
   // `tr()` reads language from the store without subscribing, so the root subscribes
   // to it and remounts the route tree below; otherwise pages that never read
@@ -74,6 +80,10 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    void restoreSession()
+  }, [restoreSession])
 
   useEffect(() => {
     return window.gitmanager.onNavigate((route) => navigate(route))
@@ -153,6 +163,19 @@ export default function App(): JSX.Element {
           <div className="text-sm text-muted">Loading...</div>
         </div>
       </div>
+    )
+  }
+
+  if (!session) {
+    // 未登录时只渲染登录页；其余路由一律重定向过去。
+    return (
+      <>
+        <Routes key={language} location={location}>
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+        <Toasts />
+      </>
     )
   }
 
