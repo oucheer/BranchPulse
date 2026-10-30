@@ -14,14 +14,14 @@ export default function Login(): JSX.Element {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
-  const [gitlabToken, setGitlabToken] = useState('')
+  const [accessToken, setAccessToken] = useState('')
   const [busy, setBusy] = useState(false)
 
   const submit = async (): Promise<void> => {
     setBusy(true)
     try {
       if (mode === 'admin') await login(username.trim(), password, null)
-      else await login(null, null, email.trim(), gitlabToken.trim())
+      else await login(null, null, email.trim(), accessToken.trim())
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
@@ -79,9 +79,9 @@ export default function Login(): JSX.Element {
               <input className="input w-full" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
             </div>
             <div>
-              <div className="label mb-1.5">{zh ? 'GitLab Access Token' : 'GitLab Access Token'}</div>
-              <input className="input w-full" type="password" value={gitlabToken} onChange={(e) => setGitlabToken(e.target.value)} autoComplete="off" />
-              <p className="mt-2 text-xs text-muted">{zh ? '使用 GitLab Personal Access Token 登录，需要 read_api 和 read_repository 权限。' : 'Use a GitLab Personal Access Token with read_api and read_repository access.'}</p>
+              <div className="label mb-1.5">Access Token</div>
+              <input className="input w-full" type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} autoComplete="off" />
+              <p className="mt-2 text-xs text-muted">{zh ? '使用当前平台（GitLab / GitHub / Gitee）的 Access Token 登录，需要读取仓库和账号信息的权限。' : 'Use an Access Token for the configured platform (GitLab / GitHub / Gitee) with permission to read repositories and account details.'}</p>
             </div>
           </div>
         )}

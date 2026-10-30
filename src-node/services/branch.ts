@@ -181,6 +181,24 @@ export function creatorEmailFromCommits(
   return { email: '', source: '' }
 }
 
+/**
+ * GitHub/Gitee commits expose the author email directly. Accept it only when
+ * the commit's forge login matches the branch-creation account, so the address
+ * is still bound to the same account that created the branch.
+ */
+export function emailFromMatchingCommit(
+  username: string,
+  commits: GitLabCommitDto[]
+): { email: string; source: 'commit' | '' } {
+  const needle = username.trim().toLowerCase()
+  if (!needle) return { email: '', source: '' }
+  const match = [...commits].find((commit) =>
+    String(commit.author_login ?? '').trim().toLowerCase() === needle
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(commit.author_email ?? '').trim())
+  )
+  return match ? { email: String(match.author_email).trim(), source: 'commit' } : { email: '', source: '' }
+}
+
 const normalizeIdentity = (value: string | null | undefined): string => String(value ?? '').trim().toLowerCase()
 
 /** Accept a creator address only from an exact forge-account lookup. */
@@ -653,7 +671,11 @@ export class BranchService {
     // creatorEmailFromCommits only accepts commits whose forge login matches
     // the creation event's username, so it can extend the verified chain but
     // cannot silently replace it.
-    const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
+    const verifiedCommit = creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits]).email
+      ? creatorEmailFromCommits(creatorEvent, [...ownCommits, ...recentCommits])
+      : creatorEvent?.username
+        ? emailFromMatchingCommit(creatorEvent.username, [...ownCommits, ...recentCommits])
+        : { email: '', source: '' as const }
     // A hidden profile, a forbidden private-email endpoint and a transient
     // account lookup all leave the same question open. The GitLab resolver
     // still verifies every candidate commit against the exact account id or

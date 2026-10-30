@@ -1738,8 +1738,9 @@ export class GitLabService {
 
   /** Identity bound to the supplied token; used to validate user sign-in. */
   async currentUser(config: GitLabConnectionConfig): Promise<{ id: number; emails: string[]; name: string; username: string } | null> {
+    const { provider } = this.resolve(config)
     const row = await this.request<Record<string, unknown>>('/user', config)
-    const emails = [row.email, row.public_email, row.commit_email]
+    const emails = [row.email, row.public_email, row.commit_email, ...(Array.isArray(row.emails) ? row.emails : [])]
       .map((value) => String(value ?? '').trim())
       .filter(Boolean)
     return {
@@ -1752,7 +1753,20 @@ export class GitLabService {
 
   /** All commits authored by one exact email, oldest window bounded by `since`. */
   async listProjectCommits(projectId: number, authorEmail: string, since: string, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
+    const { provider } = this.resolve(config)
     const projectRef = await this.projectRef(projectId, config)
+    if (provider === 'github' || provider === 'gitee') {
+      const commits: GitLabCommitDto[] = []
+      for (let page = 1; page <= 10; page += 1) {
+        const rows = await this.request<Array<Record<string, unknown>>>(
+          `/repos/${projectRef}/commits?sha=all&since=${encodeURIComponent(since)}&per_page=100&page=${page}`,
+          config
+        )
+        commits.push(...rows.map((row) => this.mapGitHubCommit(row)))
+        if (rows.length < 100) break
+      }
+      return commits.filter((row) => String(row.author_email ?? '').trim().toLowerCase() === authorEmail.trim().toLowerCase())
+    }
     const needle = authorEmail.trim().toLowerCase()
     const commits: GitLabCommitDto[] = []
     for (let page = 1; page <= 10; page += 1) {
@@ -1774,15 +1788,27 @@ export class GitLabService {
   /** Per-commit diff totals. GitLab has no per-author line-count endpoint. */
   async commitDiffTotals(projectId: number, sha: string, config?: GitLabConnectionConfig): Promise<{ added: number; removed: number }> {
     const projectRef = await this.projectRef(projectId, config)
+    const { provider } = this.resolve(config)
+    if (provider === 'github' || provider === 'gitee') {
+      const diffs = await this.request<Array<Record<string, unknown>>>(
+        `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
+        config
+      )
+      return this.sumDiffEntries(diffs)
+    }
     const diffs = await this.request<Array<Record<string, unknown>>>(
       `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
       config
     )
+    return this.sumDiffEntries(diffs)
+  }
+
+  private sumDiffEntries(diffs: Array<Record<string, unknown>>): { added: number; removed: number } {
     let added = 0
     let removed = 0
     for (const entry of Array.isArray(diffs) ? diffs : []) {
-      const diff = String(entry.diff ?? '')
-      for (const line of diff.split('\n')) {
+      const patch = String(entry.patch ?? entry.diff ?? '')
+      for (const line of patch.split('\n')) {
         if (line.startsWith('+') && !line.startsWith('+++')) added += 1
         else if (line.startsWith('-') && !line.startsWith('---')) removed += 1
       }
@@ -1799,8 +1825,39 @@ export class GitLabService {
     config?: GitLabConnectionConfig
   ): Promise<Array<Record<string, unknown>>> {
     const { provider } = this.resolve(config)
-    if (provider !== 'gitlab') return []
+    if (provider !== 'gitlab' && provider !== 'github' && provider !== 'gitee') return []
     const projectRef = await this.projectRef(projectId, config)
+    if (provider === 'github' || provider === 'gitee') {
+      const rows: Array<Record<string, unknown>> = []
+      for (let page = 1; page <= 5; page += 1) {
+        const pageRows = await this.request<Array<Record<string, unknown>>>(
+          `/repos/${projectRef}/pulls?state=all&per_page=100&page=${page}`,
+          config
+        )
+        rows.push(...pageRows)
+        if (pageRows.length < 100) break
+      }
+      const needle = Number(userId)
+      const normalized = rows.map((row) => ({
+        id: Number(row.id ?? 0),
+        iid: Number(row.number ?? 0),
+        title: String(row.title ?? ''),
+        state: String(row.state ?? ''),
+        source_branch: String((row.head as Record<string, unknown> | undefined)?.ref ?? ''),
+        target_branch: String((row.base as Record<string, unknown> | undefined)?.ref ?? ''),
+        created_at: String(row.created_at ?? ''),
+        web_url: String(row.html_url ?? ''),
+        user: row.user ?? (row.head as Record<string, unknown> | undefined)?.user ?? null,
+        requested_reviewers: row.requested_reviewers ?? [],
+        reviewers: row.reviewers ?? []
+      }))
+      return normalized.filter((row) => {
+        const authorId = Number((row.user as Record<string, unknown> | undefined)?.id ?? NaN)
+        if (Number.isFinite(needle) && authorId === needle) return true
+        const reviewers = [...(Array.isArray(row.requested_reviewers) ? row.requested_reviewers as Array<Record<string, unknown>> : []), ...(Array.isArray(row.reviewers) ? row.reviewers as Array<Record<string, unknown>> : [])]
+        return reviewers.some((reviewer) => Number(reviewer.id ?? NaN) === needle)
+      })
+    }
     const rows: Array<Record<string, unknown>> = []
     for (let page = 1; page <= 5; page += 1) {
       const qs = new URLSearchParams({

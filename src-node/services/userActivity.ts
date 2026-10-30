@@ -30,8 +30,8 @@ export class UserActivityService {
   ) {}
 
   async getActivity(session: UserSession, months: number = 6): Promise<PersonalActivity> {
-    const gitlabToken = session.gitlabToken
-    if (!gitlabToken) throw new Error('请先使用 GitLab Access Token 登录后再查看个人活动。')
+    const accessToken = session.gitlabToken
+    if (!accessToken) throw new Error('请先使用 Access Token 登录后再查看个人活动。')
     const normalizedMonths = Math.max(1, Math.min(Number(months) || 6, 36))
     const email = session.email.toLowerCase().trim()
     const repos = this.repositoryService.list()
@@ -39,8 +39,8 @@ export class UserActivityService {
     since.setMonth(since.getMonth() - normalizedMonths)
     const sinceIso = since.toISOString()
 
-    const commits = await this.collectCommits(session, email, repos, sinceIso, gitlabToken)
-    const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, gitlabToken)
+    const commits = await this.collectCommits(session, email, repos, sinceIso, accessToken)
+    const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, accessToken)
     const stats = this.buildStats(session, commits, mergeRequests, repos, normalizedMonths)
     return { commits, mergeRequests, stats }
   }
@@ -50,11 +50,11 @@ export class UserActivityService {
     const results: PersonalCommit[] = []
     const linesBySha = new Map<string, { added: number; removed: number }>()
     for (const repo of repos) {
-      if (repo.source !== 'gitlab' || !repo.gitlabProjectId) continue
+      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
       const key = String(repo.gitlabProjectId)
       let rows = cached.get(key) ?? []
       const lastFetched = rows.length > 0 ? rows[0].committedAt : sinceIso
-      const fresh = await this.fetchCommits(repo.gitlabProjectId, email, lastFetched, repo.id, repo.name, gitlabToken)
+      const fresh = await this.fetchCommits(repo, email, lastFetched, gitlabToken)
       if (fresh.length > 0) {
         const existing = new Set(rows.map((r) => r.sha))
         for (const c of fresh) if (!existing.has(c.sha)) rows.push(c)
@@ -69,11 +69,11 @@ export class UserActivityService {
     results.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
     // 逐 commit 统计代码行数；单个失败不影响整体统计。
     for (const repo of repos) {
-      if (repo.source !== 'gitlab' || !repo.gitlabProjectId) continue
+      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
       const shas = results.filter((c) => c.repositoryId === repo.id).map((c) => c.sha)
       for (const sha of shas) {
         try {
-          linesBySha.set(sha, await this.gitlab.commitDiffTotals(repo.gitlabProjectId, sha, { apiKey: gitlabToken }))
+          linesBySha.set(sha, await this.gitlab.commitDiffTotals(repo.gitlabProjectId, sha, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath }))
         } catch {
           linesBySha.set(sha, { added: 0, removed: 0 })
         }
@@ -83,9 +83,9 @@ export class UserActivityService {
     return results
   }
 
-  private async fetchCommits(projectId: number, email: string, since: string, repositoryId: string, repositoryName: string, gitlabToken: string): Promise<CachedCommit[]> {
+  private async fetchCommits(repo: Repository, email: string, since: string, gitlabToken: string): Promise<CachedCommit[]> {
     try {
-      const rows = await this.gitlab.listProjectCommits(projectId, email, since, { apiKey: gitlabToken })
+      const rows = await this.gitlab.listProjectCommits(Number(repo.gitlabProjectId), email, since, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
       return rows.map((r) => ({
         sha: String(r.id ?? ''),
         shortSha: String(r.short_id ?? String(r.id ?? '').slice(0, 8)),
@@ -101,10 +101,10 @@ export class UserActivityService {
   private async collectMergeRequests(session: UserSession, repos: Repository[], sinceIso: string, gitlabToken: string): Promise<PersonalMergeRequest[]> {
     const results: PersonalMergeRequest[] = []
     for (const repo of repos) {
-      if (repo.source !== 'gitlab' || !repo.gitlabProjectId) continue
+      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
       const key = String(repo.gitlabProjectId)
       let rows = this.loadCache<CachedMergeRequest>(session.email, 'mrs').get(key) ?? []
-      const fresh = await this.fetchMergeRequests(repo.gitlabProjectId, session.gitlabUserId, sinceIso, gitlabToken)
+      const fresh = await this.fetchMergeRequests(repo, session.gitlabUserId, sinceIso, gitlabToken)
       if (fresh.length > 0) {
         const existing = new Set(rows.map((r) => `${r.id}:${r.role}`))
         for (const mr of fresh) if (!existing.has(`${mr.id}:${mr.role}`)) rows.push(mr)
@@ -119,12 +119,12 @@ export class UserActivityService {
     return results
   }
 
-  private async fetchMergeRequests(projectId: number, userId: number | null, since: string, gitlabToken: string): Promise<CachedMergeRequest[]> {
+  private async fetchMergeRequests(repo: Repository, userId: number | null, since: string, gitlabToken: string): Promise<CachedMergeRequest[]> {
     if (!userId) return []
     const out: CachedMergeRequest[] = []
     for (const role of ['author', 'reviewer'] as const) {
       try {
-        const rows = await this.gitlab.listProjectMergeRequests(projectId, userId, role, since, { apiKey: gitlabToken })
+        const rows = await this.gitlab.listProjectMergeRequests(Number(repo.gitlabProjectId), userId, role, since, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
         for (const r of rows) {
           out.push({
             id: Number(r.id ?? 0),
