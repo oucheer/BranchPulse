@@ -545,6 +545,8 @@ export interface GitLabConnectionConfig {
   apiKey?: string
   projectPath?: string
   provider?: Exclude<RepositorySource, 'local'>
+  /** GitHub accepts both Bearer and token auth headers depending on token type. */
+  githubAuthStyle?: 'bearer' | 'token'
 }
 
 export interface GitLabProject {

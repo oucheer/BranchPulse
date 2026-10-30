@@ -647,19 +647,34 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('请输入有效的邮箱地址。')
       const token = String(gitlabToken ?? '')
         .replace(/\u00a0|\u200b|\u200c|\u200d|\ufeff/g, ' ')
-        .trim()
+        .replace(/\s+/g, '')
         .replace(/^["']|["']$/g, '')
         .replace(/^(bearer|token)\s+/i, '')
         .trim()
       if (!token) throw new Error('普通用户登录需要填写 Access Token。')
       const provider = detectRemoteProvider(settings.get().gitlabUrl ?? '')
       if (provider !== 'gitlab' && provider !== 'github' && provider !== 'gitee') throw new Error('当前远程仓库平台不受支持。')
-      const account = await gitlab.currentUser({ url: settings.get().gitlabUrl, apiKey: token }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
+      const loginConfig = { url: settings.get().gitlabUrl, apiKey: token }
+      let account: Awaited<ReturnType<typeof gitlab.currentUser>> | Error | null
+      try {
+        account = await gitlab.currentUser(loginConfig)
+      } catch (err) {
+        account = err instanceof Error ? err : new Error(String(err))
+      }
+      // Some GitHub OAuth tokens accept `token <token>` but reject `Bearer`.
+      if (provider === 'github' && account instanceof Error && /401|Unauthorized/i.test(account.message)) {
+        try {
+          account = await gitlab.currentUser({ ...loginConfig, githubAuthStyle: 'token' })
+        } catch (err) {
+          account = err instanceof Error ? err : new Error(String(err))
+        }
+      }
+      if (account instanceof Error) {
+        const message = account.message
         throw new Error(/401|Unauthorized/i.test(message)
           ? `${provider === 'github' ? 'GitHub' : provider === 'gitee' ? 'Gitee' : 'GitLab'} Access Token 无效或已失效，请确认复制完整且没有多余前缀或空格。`
           : message)
-      })
+      }
       if (!account) throw new Error('Access Token 无效或已失效。')
       const matchedEmail = account.emails.find((value) => value.toLowerCase() === address)
       if (!matchedEmail) throw new Error('邮箱与该 GitLab Access Token 的账号不匹配。')

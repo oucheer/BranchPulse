@@ -415,7 +415,7 @@ export class GitLabService {
     let lastBody = ''
     let lastDetail = ''
     for (let attempt = 0; ; attempt += 1) {
-      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt, options)
+      const response = await this.send(requestUrl, provider, token, init, safeTarget, attempt, options, config?.githubAuthStyle)
       if (!response.ok) {
         const body = await response.text().catch(() => null)
         if (body !== null) {
@@ -446,7 +446,8 @@ export class GitLabService {
     init: RequestInit,
     safeTarget: string,
     attempt: number,
-    options: { timeoutMs?: number; retries?: number }
+    options: { timeoutMs?: number; retries?: number },
+    githubAuthStyle?: 'bearer' | 'token'
   ): Promise<Response> {
     try {
       return await fetch(requestUrl, {
@@ -458,7 +459,7 @@ export class GitLabService {
           'Content-Type': 'application/json',
           ...(init.headers ?? {})
         } : provider === 'github' ? {
-          Authorization: `Bearer ${token}`,
+          Authorization: githubAuthStyle === 'token' ? `token ${token}` : `Bearer ${token}`,
           Accept: 'application/vnd.github+json'
         } : {
           Accept: 'application/json',
