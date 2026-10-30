@@ -320,6 +320,7 @@ export default function Branches(): JSX.Element {
   const language = useAppStore((s) => s.language)
   const role = useAppStore((s) => s.role)
   const myEmail = useAppStore((s) => s.myEmail)
+  const session = useAppStore((s) => s.session)
   const navigate = useNavigate()
   const zh = language === 'zh'
 
@@ -406,8 +407,16 @@ export default function Branches(): JSX.Element {
   const people = useMemo(() => creatorOptions(scoped), [scoped])
   const myBranches = useMemo(() => {
     const email = myEmail.trim().toLowerCase()
-    return email ? scoped.filter((b) => (b.creator.email ?? '').trim().toLowerCase() === email) : []
-  }, [scoped, myEmail])
+    const displayName = session?.displayName?.trim().toLowerCase() ?? ''
+    const accountId = session?.gitlabUserId === null || session?.gitlabUserId === undefined
+      ? ''
+      : String(session.gitlabUserId)
+    return email ? scoped.filter((b) =>
+      (b.creator.email ?? '').trim().toLowerCase() === email
+      || (Boolean(accountId) && b.creator.accountId === accountId)
+      || (Boolean(displayName) && (b.creator.username ?? '').trim().toLowerCase() === displayName)
+    ) : []
+  }, [scoped, myEmail, session])
   const baseBranches = role === 'user' && scope === 'mine' ? myBranches : scoped
   const activePerson = people.find((option) => creatorOptionKey(option) === creatorFilter)
   const activeGroup = emailGroups.find((group) => group.id === groupFilter)

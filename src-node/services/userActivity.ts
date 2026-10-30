@@ -6,6 +6,7 @@ import type { NamingService } from './naming'
 import type {
   PersonalActivity, PersonalCommit, PersonalMergeRequest, PersonalStats, Repository, UserSession
 } from '@shared/types'
+import { logger } from '../utils/logger'
 
 const MONTHS_6 = 6
 const MONTHS_12 = 12
@@ -55,6 +56,10 @@ export class UserActivityService {
     sinceIso: string,
     gitlabToken: string
   ): Promise<{ commits: PersonalCommit[]; details: PersonalActivity['commitDetails'] }> {
+    const forgeAccount = {
+      id: session.gitlabUserId,
+      username: session.displayName.trim().toLowerCase()
+    }
     const cached = this.loadCache<CachedCommit>(session.email, 'commits')
     const results: PersonalCommit[] = []
     const linesBySha = new Map<string, { added: number; removed: number; files: Array<{ path: string; added: number; removed: number }> }>()
@@ -63,7 +68,7 @@ export class UserActivityService {
       const key = String(repo.gitlabProjectId)
       let rows = cached.get(key) ?? []
       const lastFetched = rows.length > 0 ? rows[0].committedAt : sinceIso
-      const fresh = await this.fetchCommits(repo, email, lastFetched, gitlabToken)
+      const fresh = await this.fetchCommits(repo, email, lastFetched, gitlabToken, forgeAccount)
       if (fresh.length > 0) {
         const existing = new Set(rows.map((r) => r.sha))
         for (const c of fresh) if (!existing.has(c.sha)) rows.push(c)
@@ -88,8 +93,9 @@ export class UserActivityService {
             removed: details.reduce((sum, file) => sum + file.removed, 0),
             files: details
           })
-        } catch {
+        } catch (error) {
           linesBySha.set(sha, { added: 0, removed: 0, files: [] })
+          logger.error(`Commit diff lookup failed for ${repo.name}@${sha}: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     }
@@ -104,9 +110,21 @@ export class UserActivityService {
     return { commits: results, details }
   }
 
-  private async fetchCommits(repo: Repository, email: string, since: string, gitlabToken: string): Promise<CachedCommit[]> {
+  private async fetchCommits(
+    repo: Repository,
+    email: string,
+    since: string,
+    gitlabToken: string,
+    account?: { id?: number | null; username?: string }
+  ): Promise<CachedCommit[]> {
     try {
-      const rows = await this.gitlab.listProjectCommits(Number(repo.gitlabProjectId), email, since, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
+      const rows = await this.gitlab.listProjectCommits(
+        Number(repo.gitlabProjectId),
+        email,
+        since,
+        { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath },
+        account
+      )
       return rows.map((r) => ({
         sha: String(r.id ?? ''),
         shortSha: String(r.short_id ?? String(r.id ?? '').slice(0, 8)),
@@ -173,7 +191,13 @@ export class UserActivityService {
   ): PersonalStats {
     const allBranches = this.branchService.listBranches()
     const email = session.email.toLowerCase().trim()
-    const myBranches = allBranches.filter((b) => (b.creator?.email ?? '').toLowerCase().trim() === email)
+    const username = session.displayName.trim().toLowerCase()
+    const accountId = session.gitlabUserId === null ? '' : String(session.gitlabUserId)
+    const mine = (b: typeof allBranches[number]): boolean =>
+      (b.creator?.email ?? '').toLowerCase().trim() === email
+      || Boolean(accountId) && b.creator?.accountId === accountId
+      || Boolean(username) && (b.creator?.username ?? '').toLowerCase().trim() === username
+    const myBranches = allBranches.filter(mine)
     const validBranches = myBranches.filter((b) => b.naming.status === 'valid' || b.naming.status === 'excluded').length
     const invalidBranches = myBranches.filter((b) => b.naming.status === 'invalid').length
 

@@ -477,17 +477,13 @@ describe('GitLabService.listBranchCreators', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
       calls.push(url)
-      if (url.includes('/events')) return jsonResponse([
+      if (url.includes('/activity')) return jsonResponse([
         {
-          type: 'PushEvent',
+          activity_type: 'branch_creation',
           actor: { login: 'octocat', name: 'Octo Cat' },
+          ref: 'refs/heads/feature/ui',
+          before: '0000000000000000000000000000000000000000',
           created_at: '2026-03-04T10:00:00Z',
-          payload: { ref: 'refs/heads/feature/ui', before: '0000000000000000000000000000000000000000' }
-        },
-        {
-          type: 'PushEvent',
-          actor: { login: 'other' },
-          payload: { ref: 'refs/heads/main', before: 'abc123' }
         }
       ])
       if (url.includes('/users/octocat')) {
@@ -504,18 +500,19 @@ describe('GitLabService.listBranchCreators', () => {
       emailSource: 'account',
       username: 'octocat'
     })
-    expect(calls.some((url) => url.includes('/repos/octocat/Hello-World/events'))).toBe(true)
+    expect(calls.some((url) => url.includes('/repos/octocat/Hello-World/activity'))).toBe(true)
   })
 
   it('requires an exact GitHub profile login before accepting its email', async () => {
     const profileFor = (profile: Record<string, unknown>) => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
         const url = String(input)
-        if (url.includes('/events')) return jsonResponse([{
-          type: 'PushEvent',
+        if (url.includes('/activity')) return jsonResponse([{
+          activity_type: 'branch_creation',
           actor: { login: 'octocat', name: 'Octo Cat' },
+          ref: 'refs/heads/feature/ui',
+          before: '0000000000000000000000000000000000000000',
           created_at: '2026-03-04T10:00:00Z',
-          payload: { ref: 'refs/heads/feature/ui', before: '0000000000000000000000000000000000000000' }
         }])
         if (url.includes('/users/octocat')) return jsonResponse(profile)
         return jsonResponse({ id: 1, full_name: 'octocat/Hello-World' })

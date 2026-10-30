@@ -524,6 +524,7 @@ export default function Dashboard(): JSX.Element {
   const toast = useAppStore((s) => s.toast)
   const role = useAppStore((s) => s.role)
   const myEmail = useAppStore((s) => s.myEmail)
+  const session = useAppStore((s) => s.session)
   const navigate = useNavigate()
   const zh = language === 'zh'
   const [refreshing, setRefreshing] = useState(false)
@@ -535,8 +536,16 @@ export default function Dashboard(): JSX.Element {
   const dashboardBranches = useMemo(() => {
     if (role !== 'user' || scope === 'all') return visibleBranches
     const email = myEmail.trim().toLowerCase()
-    return email ? visibleBranches.filter((b) => (b.creator.email ?? '').trim().toLowerCase() === email) : []
-  }, [visibleBranches, role, scope, myEmail])
+    const displayName = session?.displayName?.trim().toLowerCase() ?? ''
+    const accountId = session?.gitlabUserId === null || session?.gitlabUserId === undefined
+      ? ''
+      : String(session.gitlabUserId)
+    return email ? visibleBranches.filter((b) =>
+      (b.creator.email ?? '').trim().toLowerCase() === email
+      || (Boolean(accountId) && b.creator.accountId === accountId)
+      || (Boolean(displayName) && (b.creator.username ?? '').trim().toLowerCase() === displayName)
+    ) : []
+  }, [visibleBranches, role, scope, myEmail, session])
   const dashboardRepositories = useMemo(() => {
     const repositoryIds = new Set(dashboardBranches.map((b) => b.repositoryId))
     return repositories.filter((r) => repositoryIds.has(r.id))

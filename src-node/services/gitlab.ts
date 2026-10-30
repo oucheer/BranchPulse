@@ -110,6 +110,7 @@ export interface GitLabCommitDto {
   author_name: string
   author_email: string
   author_login?: string
+  author_id?: number
   committer_name: string
   committer_email: string
   committer_login?: string
@@ -789,6 +790,7 @@ export class GitLabService {
       committed_date: authorDate,
       author_name: String(author.name ?? ''),
       author_email: String(author.email ?? ''),
+      author_id: Number(authorAccount.id ?? NaN) || undefined,
       committer_name: String(author.name ?? ''),
       committer_email: String(author.email ?? ''),
       author_login: String(authorAccount.login ?? authorAccount.username ?? ''),
@@ -1153,15 +1155,13 @@ export class GitLabService {
       let events: Array<Record<string, unknown>> = []
       let eventError: unknown
       try {
-        events = await this.paginate(`/repos/${projectRef}/events?per_page=100`, config)
+        events = await this.paginate(`/repos/${projectRef}/activity?per_page=100`, config)
       } catch (error) {
         eventError = error
       }
       for (const event of events) {
-        if (event.type !== 'PushEvent') continue
-        const payload = (event.payload ?? {}) as Record<string, unknown>
-        const ref = String(payload.ref ?? '')
-        if (!ref.startsWith('refs/heads/') || !/^0+$/.test(String(payload.before ?? ''))) continue
+        const ref = String(event.ref ?? '')
+        if (!ref.startsWith('refs/heads/') || !/^0+$/.test(String(event.before ?? ''))) continue
         const branch = ref.slice('refs/heads/'.length)
         const actor = (event.actor ?? {}) as Record<string, unknown>
         const username = String(actor.login ?? '').trim()
@@ -1853,7 +1853,13 @@ export class GitLabService {
   }
 
   /** All commits authored by one exact email, oldest window bounded by `since`. */
-  async listProjectCommits(projectId: number, authorEmail: string, since: string, config?: GitLabConnectionConfig): Promise<GitLabCommitDto[]> {
+  async listProjectCommits(
+    projectId: number,
+    authorEmail: string,
+    since: string,
+    config?: GitLabConnectionConfig,
+    account?: { id?: number | null; username?: string }
+  ): Promise<GitLabCommitDto[]> {
     const { provider } = this.resolve(config)
     const projectRef = await this.projectRef(projectId, config)
     if (provider === 'github' || provider === 'gitee') {
@@ -1866,7 +1872,16 @@ export class GitLabService {
         commits.push(...rows.map((row) => this.mapGitHubCommit(row)))
         if (rows.length < 100) break
       }
-      return commits.filter((row) => String(row.author_email ?? '').trim().toLowerCase() === authorEmail.trim().toLowerCase())
+      const needle = authorEmail.trim().toLowerCase()
+      const accountId = Number(account?.id ?? NaN)
+      const username = String(account?.username ?? '').trim().toLowerCase()
+      return commits.filter((row) => {
+        if (String(row.author_email ?? '').trim().toLowerCase() === needle) return true
+        // Classic GitHub tokens hide author emails behind noreply addresses.
+        // The commit's forge account is still exact proof of authorship.
+        if (Number.isFinite(accountId) && row.author_id === accountId) return true
+        return Boolean(username) && String(row.author_login ?? '').trim().toLowerCase() === username
+      })
     }
     const needle = authorEmail.trim().toLowerCase()
     const commits: GitLabCommitDto[] = []
@@ -1891,11 +1906,13 @@ export class GitLabService {
     const projectRef = await this.projectRef(projectId, config)
     const { provider } = this.resolve(config)
     if (provider === 'github' || provider === 'gitee') {
-      const diffs = await this.request<Array<Record<string, unknown>>>(
+      const commit = await this.request<Record<string, unknown>>(
         `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
         config
       )
-      return this.sumDiffEntries(diffs)
+      const files = commit.files
+      if (!Array.isArray(files)) return { added: 0, removed: 0 }
+      return this.sumDiffEntries(files as Array<Record<string, unknown>>)
     }
     const diffs = await this.request<Array<Record<string, unknown>>>(
       `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
@@ -1912,11 +1929,13 @@ export class GitLabService {
     const projectRef = await this.projectRef(projectId, config)
     const { provider } = this.resolve(config)
     if (provider === 'github' || provider === 'gitee') {
-      const diffs = await this.request<Array<Record<string, unknown>>>(
+      const commit = await this.request<Record<string, unknown>>(
         `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
         config
       )
-      return this.sumDiffEntries(diffs, true).files
+      const files = commit.files
+      if (!Array.isArray(files)) return []
+      return this.sumDiffEntries(files as Array<Record<string, unknown>>, true).files
     }
     const diffs = await this.request<Array<Record<string, unknown>>>(
       `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
@@ -1934,19 +1953,38 @@ export class GitLabService {
     const files: Array<{ path: string; added: number; removed: number }> = []
     for (const entry of Array.isArray(diffs) ? diffs : []) {
       const patch = String(entry.patch ?? entry.diff ?? '')
-      let fileAdded = 0
-      let fileRemoved = 0
-      for (const line of patch.split('\n')) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          added += 1
-          fileAdded += 1
+      if (patch) {
+        let fileAdded = 0
+        let fileRemoved = 0
+        for (const line of patch.split('\n')) {
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            added += 1
+            fileAdded += 1
+          }
+          else if (line.startsWith('-') && !line.startsWith('---')) {
+            removed += 1
+            fileRemoved += 1
+          }
         }
-        else if (line.startsWith('-') && !line.startsWith('---')) {
-          removed += 1
-          fileRemoved += 1
-        }
+        if (withFiles) files.push({ path: String(entry.new_path ?? entry.filename ?? ''), added: fileAdded, removed: fileRemoved })
+        continue
       }
-      if (withFiles) files.push({ path: String(entry.new_path ?? entry.filename ?? ''), added: fileAdded, removed: fileRemoved })
+      // GitHub often omits `patch` for binaries and for larger files. Its file
+      // totals are authoritative, while a server-side line count is impossible
+      // without downloading the blob.
+      const totalsAdded = Number(entry.additions ?? NaN)
+      const totalsRemoved = Number(entry.deletions ?? NaN)
+      if (Number.isFinite(totalsAdded) || Number.isFinite(totalsRemoved)) {
+        added += Number.isFinite(totalsAdded) ? totalsAdded : 0
+        removed += Number.isFinite(totalsRemoved) ? totalsRemoved : 0
+      }
+      if (withFiles) {
+        files.push({
+          path: String(entry.new_path ?? entry.filename ?? ''),
+          added: Number.isFinite(totalsAdded) ? totalsAdded : 0,
+          removed: Number.isFinite(totalsRemoved) ? totalsRemoved : 0
+        })
+      }
     }
     return { added, removed, files }
   }
