@@ -315,14 +315,12 @@ export default function MyActivity(): JSX.Element {
     }
     return map
   }, [data])
-  const chartMonths = stats?.months ?? []
-  const chartMonthlyLines = stats?.monthlyLines ?? []
-  const chartWeekdays = stats?.weekdays ?? []
-  const chartHours = stats?.hours ?? []
-  const showMonthlyCommits = chartMonths.filter((m) => m.commits || m.branches).length >= 5
-  const showMonthlyLines = chartMonthlyLines.filter((m) => m.added || m.removed).length >= 5
-  const showWeekdays = chartWeekdays.filter((value) => value > 0).length >= 2
-  const showHours = chartHours.filter((value) => value > 0).length >= 5
+  // Keep every chart visible when activity data exists so sparse months and
+  // quiet weekdays still provide context instead of silently disappearing.
+  const showMonthlyCommits = Boolean(stats)
+  const showMonthlyLines = Boolean(stats)
+  const showWeekdays = Boolean(stats)
+  const showHours = Boolean(stats)
   const visibleMergeRequests = (data?.mergeRequests ?? []).filter((mr) => {
     const done = ['merged', 'closed'].includes(mr.state.toLowerCase())
     if (mrTab === 'done') return done

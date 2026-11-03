@@ -547,12 +547,6 @@ export default function Dashboard(): JSX.Element {
     const repositoryIds = new Set(dashboardBranches.map((b) => b.repositoryId))
     return repositories.filter((r) => repositoryIds.has(r.id))
   }, [dashboardBranches, repositories])
-  const visibleScanRuns = useMemo(
-    () => (selectedRepositoryIds.length ? scanRuns.filter((r) => r.repositoryIds?.some((id) => selectedRepositoryIds.includes(id))) : scanRuns).sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt)),
-    [scanRuns, selectedRepositoryIds]
-  )
-  const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
-  const lastRun = visibleScanRuns[0]
   const scoredBranches = dashboardBranches.filter((b) => !b.protection.isDefault && !/^(main|develop)$/i.test(b.name) && b.name !== 'develop_XC')
   const avgHealth = scoredBranches.length ? Math.round(scoredBranches.reduce((s, b) => s + b.health.score, 0) / scoredBranches.length) : (dashboardBranches.length ? 100 : 0)
   const count = useCallback((fn: (b: BranchSummary) => boolean) => dashboardBranches.filter(fn).length, [dashboardBranches])
@@ -564,6 +558,20 @@ export default function Dashboard(): JSX.Element {
   const activeCount = count((b) => b.state === 'active')
   const protectedCount = count((b) => b.protection.protected)
   const hasBranches = dashboardBranches.length > 0
+  const userRepoIds = useMemo(() => new Set(dashboardBranches.map((b) => b.repositoryId)), [dashboardBranches])
+  const visibleScanRuns = useMemo(() => {
+    const selected = selectedRepositoryIds.length
+      ? scanRuns.filter((r) => r.repositoryIds?.some((id) => selectedRepositoryIds.includes(id)))
+      : scanRuns
+    // For "mine", the status chip must describe the repositories the user can
+    // actually see, not whichever global run happened to finish last.
+    const scoped = role === 'user' && scope === 'mine'
+      ? selected.filter((r) => r.repositoryIds?.some((id) => userRepoIds.has(id)))
+      : selected
+    return scoped.sort((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt))
+  }, [scanRuns, selectedRepositoryIds, role, scope, userRepoIds])
+  const completedRuns = useMemo(() => visibleScanRuns.filter((r) => r.status === 'completed'), [visibleScanRuns])
+  const lastRun = visibleScanRuns[0]
   const healthDisplayColor = hasBranches ? healthColor(avgHealth) : 'rgb(var(--muted))'
   const healthDisplayLabel = hasBranches ? healthLabel(avgHealth, language) : (zh ? '暂无分支' : 'No branches')
 
@@ -634,11 +642,15 @@ export default function Dashboard(): JSX.Element {
             </div>
           ) : null}
           {lastRun ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5" title={lastRun.error ?? undefined}>
               <span>{tr('lastCheck')}: {timeAgo(lastRun.finishedAt)}</span>
               <span className={`h-1.5 w-1.5 rounded-full ${lastRun.status === 'completed' ? 'bg-ok' : lastRun.status === 'failed' ? 'bg-danger' : 'bg-warn'}`} />
               <span className={lastRun.status === 'completed' ? 'text-ok' : lastRun.status === 'failed' ? 'text-danger' : 'text-warn'}>
-                {lastRun.status === 'completed' ? (zh ? '正常' : 'OK') : lastRun.status}
+                {lastRun.status === 'completed'
+                  ? (zh ? '正常' : 'OK')
+                  : lastRun.status === 'failed'
+                    ? (zh ? '失败' : 'Failed')
+                    : lastRun.status}
               </span>
             </div>
           ) : null}

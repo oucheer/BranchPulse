@@ -45,6 +45,7 @@ export default function NamingRules(): JSX.Element {
   const namingRules = useAppStore((s) => s.namingRules)
   const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const scopedRepositoryId = selectedRepositoryIds[0] ?? null
+  const role = useAppStore((s) => s.role)
   const toast = useAppStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const language = useAppStore((s) => s.language)
@@ -52,6 +53,7 @@ export default function NamingRules(): JSX.Element {
   const [editRule, setEditRule] = useState<Partial<NamingRule> & { id?: string } | null>(null)
   const [validateName, setValidateName] = useState('')
   const [validationResult, setValidationResult] = useState<{ status: string; ruleName?: string; reason?: string } | null>(null)
+  const isAdmin = role === 'admin'
 
   const save = async (rule: Partial<NamingRule> & { id?: string }): Promise<void> => {
     try {
@@ -104,9 +106,11 @@ export default function NamingRules(): JSX.Element {
               ? <span className="ml-2 text-sm font-medium text-muted">当前仓库隔离</span>
               : <span className="ml-2 text-sm font-medium text-muted">使用第一个勾选仓库</span>}
         </h1>
-        <button className="btn btn-primary" onClick={() => setEditRule({ ...emptyRule(scopedRepositoryId) })}>
-          <Plus size={15} /> {tr('addRule')}
-        </button>
+        {isAdmin ? (
+          <button className="btn btn-primary" onClick={() => setEditRule({ ...emptyRule(scopedRepositoryId) })}>
+            <Plus size={15} /> {tr('addRule')}
+          </button>
+        ) : null}
       </div>
 
       <Card className="p-4">
@@ -157,28 +161,32 @@ export default function NamingRules(): JSX.Element {
         <div className="space-y-2">
           {namingRules.map((rule, idx) => (
             <Card key={rule.id} className="flex items-center gap-3 p-3">
-              <div className="flex flex-col gap-0.5">
-                <button className="btn px-1 py-0.5 text-[11px]" disabled={idx === 0} onClick={() => void reorder(rule.id, -1)}>
-                  <ArrowUp size={12} />
-                </button>
-                <button className="btn px-1 py-0.5 text-[11px]" disabled={idx === namingRules.length - 1} onClick={() => void reorder(rule.id, 1)}>
-                  <ArrowDown size={12} />
-                </button>
-              </div>
+              {isAdmin ? (
+                <div className="flex flex-col gap-0.5">
+                  <button className="btn px-1 py-0.5 text-[11px]" disabled={idx === 0} onClick={() => void reorder(rule.id, -1)}>
+                    <ArrowUp size={12} />
+                  </button>
+                  <button className="btn px-1 py-0.5 text-[11px]" disabled={idx === namingRules.length - 1} onClick={() => void reorder(rule.id, 1)}>
+                    <ArrowDown size={12} />
+                  </button>
+                </div>
+              ) : null}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-canvas-fg">{rule.name}</span>
                   <Badge tone={rule.mode === 'allow' ? 'ok' : 'warn'}>{rule.mode}</Badge>
                   <Badge>{rule.type}</Badge>
-                  <Toggle checked={rule.enabled} onChange={async (v) => { await save({ ...rule, enabled: v }) }} />
+                  {isAdmin ? <Toggle checked={rule.enabled} onChange={async (v) => { await save({ ...rule, enabled: v }) }} /> : null}
                 </div>
                 <div className="mt-0.5 font-mono text-xs text-muted">{rule.pattern}</div>
                 {rule.description ? <div className="mt-0.5 text-xs text-muted">{rule.description}</div> : null}
               </div>
-              <div className="flex items-center gap-1">
-                <button className="btn px-2" onClick={() => setEditRule({ ...rule })}>{tr('edit')}</button>
-                <button className="btn px-2" onClick={() => void remove(rule.id)}><Trash2 size={13} className="text-danger" /></button>
-              </div>
+              {isAdmin ? (
+                <div className="flex items-center gap-1">
+                  <button className="btn px-2" onClick={() => setEditRule({ ...rule })}>{tr('edit')}</button>
+                  <button className="btn px-2" onClick={() => void remove(rule.id)}><Trash2 size={13} className="text-danger" /></button>
+                </div>
+              ) : null}
             </Card>
           ))}
         </div>
