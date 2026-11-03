@@ -186,6 +186,7 @@ export interface GitManagerApi {
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
   getMyActivity(months?: number): Promise<PersonalActivity>
+  getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
 }
 
 function dateStamp(): string {
@@ -719,8 +720,10 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       if (!matchedEmail) throw new Error(`邮箱与该 ${provider === 'github' ? 'GitHub' : provider === 'gitee' ? 'Gitee' : 'GitLab'} Access Token 的账号不匹配。`)
       const identity: GitLabIdentity = {
         userId: account.id,
+        username: account.username,
         email: matchedEmail,
-        displayName: account.name || account.username
+        displayName: account.name || account.username,
+        source: provider
       }
       const session = await users.loginUser(address, identity, token)
       if (!session) throw new Error('登录失败，请稍后重试。')
@@ -743,6 +746,11 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     getMyActivity: async (months: number = 6) => {
       if (!currentSession) throw new Error('请先登录。')
       return userActivity.getActivity(currentSession, months)
+    },
+
+    getCommitFile: async (repositoryId: string, sha: string, path: string) => {
+      if (!currentSession) throw new Error('请先登录。')
+      return userActivity.getCommitFile(currentSession, repositoryId, sha, path)
     },
 
   }

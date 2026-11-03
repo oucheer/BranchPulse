@@ -441,7 +441,13 @@ export class BranchService {
     progress(`Analyzing ${branches.length} GitLab branches...`)
     // Branch creation is not derivable from commits, so ask the forge who
     // created each branch. Empty for providers without that event stream.
-    const creatorLookup = await this.gitlab.listBranchCreators(projectId, remoteConfig)
+    const creatorLookup = await this.gitlab.listBranchCreators(projectId, remoteConfig, new Map(
+      branches.map((item) => [item.name, {
+        author_name: item.commit?.author_name ?? '',
+        author_email: item.commit?.author_email ?? '',
+        author_login: item.commit?.author_login ?? ''
+      }])
+    ))
     const branchCreators = creatorLookup.creators
     const analyzed: BranchSummary[] = []
     const failedBranches: Array<{ name: string; reason: string }> = []

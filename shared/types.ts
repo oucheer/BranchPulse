@@ -6,6 +6,7 @@ export type ScanStatus = 'idle' | 'running' | 'completed' | 'failed'
 export type EmailPolicy = 'none' | 'summary' | 'creators'
 export type NotifyTarget = 'none' | 'self' | 'creator' | 'both' | (string & {})
 export type RepositorySource = 'local' | 'gitlab' | 'github' | 'gitee'
+export type RemoteRepositorySource = Exclude<RepositorySource, 'local'>
 export type ThemeMode = 'dark' | 'light' | 'system'
 export type ColorTheme = 'default' | 'ocean' | 'forest' | 'violet' | 'rose' | 'cyan'
 export type BackgroundTheme = 'dark' | 'light'
@@ -140,6 +141,9 @@ export interface UserSession {
   token: string
   role: UserRole
   email: string
+  username: string
+  accountId: string | null
+  source: RepositorySource | null
   gitlabUserId: number | null
   displayName: string
   hasGitlabToken: boolean
@@ -154,7 +158,15 @@ export interface PersonalCommit {
   committedAt: string
   repositoryId: string
   repositoryName: string
+  source: Exclude<RepositorySource, 'local'>
   webUrl?: string
+}
+
+export interface PersonalCommitFile {
+  path: string
+  added: number
+  removed: number
+  patch?: string
 }
 
 export interface PersonalMergeRequest {
@@ -167,23 +179,77 @@ export interface PersonalMergeRequest {
   createdAt: string
   repositoryId: string
   repositoryName: string
+  source: Exclude<RepositorySource, 'local'>
   webUrl?: string
   role: 'author' | 'reviewer'
+}
+
+export interface PersonalRepositoryStats {
+  repositoryId: string
+  repositoryName: string
+  source: RepositorySource
+  commits: number
+  branches: number
+  added: number
+  removed: number
+  activeDays: number
+  mrAuthored: number
+  mrReviewed: number
+}
+
+export interface PersonalSourceStats {
+  source: RepositorySource
+  commits: number
+  branches: number
+  added: number
+  removed: number
+  mrAuthored: number
+  mrReviewed: number
+}
+
+export interface PersonalYearStats {
+  year: string
+  commits: number
+  branches: number
+  added: number
+  removed: number
+  activeDays: number
+  mrAuthored: number
+  mrReviewed: number
 }
 
 export interface PersonalStats {
   commitCount: number
   linesAdded: number
   linesRemoved: number
+  netLines: number
   linesAddedByRepository: Array<{ repositoryId: string; repositoryName: string; added: number; removed: number }>
   branchCount: number
   validBranches: number
   invalidBranches: number
+  repositoryCount: number
   months: Array<{ month: string; commits: number; branches: number }>
-  byRepository: Array<{ repositoryId: string; repositoryName: string; commits: number; branches: number }>
+  years: PersonalYearStats[]
+  bySource: PersonalSourceStats[]
+  byRepository: PersonalRepositoryStats[]
+  activeDays: number
+  activeWeeks: number
+  averageCommitsPerActiveDay: number
+  currentStreak: number
+  longestStreak: number
+  weekdays: number[]
+  hours: number[]
+  monthlyLines: Array<{ month: string; added: number; removed: number }>
+  fileTypes: Array<{ type: string; files: number; added: number; removed: number }>
+  topFiles: Array<{ path: string; commits: number; added: number; removed: number }>
+  mrAuthored: number
+  mrReviewed: number
+  diffsLoaded: number
+  diffsFailed: number
 }
 
 export interface PersonalActivity {
+  branches: Array<{ repositoryId: string; repositoryName: string; name: string; type: BranchSummary['type']; createdAt: string | null }>
   commits: PersonalCommit[]
   mergeRequests: PersonalMergeRequest[]
   stats: PersonalStats
@@ -192,8 +258,14 @@ export interface PersonalActivity {
     repositoryId: string
     added: number
     removed: number
-    files: Array<{ path: string; added: number; removed: number }>
+    diffStatus: 'loaded' | 'failed'
+    files: PersonalCommitFile[]
   }>
+}
+
+export interface CachedPersonalActivity {
+  savedAt: number
+  data: PersonalActivity
 }
 
 export interface Repository {
@@ -695,6 +767,7 @@ export interface BranchApi {
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
   getMyActivity(months?: number): Promise<PersonalActivity>
+  getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

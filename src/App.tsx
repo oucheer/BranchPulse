@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
 import { isEffectOn, useEffectSettings } from './lib/effects'
@@ -22,6 +22,7 @@ import Settings from './pages/Settings'
 import Email from './pages/Email'
 import Login from './pages/Login'
 import MyActivity from './pages/MyActivity'
+import CommitDetails from './pages/CommitDetails'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -40,6 +41,7 @@ const pages = [
   { path: '/settings', element: <Settings /> },
   { path: '/email', element: <Email /> },
   { path: '/my-activity', element: <MyActivity /> },
+  { path: '/my-activity/commit/:repositoryId/:sha', element: <CommitDetails /> },
   { path: '/login', element: <Login /> }
 ]
 
@@ -47,6 +49,7 @@ export default function App(): JSX.Element {
   const ready = useAppStore((s) => s.ready)
   const startupError = useAppStore((s) => s.startupError)
   const session = useAppStore((s) => s.session)
+  const role = useAppStore((s) => s.role)
   const refresh = useAppStore((s) => s.refresh)
   const restoreSession = useAppStore((s) => s.restoreSession)
   const settings = useAppStore((s) => s.settings)
@@ -61,6 +64,9 @@ export default function App(): JSX.Element {
   const navigate = useNavigate()
   const [splashDone, setSplashDone] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
+  const lastPathname = useRef(location.pathname)
+  const restoredRoute = useRef(false)
+  const routeIdentity = useRef('')
 
   useEffect(() => {
     if (!effectsEnabled) return
@@ -82,8 +88,42 @@ export default function App(): JSX.Element {
   }, [refresh])
 
   useEffect(() => {
+    const previous = lastPathname.current
+    if (previous === location.pathname) return
+    lastPathname.current = location.pathname
+    if (!session || previous === '/login' || location.pathname === '/login') return
+    void refresh()
+  }, [location.pathname, refresh, session])
+
+  useEffect(() => {
     void restoreSession()
   }, [restoreSession])
+
+  useEffect(() => {
+    if (!session || !ready || restoredRoute.current) return
+    restoredRoute.current = true
+    if (location.pathname !== '/') return
+    try {
+      const key = `gitmanager:last-route:${session.email.toLowerCase()}:${session.source ?? ''}:${session.accountId ?? session.username.toLowerCase()}`
+      const saved = localStorage.getItem(key)
+      const valid = saved !== null && pages.some((page) => page.path === saved && page.path !== '/login'
+        && !(role === 'admin' && page.path === '/my-activity'))
+      if (valid && saved !== '/') navigate(saved, { replace: true })
+    } catch { /* storage may be unavailable */ }
+  }, [session, ready, location.pathname, navigate, role])
+
+  useEffect(() => {
+    if (!session || location.pathname === '/login') return
+    try {
+      const identity = `${session.email.toLowerCase()}:${session.source ?? ''}:${session.accountId ?? session.username.toLowerCase()}`
+      if (routeIdentity.current !== identity) {
+        routeIdentity.current = identity
+        return
+      }
+      const key = `gitmanager:last-route:${identity}`
+      localStorage.setItem(key, location.pathname)
+    } catch { /* storage may be unavailable */ }
+  }, [session, location.pathname])
 
   useEffect(() => {
     return window.gitmanager.onNavigate((route) => navigate(route))
@@ -183,6 +223,10 @@ export default function App(): JSX.Element {
   // signed-in tab lands on /login, send it to the dashboard instead of
   // rendering the login card inside the main layout.
   if (location.pathname === '/login') {
+    return <Navigate to="/" replace />
+  }
+
+  if (role === 'admin' && (location.pathname === '/my-activity' || location.pathname.startsWith('/my-activity/commit/'))) {
     return <Navigate to="/" replace />
   }
 

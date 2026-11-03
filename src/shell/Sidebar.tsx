@@ -180,6 +180,7 @@ export default function Sidebar(): JSX.Element {
             </div>
             <div className="space-y-0.5">
               {section.items.filter((item) => {
+                if (role === 'admin' && item.to === '/my-activity') return false
                 // 普通用户只读：这些页面的写操作按钮已经隐藏，入口也一并收起。
                 if (role === 'user' && ['/monitoring', '/naming-rules', '/whitelist', '/backup', '/email', '/audit'].includes(item.to)) return false
                 return true

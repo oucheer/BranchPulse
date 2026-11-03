@@ -3,6 +3,7 @@ import { Bell, Check, Trash2 } from 'lucide-react'
 import { useAppStore, tr } from '../stores/appStore'
 import { Badge, Card, EmptyState } from '../components/ui'
 import { timeAgo } from '../lib/format'
+import { matchesUserToCreator } from '@shared/identity'
 
 export default function Notifications(): JSX.Element {
   const notifications = useAppStore((s) => s.notifications)
@@ -10,15 +11,24 @@ export default function Notifications(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const role = useAppStore((s) => s.role)
+  const session = useAppStore((s) => s.session)
+  const branches = useAppStore((s) => s.branches)
+  const repositories = useAppStore((s) => s.repositories)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
 
-  const scoped = selectedRepositoryIds.length
+  const repositoryScoped = selectedRepositoryIds.length
     ? notifications.filter((n) => selectedRepositoryIds.includes(n.repositoryId))
     : notifications
+  const scoped = role === 'admin' ? repositoryScoped : repositoryScoped.filter((notification) => {
+    const branch = branches.find((item) => item.repositoryId === notification.repositoryId && item.name === notification.branch)
+    const repository = repositories.find((item) => item.id === notification.repositoryId)
+    return Boolean(branch && repository && matchesUserToCreator(session, branch.creator, repository.source))
+  })
   const list = (filter === 'unread' ? scoped.filter((n) => !n.read) : scoped).filter((n) => n.type !== 'merged')
 
   const markRead = async (id: string): Promise<void> => {
     try {
+      if (role !== 'admin' && !scoped.some((notification) => notification.id === id)) return
       await window.gitmanager.markNotificationRead(id, selectedRepositoryIds)
       void refresh()
     } catch (err) {

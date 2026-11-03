@@ -78,7 +78,8 @@ export const EXPOSED_METHODS = [
   'logout',
   'getSession',
   'changePassword',
-  'getMyActivity'
+  'getMyActivity',
+  'getCommitFile'
 ] as const
 
 export type ExposedMethod = (typeof EXPOSED_METHODS)[number]

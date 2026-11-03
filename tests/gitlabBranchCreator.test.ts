@@ -292,6 +292,52 @@ describe('GitLabService.listBranchCreators', () => {
     expect(creators.get('feature/no-commits')).toMatchObject({ email: '', emailSource: '' })
   })
 
+  it('recovers an email by a unique exact name when the creation event has no account identity', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?search=')) return jsonResponse([
+        { id: 23, username: 'lihua', name: '李华', public_email: 'lihua@example.com' },
+        { id: 24, username: 'other', name: '李华2', public_email: 'other@example.com' }
+      ])
+      if (url.includes('/users?')) return jsonResponse([])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_name: '李华',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/lihua' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/lihua')).toMatchObject({
+      name: '李华',
+      email: 'lihua@example.com',
+      username: 'lihua',
+      accountId: '23',
+      emailSource: 'account'
+    })
+  })
+
+  it('does not choose between multiple exact-name accounts', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/users?search=')) return jsonResponse([
+        { id: 23, username: 'lihua', name: '李华', public_email: 'one@example.com' },
+        { id: 24, username: 'lihua2', name: '李华', public_email: 'two@example.com' }
+      ])
+      if (url.includes('/users?')) return jsonResponse([])
+      if (url.includes('/events')) return jsonResponse([{
+        action_name: 'pushed new',
+        author_name: '李华',
+        push_data: { action: 'created', ref_type: 'branch', ref: 'feature/lihua' }
+      }])
+      return jsonResponse({ id: 42, path_with_namespace: 'group/project' })
+    })
+
+    const creators = await service(GL_URL).listBranchCreators(42, { url: GL_URL, apiKey: 'test-token', provider: 'gitlab' })
+    expect(creators.get('feature/lihua')).toMatchObject({ email: '', emailSource: '' })
+  })
+
   it('keeps the creator name but no email when the exact profile hides it', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)

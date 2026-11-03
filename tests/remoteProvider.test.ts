@@ -1,8 +1,52 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { apiBaseUrl, detectRemoteProvider, isApiBaseUrl } from '../src-node/services/gitlab'
+import { apiBaseUrl, detectRemoteProvider, isApiBaseUrl, pullRequestMatchesRole } from '../src-node/services/gitlab'
 
 describe('remote providers', () => {
+  it.each(['gitlab', 'github', 'gitee'] as const)('preserves %s commit patches and uses the correct endpoint', async (provider) => {
+    const { GitLabService } = await import('../src-node/services/gitlab')
+    const svc = new GitLabService({ get: () => ({}), getGitLabToken: () => 'token' } as never)
+    const request = vi.fn().mockResolvedValue(provider === 'gitlab'
+      ? [{ new_path: 'src/test.ts', diff: '@@ -1 +1 @@\n-old\n+new' }]
+      : { files: [{ filename: 'src/test.ts', patch: '@@ -1 +1 @@\n-old\n+new' }] })
+    Object.assign(svc, { projectRef: vi.fn().mockResolvedValue(provider === 'gitlab' ? '42' : 'team/app'), request })
+    const files = await svc.commitDiffDetails(42, 'abc', { provider, url: `https://${provider}.com`, apiKey: 'token' })
+    expect(files).toEqual([{ path: 'src/test.ts', added: 1, removed: 1, patch: '@@ -1 +1 @@\n-old\n+new' }])
+    expect(request.mock.calls[0][0]).toBe(provider === 'gitlab'
+      ? '/projects/42/repository/commits/abc/diff?per_page=100&page=1'
+      : '/repos/team/app/commits/abc?per_page=100&page=1')
+  })
+
+  it.each(['gitlab', 'github', 'gitee'] as const)('loads a complete %s file at the requested commit', async (provider) => {
+    const { GitLabService } = await import('../src-node/services/gitlab')
+    const svc = new GitLabService({ get: () => ({}), getGitLabToken: () => 'token' } as never)
+    const request = vi.fn().mockResolvedValue({ content: Buffer.from('line one\nline two').toString('base64'), encoding: 'base64' })
+    Object.assign(svc, { projectRef: vi.fn().mockResolvedValue(provider === 'gitlab' ? '42' : 'team/app'), request })
+    const content = await svc.getCommitFile(42, 'abc123', 'src/path with space.ts', { provider, url: `https://${provider}.com`, apiKey: 'token' })
+    expect(content).toBe('line one\nline two')
+    expect(request.mock.calls[0][0]).toBe(provider === 'gitlab'
+      ? '/projects/42/repository/files/src%2Fpath%20with%20space.ts?ref=abc123'
+      : '/repos/team/app/contents/src/path%20with%20space.ts?ref=abc123')
+  })
+
+  it('paginates GitLab changed files', async () => {
+    const { GitLabService } = await import('../src-node/services/gitlab')
+    const svc = new GitLabService({ get: () => ({}), getGitLabToken: () => 'token' } as never)
+    const request = vi.fn().mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => ({ new_path: `${i}.ts`, diff: '+line' })))
+      .mockResolvedValueOnce([{ new_path: 'last.ts', diff: '-old' }])
+    Object.assign(svc, { projectRef: vi.fn().mockResolvedValue('42'), request })
+    const files = await svc.commitDiffDetails(42, 'abc', { provider: 'gitlab', url: 'https://gitlab.com', apiKey: 'token' })
+    expect(files).toHaveLength(101)
+    expect(request.mock.calls[1][0]).toContain('page=2')
+  })
+  it('assigns pull requests to exactly one role and accepts Gitee reviewer fields', () => {
+    const authoredAndAssigned = { user: { id: 7, login: 'dev' }, assignees: [{ id: 7, login: 'dev' }] }
+    expect(pullRequestMatchesRole(authoredAndAssigned, 'author', 7, 'dev')).toBe(true)
+    expect(pullRequestMatchesRole(authoredAndAssigned, 'reviewer', 7, 'dev')).toBe(false)
+    expect(pullRequestMatchesRole({ user: { id: 2 }, assignee: { id: 7 } }, 'reviewer', 7)).toBe(true)
+    expect(pullRequestMatchesRole({ user: { id: 2 }, assignees: [{ username: 'dev' }] }, 'reviewer', -1, 'dev')).toBe(true)
+  })
+
   it('detects supported platforms from service URLs', () => {
     expect(detectRemoteProvider('https://gitlab.example.com')).toBe('gitlab')
     expect(detectRemoteProvider('https://github.com/acme/app')).toBe('github')

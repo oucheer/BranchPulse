@@ -9,6 +9,7 @@ import { Card } from '../components/ui'
 import { timeAgo, stateLabel } from '../lib/format'
 import { motion as motionToken, shadow } from '../design-system/tokens'
 import type { BranchSummary, ScanRun } from '@shared/types'
+import { matchesUserToCreator } from '@shared/identity'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -523,7 +524,6 @@ export default function Dashboard(): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const toast = useAppStore((s) => s.toast)
   const role = useAppStore((s) => s.role)
-  const myEmail = useAppStore((s) => s.myEmail)
   const session = useAppStore((s) => s.session)
   const navigate = useNavigate()
   const zh = language === 'zh'
@@ -535,17 +535,14 @@ export default function Dashboard(): JSX.Element {
     : branches
   const dashboardBranches = useMemo(() => {
     if (role !== 'user' || scope === 'all') return visibleBranches
-    const email = myEmail.trim().toLowerCase()
-    const displayName = session?.displayName?.trim().toLowerCase() ?? ''
-    const accountId = session?.gitlabUserId === null || session?.gitlabUserId === undefined
-      ? ''
-      : String(session.gitlabUserId)
-    return email ? visibleBranches.filter((b) =>
-      (b.creator.email ?? '').trim().toLowerCase() === email
-      || (Boolean(accountId) && b.creator.accountId === accountId)
-      || (Boolean(displayName) && (b.creator.username ?? '').trim().toLowerCase() === displayName)
-    ) : []
-  }, [visibleBranches, role, scope, myEmail, session])
+    if (!session) return []
+    const repositorySources = new Map(repositories.map((repository) => [repository.id, repository.source]))
+    return visibleBranches.filter((branch) => matchesUserToCreator(
+      session,
+      branch.creator,
+      repositorySources.get(branch.repositoryId) ?? 'local'
+    ))
+  }, [visibleBranches, role, scope, session, repositories])
   const dashboardRepositories = useMemo(() => {
     const repositoryIds = new Set(dashboardBranches.map((b) => b.repositoryId))
     return repositories.filter((r) => repositoryIds.has(r.id))

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AppSettings,
   AuditEntry,
+  CachedPersonalActivity,
   BranchSummary,
   BackupRecord,
   ConfigExportResult,
@@ -13,6 +14,7 @@ import type {
   NamingRule,
   NotificationRecord,
   ProtectionEntry,
+  PersonalActivity,
   ReportRecord,
   ReportSchedule,
   Repository,
@@ -32,6 +34,8 @@ const LANGUAGE_KEY = 'gitmanager:language'
 const LEGACY_LANGUAGE_KEY = 'branchpulse:language'
 /** Per-tab session token: same browser, different tabs, different identities. */
 const SESSION_KEY = 'gitmanager:session-token'
+const ACTIVITY_CACHE_KEY = 'gitmanager:my-activity:v1'
+const ACTIVITY_MONTHS_KEY = 'gitmanager:my-activity-months:v1'
 
 interface Toast {
   id: number
@@ -69,6 +73,9 @@ interface AppState {
   scanning: boolean
   progress: ScanProgress | null
   toasts: Toast[]
+  myActivityCache: Record<string, PersonalActivity>
+  myActivityBusy: boolean
+  loadMyActivity: (months: number, force?: boolean) => Promise<void>
   refresh: () => Promise<void>
   restoreSession: () => Promise<UserSession | null>
   login: (username: string | null, password: string | null, email: string | null, gitlabToken?: string) => Promise<void>
@@ -88,6 +95,43 @@ interface AppState {
 }
 
 let toastId = 0
+let myActivityRequestId = 0
+
+function activityIdentity(session: UserSession): string {
+  return `${session.email.toLowerCase()}|${session.source ?? ''}|${session.accountId ?? session.username.toLowerCase()}`
+}
+
+function readActivityCache(): Record<string, PersonalActivity> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTIVITY_CACHE_KEY) ?? '{}') as Record<string, CachedPersonalActivity>
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    return Object.fromEntries(Object.entries(parsed)
+      .filter(([, entry]) => entry && entry.savedAt >= cutoff && entry.data)
+      .map(([key, entry]) => [key, entry.data]))
+  } catch {
+    return {}
+  }
+}
+
+export function readMyActivityMonths(session: UserSession | null): number {
+  if (!session) return 6
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTIVITY_MONTHS_KEY) ?? '{}') as Record<string, number>
+    const months = parsed[activityIdentity(session)]
+    return [1, 3, 6, 12, 24, 36].includes(months) ? months : 6
+  } catch {
+    return 6
+  }
+}
+
+export function saveMyActivityMonths(session: UserSession | null, months: number): void {
+  if (!session || ![1, 3, 6, 12, 24, 36].includes(months)) return
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTIVITY_MONTHS_KEY) ?? '{}') as Record<string, number>
+    parsed[activityIdentity(session)] = months
+    localStorage.setItem(ACTIVITY_MONTHS_KEY, JSON.stringify(parsed))
+  } catch { /* storage may be unavailable */ }
+}
 
 /** Restores the per-tab session on page reload. Returns null when no token is stored. */
 export function readSessionToken(): string | null {
@@ -159,6 +203,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanning: false,
   progress: null,
   toasts: [],
+  myActivityCache: readActivityCache(),
+  myActivityBusy: false,
+  loadMyActivity: async (months, force = false) => {
+    const session = get().session
+    if (!session) return
+    const key = `${activityIdentity(session)}|${months}`
+    if (!force && get().myActivityCache[key]) return
+    const requestId = ++myActivityRequestId
+    set({ myActivityBusy: true })
+    try {
+      const result = await window.gitmanager.getMyActivity(months)
+      if (requestId !== myActivityRequestId || get().session?.email.toLowerCase() !== session.email.toLowerCase()) return
+      const next = { ...get().myActivityCache, [key]: result }
+      set({ myActivityCache: next })
+      try {
+        const stored = JSON.parse(localStorage.getItem(ACTIVITY_CACHE_KEY) ?? '{}') as Record<string, CachedPersonalActivity>
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+        const entries = Object.entries(next).slice(-18)
+        const persisted: Record<string, CachedPersonalActivity> = {}
+        for (const [cacheKey, data] of entries) {
+          const entry = {
+            savedAt: cacheKey === key ? Date.now() : stored[cacheKey]?.savedAt ?? Date.now(),
+            data
+          }
+          if (entry.savedAt >= cutoff) persisted[cacheKey] = entry
+        }
+        localStorage.setItem(ACTIVITY_CACHE_KEY, JSON.stringify(persisted))
+      } catch { /* storage may be full or unavailable */ }
+    } finally {
+      if (requestId === myActivityRequestId) set({ myActivityBusy: false })
+    }
+  },
 
   refresh: async () => {
     try {
@@ -273,6 +349,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // `ready` here would strand the tab on the root Loading screen because no
     // startup refresh runs after logout.
     set({ session: null, role: null, myEmail: '' })
+    myActivityRequestId += 1
   },
 
   setLanguage: (language) => {

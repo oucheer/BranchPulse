@@ -1146,7 +1146,8 @@ export class GitLabService {
    */
   async listBranchCreators(
     projectId: number,
-    config?: GitLabConnectionConfig
+    config?: GitLabConnectionConfig,
+    branchCommits: Map<string, Pick<GitLabCommitDto, 'author_name' | 'author_email' | 'author_login'>> = new Map()
   ): Promise<BranchCreatorLookupResult> {
     const creators = new Map<string, BranchCreatorDto>()
     const { provider } = this.resolve(config)
@@ -1242,6 +1243,7 @@ export class GitLabService {
         if (!branch || creators.has(branch)) continue
         const author = (row.author ?? {}) as Record<string, unknown>
         const username = String(author.username ?? row.author_username ?? '').trim()
+        const headCommit = branchCommits.get(branch)
         const authorId = Number(author.id ?? row.author_id ?? NaN)
         const name = String(author.name ?? '').trim()
           || String(row.author_name ?? '').trim()
@@ -1250,7 +1252,7 @@ export class GitLabService {
         if (!name) continue
         creators.set(branch, {
           name,
-          email: String(author.public_email ?? '').trim(),
+          email: String(author.public_email ?? '').trim() || String(headCommit?.author_email ?? '').trim(),
           username,
           userId: Number.isFinite(authorId) ? authorId : null,
           accountId: Number.isFinite(authorId) ? String(authorId) : undefined,
@@ -1263,6 +1265,13 @@ export class GitLabService {
               ? creatorStatus('account-lookup-failed', true, 'GitLab account profile pending')
               : creatorStatus('identity-missing', false, 'GitLab creation event did not include an account identity')
         })
+        const creator = creators.get(branch)!
+        if (!creator.email && username && headCommit?.author_email
+          && headCommit.author_login?.trim().toLowerCase() === username.toLowerCase()) {
+          creator.email = headCommit.author_email.trim()
+          creator.emailSource = 'commit'
+          creator.emailResolution = creatorStatus('verified-commit', false, 'branch head commit login exactly matches the creation event account')
+        }
       }
     }
     parseEvents(rows)
@@ -1274,6 +1283,7 @@ export class GitLabService {
       logger.warn(`Could not read unfiltered branch creation events for project ${projectRef}: ${error instanceof Error ? error.message : String(error)}`)
     }
     await this.applyResolvedAccounts(creators, config)
+    await this.resolveCreatorEmailsByExactName(creators, config)
     const eventError = filteredError ?? unfilteredError
     const status = filteredAvailable && unfilteredAvailable
       ? 'available'
@@ -1304,8 +1314,7 @@ export class GitLabService {
     ).values()]
     const resolved = await this.resolveAccountIdentities(entries, config)
     for (const creator of creators.values()) {
-      // A public address on the creation event is already bound to the actor.
-      if (creator.emailSource === 'account' && creator.email) continue
+      if (creator.email) continue
       const key = creator.accountId || creator.username.toLowerCase()
       const account = resolved.get(key)
       if (!account) continue
@@ -1318,6 +1327,40 @@ export class GitLabService {
       creator.email = account.email
       creator.emailSource = account.source
       creator.emailResolution = account.resolution
+    }
+  }
+
+  private async resolveCreatorEmailsByExactName(
+    creators: Map<string, BranchCreatorDto>,
+    config?: GitLabConnectionConfig
+  ): Promise<void> {
+    const unresolved = [...new Map(
+      [...creators.values()]
+        .filter((creator) => !creator.email && !creator.username && !creator.accountId && creator.name)
+        .map((creator) => [creator.name, creator.name])
+    ).values()]
+    if (!unresolved.length) return
+    const lookups = await mapWithConcurrency(unresolved, PROFILE_LOOKUP_CONCURRENCY, async (name) => {
+      try {
+        const qs = new URLSearchParams({ search: name, per_page: '100' })
+        const rows = await this.request<Array<Record<string, unknown>>>(`/users?${qs.toString()}`, config)
+        const exact = (Array.isArray(rows) ? rows : []).filter((row) => String(row.name ?? '').trim() === name)
+        return [name, exact.length === 1 ? exact[0] : undefined] as const
+      } catch {
+        return [name, undefined] as const
+      }
+    })
+    const byName = new Map(lookups)
+    for (const creator of creators.values()) {
+      if (creator.email || creator.username || creator.accountId) continue
+      const account = byName.get(creator.name)
+      const email = String(account?.public_email ?? account?.email ?? '').trim()
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue
+      creator.email = email
+      creator.emailSource = 'account'
+      creator.username = String(account?.username ?? '').trim()
+      creator.accountId = String(account?.id ?? '').trim() || undefined
+      creator.emailResolution = creatorStatus('verified-account', false, 'unique exact-name GitLab account search')
     }
   }
 
@@ -1759,7 +1802,7 @@ export class GitLabService {
       id: Number(row.id ?? 0),
       emails: [...new Set(emails)].filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)),
       name: String(row.name ?? row.username ?? ''),
-      username: String(row.username ?? '')
+      username: String(row.username ?? row.login ?? '')
     }
   }
 
@@ -1903,54 +1946,69 @@ export class GitLabService {
 
   /** Per-commit diff totals. GitLab has no per-author line-count endpoint. */
   async commitDiffTotals(projectId: number, sha: string, config?: GitLabConnectionConfig): Promise<{ added: number; removed: number }> {
-    const projectRef = await this.projectRef(projectId, config)
-    const { provider } = this.resolve(config)
-    if (provider === 'github' || provider === 'gitee') {
-      const commit = await this.request<Record<string, unknown>>(
-        `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
-        config
-      )
-      const files = commit.files
-      if (!Array.isArray(files)) return { added: 0, removed: 0 }
-      return this.sumDiffEntries(files as Array<Record<string, unknown>>)
-    }
-    const diffs = await this.request<Array<Record<string, unknown>>>(
-      `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
-      config
-    )
-    return this.sumDiffEntries(diffs)
+    const files = await this.commitDiffDetails(projectId, sha, config)
+    return { added: files.reduce((sum, file) => sum + file.added, 0), removed: files.reduce((sum, file) => sum + file.removed, 0) }
   }
 
   async commitDiffDetails(
     projectId: number,
     sha: string,
     config?: GitLabConnectionConfig
-  ): Promise<Array<{ path: string; added: number; removed: number }>> {
+  ): Promise<Array<{ path: string; added: number; removed: number; patch?: string }>> {
     const projectRef = await this.projectRef(projectId, config)
     const { provider } = this.resolve(config)
     if (provider === 'github' || provider === 'gitee') {
-      const commit = await this.request<Record<string, unknown>>(
-        `/repos/${projectRef}/commits/${encodeURIComponent(sha)}`,
-        config
-      )
-      const files = commit.files
-      if (!Array.isArray(files)) return []
-      return this.sumDiffEntries(files as Array<Record<string, unknown>>, true).files
+      const files: Array<Record<string, unknown>> = []
+      for (let page = 1; ; page += 1) {
+        const commit = await this.request<Record<string, unknown>>(
+          `/repos/${projectRef}/commits/${encodeURIComponent(sha)}?per_page=100&page=${page}`, config
+        )
+        if (!Array.isArray(commit.files)) throw new Error(`${provider} commit response is missing files`)
+        files.push(...commit.files as Array<Record<string, unknown>>)
+        if (provider === 'gitee' || commit.files.length < 100) break
+      }
+      return this.sumDiffEntries(files, true).files
     }
-    const diffs = await this.request<Array<Record<string, unknown>>>(
-      `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diffs`,
-      config
-    )
+    const diffs: Array<Record<string, unknown>> = []
+    for (let page = 1; ; page += 1) {
+      const rows = await this.request<Array<Record<string, unknown>>>(
+        `/projects/${projectRef}/repository/commits/${encodeURIComponent(sha)}/diff?per_page=100&page=${page}`, config
+      )
+      if (!Array.isArray(rows)) throw new Error('GitLab commit diff response is not an array')
+      diffs.push(...rows)
+      if (rows.length < 100) break
+    }
     return this.sumDiffEntries(diffs, true).files
+  }
+
+  async getCommitFile(projectId: number, sha: string, path: string, config?: GitLabConnectionConfig): Promise<string> {
+    const projectRef = await this.projectRef(projectId, config)
+    const { provider } = this.resolve(config)
+    if (provider === 'github' || provider === 'gitee') {
+      const encodedPath = path.split('/').map(encodeURIComponent).join('/')
+      const row = await this.request<Record<string, unknown>>(
+        `/repos/${projectRef}/contents/${encodedPath}?ref=${encodeURIComponent(sha)}`, config
+      )
+      if (typeof row.content !== 'string') throw new Error('Repository file response does not contain text content')
+      if (row.encoding === 'base64') return Buffer.from(row.content.replace(/\s/g, ''), 'base64').toString('utf8')
+      return row.content
+    }
+    const encodedFilePath = encodeURIComponent(path)
+    const row = await this.request<Record<string, unknown>>(
+      `/projects/${projectRef}/repository/files/${encodedFilePath}?ref=${encodeURIComponent(sha)}`, config
+    )
+    if (typeof row.content !== 'string') throw new Error('Repository file response does not contain text content')
+    if (row.encoding === 'base64') return Buffer.from(row.content.replace(/\s/g, ''), 'base64').toString('utf8')
+    return row.content
   }
 
   private sumDiffEntries(
     diffs: Array<Record<string, unknown>>,
     withFiles = false
-  ): { added: number; removed: number; files: Array<{ path: string; added: number; removed: number }> } {
+  ): { added: number; removed: number; files: Array<{ path: string; added: number; removed: number; patch?: string }> } {
     let added = 0
     let removed = 0
-    const files: Array<{ path: string; added: number; removed: number }> = []
+    const files: Array<{ path: string; added: number; removed: number; patch?: string }> = []
     for (const entry of Array.isArray(diffs) ? diffs : []) {
       const patch = String(entry.patch ?? entry.diff ?? '')
       if (patch) {
@@ -1966,7 +2024,14 @@ export class GitLabService {
             fileRemoved += 1
           }
         }
-        if (withFiles) files.push({ path: String(entry.new_path ?? entry.filename ?? ''), added: fileAdded, removed: fileRemoved })
+        if (withFiles) {
+          files.push({
+            path: String(entry.new_path ?? entry.filename ?? entry.fileName ?? ''),
+            added: fileAdded,
+            removed: fileRemoved,
+            patch
+          })
+        }
         continue
       }
       // GitHub often omits `patch` for binaries and for larger files. Its file
@@ -1980,7 +2045,7 @@ export class GitLabService {
       }
       if (withFiles) {
         files.push({
-          path: String(entry.new_path ?? entry.filename ?? ''),
+          path: String(entry.new_path ?? entry.filename ?? entry.fileName ?? ''),
           added: Number.isFinite(totalsAdded) ? totalsAdded : 0,
           removed: Number.isFinite(totalsRemoved) ? totalsRemoved : 0
         })
@@ -1995,7 +2060,8 @@ export class GitLabService {
     userId: number,
     role: 'author' | 'reviewer',
     since: string,
-    config?: GitLabConnectionConfig
+    config?: GitLabConnectionConfig,
+    username?: string
   ): Promise<Array<Record<string, unknown>>> {
     const { provider } = this.resolve(config)
     if (provider !== 'gitlab' && provider !== 'github' && provider !== 'gitee') return []
@@ -2022,13 +2088,13 @@ export class GitLabService {
         web_url: String(row.html_url ?? ''),
         user: row.user ?? (row.head as Record<string, unknown> | undefined)?.user ?? null,
         requested_reviewers: row.requested_reviewers ?? [],
-        reviewers: row.reviewers ?? []
+        reviewers: row.reviewers ?? [],
+        assignees: row.assignees ?? [],
+        assignee: row.assignee ?? null
       }))
       return normalized.filter((row) => {
-        const authorId = Number((row.user as Record<string, unknown> | undefined)?.id ?? NaN)
-        if (Number.isFinite(needle) && authorId === needle) return true
-        const reviewers = [...(Array.isArray(row.requested_reviewers) ? row.requested_reviewers as Array<Record<string, unknown>> : []), ...(Array.isArray(row.reviewers) ? row.reviewers as Array<Record<string, unknown>> : [])]
-        return reviewers.some((reviewer) => Number(reviewer.id ?? NaN) === needle)
+        const createdAt = String(row.created_at ?? '')
+        return createdAt >= since && pullRequestMatchesRole(row, role, needle, username)
       })
     }
     const rows: Array<Record<string, unknown>> = []
@@ -2048,5 +2114,37 @@ export class GitLabService {
     }
     return rows
   }
+}
+
+/** Exact role matching shared by GitHub and Gitee pull-request responses. */
+export function pullRequestMatchesRole(
+  row: Record<string, unknown>,
+  role: 'author' | 'reviewer',
+  userId: number,
+  username?: string
+): boolean {
+  const loginNeedle = String(username ?? '').trim().toLowerCase()
+  const accountMatches = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object') return false
+    const account = value as Record<string, unknown>
+    const id = Number(account.id ?? NaN)
+    if (Number.isFinite(userId) && id === userId) return true
+    const login = String(account.login ?? account.username ?? '').trim().toLowerCase()
+    return Boolean(loginNeedle && login && login === loginNeedle)
+  }
+  const authorMatches = accountMatches(row.user)
+  if (role === 'author') return authorMatches
+  if (authorMatches) return false
+
+  const reviewers = [
+    row.requested_reviewers,
+    row.reviewers,
+    row.assignees,
+    row.assignee
+  ]
+  return reviewers.some((candidate) => {
+    if (Array.isArray(candidate)) return candidate.some(accountMatches)
+    return accountMatches(candidate)
+  })
 }
 
