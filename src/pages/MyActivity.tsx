@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitCommitHorizontal, FileText
+  Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitBranch, FileText
 } from 'lucide-react'
 import type { PersonalActivity } from '@shared/types'
 import { readMyActivityMonths, saveMyActivityMonths, useAppStore } from '../stores/appStore'
@@ -293,6 +293,7 @@ export default function MyActivity(): JSX.Element {
   const [drilldown, setDrilldown] = useState<'all' | 'commits' | 'mergeRequests' | null>(null)
   const [review, setReview] = useState('')
   const [commitFilter, setCommitFilter] = useState<(commit: PersonalActivity['commits'][number]) => boolean>(() => () => true)
+  const [showBranches, setShowBranches] = useState(false)
   const showCommits = (filter?: (commit: PersonalActivity['commits'][number]) => boolean): void => {
     setCommitFilter(() => filter ?? (() => true))
     setDrilldown('commits')
@@ -362,9 +363,9 @@ export default function MyActivity(): JSX.Element {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <button className="text-left" onClick={() => drilldown === 'commits' ? setDrilldown(null) : showCommits()} aria-label={zh ? '查看提交明细' : 'Show commit details'}><Card className={`p-3 ${drilldown === 'commits' ? 'border-primary' : ''}`}>
-          <div className="flex items-center gap-2 text-xs text-muted"><GitCommitHorizontal size={14} /> {zh ? '提交次数' : 'Commits'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.commitCount ?? 0}</div>
+        <button className="text-left" onClick={() => setShowBranches(!showBranches)} aria-label={zh ? '查看创建的分支' : 'Show created branches'}><Card className={`p-3 ${showBranches ? 'border-primary' : ''}`}>
+          <div className="flex items-center gap-2 text-xs text-muted"><GitBranch size={14} /> {zh ? '创建分支' : 'Branches'}</div>
+          <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.branchCount ?? 0}</div>
         </Card></button>
         <button className="text-left" onClick={() => showCommits()} aria-label={zh ? '查看提交明细' : 'Show commits'}><Card className="p-3">
           <div className="flex items-center gap-2 text-xs text-muted"><CalendarDays size={14} /> {zh ? '活跃天数' : 'Active days'}</div>
@@ -380,12 +381,12 @@ export default function MyActivity(): JSX.Element {
         </Card></button>
       </div>
 
-      <section className="space-y-2 border-b border-line pb-4">
+      {showBranches ? <section className="space-y-2 border-b border-line pb-4">
         <h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>
         {data?.branches?.length ? data.branches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
           <span>{branch.repositoryName} / {branch.name}</span><span className="text-muted">{branch.createdAt ? new Date(branch.createdAt).toLocaleString() : (zh ? '创建时间未知' : 'Unknown creation date')}</span>
         </Link>) : <div className="text-xs text-muted">{zh ? '暂无已收录分支' : 'No tracked branches'}</div>}
-      </section>
+      </section> : null}
       {stats && stats.diffsFailed > 0 ? <div role="status" className="text-sm text-danger">{zh ? `${stats.diffsLoaded} 个提交差异已加载，${stats.diffsFailed} 个获取失败；代码行数及文件统计不完整。` : `${stats.diffsLoaded} diffs loaded, ${stats.diffsFailed} failed; line and file statistics are incomplete.`}</div> : null}
 
       <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
