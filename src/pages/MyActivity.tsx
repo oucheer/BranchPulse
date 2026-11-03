@@ -9,6 +9,7 @@ import { Badge, Card } from '../components/ui'
 import { Link, useNavigate } from 'react-router-dom'
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+const ALL_BRANCHES = (branch: NonNullable<PersonalActivity['branches']>[number]) => true
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee', local: 'Local' } as const
 
 function downloadReview(name: string, type: string, content: string): void {
@@ -294,6 +295,7 @@ export default function MyActivity(): JSX.Element {
   const [review, setReview] = useState('')
   const [commitFilter, setCommitFilter] = useState<(commit: PersonalActivity['commits'][number]) => boolean>(() => () => true)
   const [showBranches, setShowBranches] = useState(false)
+  const [branchFilter, setBranchFilter] = useState<(branch: NonNullable<PersonalActivity['branches']>[number]) => boolean>(() => ALL_BRANCHES)
   const showCommits = (filter?: (commit: PersonalActivity['commits'][number]) => boolean): void => {
     setCommitFilter(() => filter ?? (() => true))
     setDrilldown('commits')
@@ -330,6 +332,7 @@ export default function MyActivity(): JSX.Element {
     return mr.role === 'reviewer'
   })
   const filteredCommits = (data?.commits ?? []).filter(commitFilter)
+  const filteredBranches = (data?.branches ?? []).filter(branchFilter)
 
   return (
     <div className="space-y-4">
@@ -382,8 +385,8 @@ export default function MyActivity(): JSX.Element {
       </div>
 
       {showBranches ? <section className="space-y-2 border-b border-line pb-4">
-        <h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>
-        {data?.branches?.length ? data.branches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
+        <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>{branchFilter !== ALL_BRANCHES ? <button className="text-xs text-primary" onClick={() => setBranchFilter(() => ALL_BRANCHES)}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
+        {filteredBranches.length ? filteredBranches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
           <span>{branch.repositoryName} / {branch.name}</span><span className="text-muted">{branch.createdAt ? new Date(branch.createdAt).toLocaleString() : (zh ? '创建时间未知' : 'Unknown creation date')}</span>
         </Link>) : <div className="text-xs text-muted">{zh ? '暂无已收录分支' : 'No tracked branches'}</div>}
       </section> : null}
@@ -396,7 +399,7 @@ export default function MyActivity(): JSX.Element {
           labels={stats?.months.map((m) => m.month) ?? []}
           xLabel={zh ? '月份' : 'Month'}
           yLabel={zh ? '数量（次 / 个）' : 'Count'}
-          onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month)}
+          onSelect={(month: string) => { setBranchFilter(() => (branch: NonNullable<PersonalActivity['branches']>[number]) => localMonth(branch.createdAt ?? '') === month); setShowBranches(true); setDrilldown('commits'); setCommitFilter(() => (commit: PersonalActivity['commits'][number]) => localMonth(commit.committedAt) === month) }}
           series={[
             { name: zh ? '提交' : 'Commits', color: 'rgb(var(--primary))', values: stats?.months.map((m) => m.commits) ?? [] },
             { name: zh ? '分支' : 'Branches', color: 'rgb(var(--secondary))', values: stats?.months.map((m) => m.branches) ?? [] }
@@ -471,12 +474,12 @@ export default function MyActivity(): JSX.Element {
           </div>
         </Card> : null}
 
-        {drilldown !== 'commits' ? <Card className="self-start p-5">
+        {drilldown !== 'commits' ? <Card className="p-5">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '合并请求与评审中心' : 'Merge requests and reviews'}</div>
           <div className="mb-3 flex flex-wrap gap-1 border-b border-line">{([
             ['authored', zh ? '我发起的' : 'Authored'], ['pending', zh ? '待我评审的' : 'Pending my review'], ['participated', zh ? '我参与的（平台标记评审）' : 'Reviewed by me'], ['done', zh ? '已完成' : 'Completed']
           ] as const).map(([key, label]) => <button key={key} className={`border-b-2 px-2 py-2 text-xs ${mrTab === key ? 'border-primary text-primary' : 'border-transparent text-muted'}`} onClick={() => setMrTab(key)}>{label}</button>)}</div>
-          <div className="space-y-2">
+          <div className="max-h-96 space-y-2 overflow-auto pr-1">
             {visibleMergeRequests.length === 0 ? <div className="py-2 text-xs text-muted">{mrTab === 'pending' ? (zh ? '平台未提供明确的待评审人数据，暂时没有可确认的记录。' : 'The forge does not provide explicit pending-reviewer data.') : (zh ? '暂无合并请求' : 'No merge requests')}</div> : null}
             {visibleMergeRequests.map((mr) => (
               <a key={`${mr.repositoryId}-${mr.id}-${mr.role}`} href={mr.webUrl ?? '#'} target="_blank" rel="noreferrer" className="block rounded-md border border-line bg-elevated px-3 py-2 hover:border-primary/40">
