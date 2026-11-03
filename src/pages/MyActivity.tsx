@@ -243,38 +243,38 @@ function ActivityLineChart({ values, onSelect, zh }: { values: number[]; onSelec
   const start = 24 - period
   const visible = values.slice(start)
   const max = Math.max(1, ...visible)
-  const points = visible.map((value, index) => ({ x: 12 + (index / Math.max(visible.length - 1, 1)) * 276, y: 84 - (value / max) * 68, value }))
-  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')
-  const smooth = points.length > 2 ? points.reduce((d, point, index) => {
-    if (index === 0) return `M ${point.x} ${point.y}`
-    const previous = points[index - 1]!
-    const mid = (previous.x + point.x) / 2
-    return `${d} C ${mid} ${previous.y}, ${mid} ${point.y}, ${point.x} ${point.y}`
-  }, '') : path
+  const points = visible.map((value, index) => ({ x: 14 + (index / Math.max(visible.length - 1, 1)) * 272, y: 88 - (value / max) * 70, value }))
+  const smooth = smoothChartPath(points)
   const selected = active === null ? null : points[active]
-  return <div>
-    <div className="mb-2 flex items-center justify-between gap-3">
-      <div className="flex gap-1 rounded-md bg-elevated p-1">{([6, 12, 24] as const).map((hours) => <button key={hours} className={`rounded px-2 py-1 text-[10px] ${period === hours ? 'bg-surface text-canvas-fg shadow-sm' : 'text-muted'}`} onClick={() => { setPeriod(hours); setActive(null) }}>{hours === 24 ? (zh ? '24时' : '24h') : `${hours}${zh ? '时' : 'h'}`}</button>)}</div>
+  return <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: 'easeOut' }}>
+    <div className="mb-3 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-canvas-fg">{zh ? '按小时提交趋势' : 'Commit activity by hour'}</div>
+        <div className="mt-0.5 text-[10px] text-muted">{zh ? '本地时间' : 'Local time'}</div>
+      </div>
+      <div className="flex gap-1 rounded-full border border-line bg-elevated p-0.5">{([6, 12, 24] as const).map((hours) => <button key={hours} className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${period === hours ? 'bg-surface text-canvas-fg shadow-sm' : 'text-muted hover:text-canvas-fg'}`} onClick={() => { setPeriod(hours); setActive(null) }}>{hours === 24 ? (zh ? '24时' : '24h') : `${hours}${zh ? '时' : 'h'}`}</button>)}</div>
+    </div>
+    <div className="flex items-end justify-between gap-3">
+      <motion.div key={selected ? `${active}` : 'total'} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+        <div className="text-2xl font-bold leading-none text-canvas-fg">{selected?.value ?? visible.reduce((sum, value) => sum + value, 0)}<span className="ml-1 text-xs font-normal text-muted">{zh ? '次' : 'commits'}</span></div>
+        <div className="mt-1 text-[11px] text-primary">{selected ? `${start + (active ?? 0)}:00` : (zh ? '所选时段总计' : 'Selected period total')}</div>
+      </motion.div>
       <span className="text-[10px] text-muted">{zh ? '提交次数' : 'Commits'}</span>
     </div>
-    <div className="flex items-end justify-between">
-      <div><div className="text-2xl font-semibold text-canvas-fg">{selected?.value ?? visible.reduce((sum, value) => sum + value, 0)}<span className="ml-1 text-xs font-normal text-muted">{zh ? '次' : 'commits'}</span></div><div className="text-[10px] text-muted">{selected ? `${start + (active ?? 0)}:00` : (zh ? '所选时段总计' : 'Selected period total')}</div></div>
-      {selected ? <span className="text-xs text-primary">{selected.value} {zh ? '次提交' : 'commits'}</span> : null}
-    </div>
-    <div className="mt-3 h-24">
+    <div className="mt-4 h-28">
       <svg viewBox="0 0 300 96" className="h-full w-full overflow-visible" role="img" aria-label={zh ? '按小时提交趋势' : 'Commits by hour'} onMouseLeave={() => setActive(null)}>
         <defs><linearGradient id="activityLine" x1="0" x2="1" y1="0" y2="0"><stop offset="0%" stopColor="#79caff" /><stop offset="100%" stopColor="#0788ff" /></linearGradient></defs>
-        <line x1="10" y1="86" x2="290" y2="86" stroke="currentColor" opacity=".12" />
-        <path d={smooth} fill="none" stroke="url(#activityLine)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="14" y1="90" x2="286" y2="90" stroke="currentColor" opacity=".1" strokeDasharray="4 4" />
+        <motion.path d={smooth} fill="none" stroke="url(#activityLine)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeInOut' }} />
         {points.map((point, index) => <g key={index} onMouseEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => onSelect(start + index)} tabIndex={0} role="button" aria-label={`${start + index}:00 ${point.value}`} className="cursor-pointer">
-          <circle cx={point.x} cy={point.y} r="8" fill="transparent" />
-          {active === index ? <><line x1={point.x} y1={point.y} x2={point.x} y2="88" stroke="#0788ff" strokeDasharray="3 3" opacity=".4" /><circle cx={point.x} cy={point.y} r="5" fill="#0788ff" stroke="white" strokeWidth="2" /></> : null}
+          <circle cx={point.x} cy={point.y} r="10" fill="transparent" />
+          {active === index ? <motion.circle initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ duration: 0.18 }} style={{ originX: `${point.x}px`, originY: `${point.y}px` }} cx={point.x} cy={point.y} r="5" fill="#0788ff" stroke="white" strokeWidth="2" /> : null}
+          {index === points.length - 1 && active === null ? <motion.circle cx={point.x} cy={point.y} r="4" fill="#0788ff" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.05, duration: 0.2 }} /> : null}
         </g>)}
       </svg>
     </div>
-    <div className="mt-1 flex justify-between text-[10px] text-muted"><span>{start}:00</span><span>{start + Math.floor(period / 2)}:00</span><span>23:00</span></div>
-    <div className="mt-1 text-center text-[10px] text-muted">{zh ? '本地时间，悬停查看并点击下钻' : 'Local time; hover to inspect and click to drill down'}</div>
-  </div>
+    <div className="mt-2 flex justify-between text-[10px] text-muted"><span>{start}:00</span><span>{start + Math.floor(period / 2)}:00</span><span>23:00</span></div>
+  </motion.div>
 }
 
 export default function MyActivity(): JSX.Element {
@@ -289,7 +289,6 @@ export default function MyActivity(): JSX.Element {
   const [months, setMonths] = useState<number>(() => readMyActivityMonths(session))
   const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}`
   const data = activityCache[cacheKey] ?? null
-  const [showBranches, setShowBranches] = useState(false)
   const [mrTab, setMrTab] = useState<'authored' | 'pending' | 'participated' | 'done'>('authored')
   const [drilldown, setDrilldown] = useState<'all' | 'commits' | 'mergeRequests' | null>(null)
   const [review, setReview] = useState('')
@@ -332,7 +331,7 @@ export default function MyActivity(): JSX.Element {
   const filteredCommits = (data?.commits ?? []).filter(commitFilter)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{zh ? '个人活动' : 'My Activity'}</h1>
@@ -381,17 +380,15 @@ export default function MyActivity(): JSX.Element {
         </Card></button>
       </div>
 
-      <details className="border-b border-line pb-3 text-xs text-muted"><summary className="cursor-pointer font-medium text-canvas-fg">{zh ? '詳細分析指标' : 'Detailed analysis metrics'}</summary><div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4"><span>{zh ? '新增/删除' : 'Added/removed'}: <b className="text-ok">{stats?.linesAdded ?? 0}</b> / <b className="text-danger">{stats?.linesRemoved ?? 0}</b></span><span>{zh ? '当前/最长连续' : 'Streak current/longest'}: {stats?.currentStreak ?? 0} / {stats?.longestStreak ?? 0}</span><button className="text-left" onClick={() => setShowBranches(!showBranches)}>{zh ? '创建分支' : 'Branches'}: {stats?.branchCount ?? 0}</button><span>{zh ? '命名合规/不规范' : 'Naming compliant/invalid'}: {stats?.validBranches ?? 0} / {stats?.invalidBranches ?? 0}</span><span>{zh ? '参与评审 MR' : 'Reviewed MRs'}: {stats?.mrReviewed ?? 0}</span><span>{zh ? '活跃周' : 'Active weeks'}: {stats?.activeWeeks ?? 0}</span><span>{zh ? '每活跃日平均提交' : 'Commits per active day'}: {stats?.averageCommitsPerActiveDay ?? 0}</span><span>{zh ? '仓库数' : 'Repositories'}: {stats?.repositoryCount ?? 0}</span></div></details>
-
-      {showBranches ? <section className="space-y-2 border-y border-line py-4">
+      <section className="space-y-2 border-b border-line pb-4">
         <h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>
         {data?.branches?.length ? data.branches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
           <span>{branch.repositoryName} / {branch.name}</span><span className="text-muted">{branch.createdAt ? new Date(branch.createdAt).toLocaleString() : (zh ? '创建时间未知' : 'Unknown creation date')}</span>
         </Link>) : <div className="text-xs text-muted">{zh ? '暂无已收录分支' : 'No tracked branches'}</div>}
-      </section> : null}
+      </section>
       {stats && stats.diffsFailed > 0 ? <div role="status" className="text-sm text-danger">{zh ? `${stats.diffsLoaded} 个提交差异已加载，${stats.diffsFailed} 个获取失败；代码行数及文件统计不完整。` : `${stats.diffsLoaded} diffs loaded, ${stats.diffsFailed} failed; line and file statistics are incomplete.`}</div> : null}
 
-      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         {showMonthlyCommits ? <ActivityChart
           title={zh ? '按月提交与分支' : 'Monthly commits and branches'}
           zh={zh}
@@ -418,7 +415,7 @@ export default function MyActivity(): JSX.Element {
         /> : null}
       </div>
 
-      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         {showWeekdays ? <ActivityChart
           title={zh ? '按星期分布' : 'By weekday'}
           zh={zh}
@@ -429,12 +426,11 @@ export default function MyActivity(): JSX.Element {
           series={[{ name: zh ? '提交' : 'Commits', color: 'rgb(var(--primary))', values: stats?.weekdays ?? [] }]}
         /> : null}
         {showHours ? <Card className="p-4">
-          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '按小时提交趋势' : 'Commit activity by hour'}</div>
           <ActivityLineChart values={stats?.hours ?? []} zh={zh} onSelect={(hour) => showCommits((commit) => new Date(commit.committedAt).getHours() === hour)} />
         </Card> : null}
       </div>
 
-      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         {drilldown !== 'mergeRequests' ? <Card className="p-5">
           <div className="mb-3 flex items-center justify-between text-sm font-semibold text-canvas-fg"><span>{zh ? '我的提交' : 'My Commits'}{drilldown === 'commits' ? ` (${filteredCommits.length})` : ''}</span>{drilldown ? <button className="text-xs text-primary" onClick={() => { setDrilldown(null); setCommitFilter(() => () => true) }}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
           <div className="max-h-96 space-y-2 overflow-auto pr-1">
@@ -498,7 +494,7 @@ export default function MyActivity(): JSX.Element {
         </Card> : null}
       </div>
 
-      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         <Card className="p-5">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '年度复盘' : 'Yearly review'}</div>
           <div className="overflow-x-auto">
@@ -556,7 +552,7 @@ export default function MyActivity(): JSX.Element {
         </div>
       </Card>
 
-      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         <Card className="p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg"><FileCode size={14} /> {zh ? '文件类型分布' : 'File types'}</div>
           <div className="space-y-2">
