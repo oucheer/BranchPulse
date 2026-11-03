@@ -71,7 +71,7 @@ export default function Login(): JSX.Element {
             </div>
           </div>
         ) : (
-          <div>
+          <div className="space-y-5">
             <div>
               <div className="label mb-1.5">{zh ? '邮箱' : 'Email'}</div>
               <input className="input w-full" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />

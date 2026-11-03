@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import {
   Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitCommitHorizontal, FileText
 } from 'lucide-react'
@@ -76,43 +77,164 @@ function localMonth(value: string): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
-function ActivityChart({ labels, series, xLabel, yLabel, onSelect }: {
-  labels: string[]; series: Array<{ name: string; values: number[]; color: string }>; xLabel: string; yLabel: string; onSelect?: (label: string, index: number) => void
+type ActivitySeries = { name: string; values: number[]; color: string; axis?: 'left' | 'right' }
+
+function smoothChartPath(points: Array<{ x: number; y: number }>): string {
+  if (!points.length) return ''
+  let path = `M ${points[0]!.x} ${points[0]!.y}`
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!
+    const current = points[index]!
+    const midX = (previous.x + current.x) / 2
+    path += ` C ${midX} ${previous.y}, ${midX} ${current.y}, ${current.x} ${current.y}`
+  }
+  return path
+}
+
+function ActivityChart({ title, labels, series, xLabel, yLabel, zh, onSelect }: {
+  title: string; labels: string[]; series: ActivitySeries[]; xLabel: string; yLabel: string; zh: boolean; onSelect?: (label: string, index: number) => void
 }): JSX.Element {
-  const max = Math.max(1, ...series.flatMap((entry) => entry.values))
-  return <div>
-    <div className="mb-2 flex flex-wrap gap-3 text-xs text-muted">
-      <span>{yLabel}</span>
-      {series.map((entry) => <span key={entry.name} className="flex items-center gap-1"><span className={`h-2 w-2 ${entry.color}`} />{entry.name}</span>)}
-    </div>
-    <div className="flex gap-2">
-      <div className="flex h-32 w-10 shrink-0 flex-col justify-between text-right text-[10px] text-muted"><span>{max}</span><span>{Math.round(max / 2)}</span><span>0</span></div>
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <div className="flex gap-2 border-b border-l border-line" style={{ minWidth: labels.length * 42 }}>
-          {labels.map((label, index) => <button key={label} type="button" onClick={() => onSelect?.(label, index)} className="min-w-0 flex-1 border-0 bg-transparent p-0 text-center text-inherit" title={onSelect ? `查看 ${label} 明细` : undefined}>
-            <div className="relative h-32">
-              <div className="absolute inset-x-0 top-0 flex h-4 items-center justify-center gap-0.5 overflow-visible">
-                {series.map((entry) => {
-                  const value = entry.values[index] ?? 0
-                  return <span key={entry.name} className={`min-w-3 text-center text-[9px] font-medium leading-none ${value > 0 ? 'text-canvas-fg' : 'text-transparent'}`} aria-label={value > 0 ? `${label} ${entry.name}: ${value}` : undefined}>{value}</span>
-                })}
-              </div>
-              <div className="absolute inset-x-0 bottom-0 flex h-28 items-end justify-center gap-0.5">
-              {series.map((entry) => {
-                const value = entry.values[index] ?? 0
-                return <div key={entry.name} className="flex h-full w-3 flex-col justify-end" title={`${label} ${entry.name}: ${value}`}>
-                  <div className={`w-full ${entry.color}`} style={{ height: `${(value / max) * 100}%`, minHeight: value > 0 ? 2 : 0 }} />
-                </div>
-              })}
-              </div>
-            </div>
-          </button>)}
+  const gradientId = useId().replace(/[^a-zA-Z0-9]/g, '')
+  const [hidden, setHidden] = useState<string[]>([])
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [hoverSeries, setHoverSeries] = useState<string | null>(null)
+  const count = labels.length
+  const visible = series.filter((entry) => !hidden.includes(entry.name))
+  const width = 600
+  const height = 196
+  const padX = 46
+  const padTop = 30
+  const padBottom = 32
+  const leftMax = Math.max(1, ...series.filter((entry) => entry.axis !== 'right').flatMap((entry) => entry.values))
+  const rightMax = Math.max(1, ...series.filter((entry) => entry.axis === 'right').flatMap((entry) => entry.values))
+  const pointX = (index: number) => count <= 1 ? width / 2 : padX + (index / (count - 1)) * (width - padX * 2)
+  const pointY = (value: number, axis: 'left' | 'right') => height - padBottom - (value / (axis === 'right' ? rightMax : leftMax)) * (height - padTop - padBottom)
+  const total = (entry: ActivitySeries) => entry.values.reduce((sum, value) => sum + value, 0)
+  const headlineSeries = visible[0]
+  const headlineValue = headlineSeries ? (hoverIndex === null ? total(headlineSeries) : headlineSeries.values[hoverIndex] ?? 0) : 0
+  const activeLabel = hoverIndex === null ? null : labels[hoverIndex] ?? null
+  const dimmed = (name: string) => hoverSeries !== null && hoverSeries !== name
+  return (
+    <Card className="p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-canvas-fg">{title}</div>
+          <div className="mt-0.5 text-[10px] text-muted">{yLabel}</div>
         </div>
-        <div className="mt-1 flex gap-2" style={{ minWidth: labels.length * 42 }}>{labels.map((label) => <span key={label} className="flex-1 text-center text-[10px] text-muted">{label}</span>)}</div>
+        <div className="flex gap-1.5 pt-1" aria-hidden="true">
+          <span className="h-2 w-2 rounded-full bg-[#ff5f57]" />
+          <span className="h-2 w-2 rounded-full bg-[#febc2e]" />
+          <span className="h-2 w-2 rounded-full bg-[#28c840]" />
+        </div>
       </div>
-    </div>
-    <div className="mt-2 text-center text-xs text-muted">{xLabel}</div>
-  </div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] text-muted">{activeLabel ?? (zh ? '总计' : 'Total')}</div>
+          <div className="text-2xl font-semibold leading-tight text-canvas-fg">{headlineValue}</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {series.map((entry) => {
+            const off = hidden.includes(entry.name)
+            return (
+              <button
+                key={entry.name}
+                type="button"
+                onClick={() => setHidden((current) => current.includes(entry.name) ? current.filter((name) => name !== entry.name) : [...current, entry.name])}
+                onMouseEnter={() => setHoverSeries(entry.name)}
+                onMouseLeave={() => setHoverSeries(null)}
+                className={`flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-[10px] transition-all ${off ? 'opacity-40' : 'bg-elevated text-canvas-fg hover:border-primary/40'}`}
+                title={off ? (zh ? '点击显示' : 'Click to show') : (zh ? '点击隐藏' : 'Click to hide')}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                <span>{entry.name}</span>
+                <b className="font-semibold">{hoverIndex === null ? total(entry) : entry.values[hoverIndex] ?? 0}</b>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="mt-4 text-muted">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-48 w-full overflow-visible" role="img" aria-label={title} onMouseLeave={() => setHoverIndex(null)}>
+          <defs>
+            {series.map((entry) => (
+              <linearGradient key={entry.name} id={`${gradientId}-${entry.name}`} x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor={entry.color} stopOpacity="0.32" />
+                <stop offset="100%" stopColor={entry.color} stopOpacity="0" />
+              </linearGradient>
+            ))}
+          </defs>
+          {[0, 0.5, 1].map((fraction) => {
+            const y = padTop + fraction * (height - padTop - padBottom)
+            const leftValue = Math.round(leftMax * (1 - fraction))
+            const hasRight = series.some((entry) => entry.axis === 'right')
+            return (
+              <g key={fraction}>
+                <line x1={padX} y1={y} x2={width - padX} y2={y} stroke="currentColor" opacity={fraction === 1 ? 0.22 : 0.12} />
+                <text x={padX - 8} y={y + 3} textAnchor="end" fontSize="9" fill="currentColor" opacity="0.65">{leftValue}</text>
+                {hasRight ? <text x={width - padX + 8} y={y + 3} fontSize="9" fill="currentColor" opacity="0.65">{Math.round(rightMax * (1 - fraction))}</text> : null}
+              </g>
+            )
+          })}
+          {hoverIndex !== null ? <line x1={pointX(hoverIndex)} y1={padTop - 8} x2={pointX(hoverIndex)} y2={height - padBottom} stroke="#0788ff" strokeDasharray="3 4" opacity="0.45" /> : null}
+          {count === 0 ? <text x={width / 2} y={height / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.5">{zh ? '暂无数据' : 'No data'}</text> : null}
+          {visible.map((entry) => {
+            const axis = entry.axis ?? 'left'
+            const points = labels.map((_, index) => ({ x: pointX(index), y: pointY(entry.values[index] ?? 0, axis) }))
+            const line = smoothChartPath(points)
+            const last = points[points.length - 1]
+            const first = points[0]
+            const area = last && first ? `${line} L ${last.x} ${height - padBottom} L ${first.x} ${height - padBottom} Z` : ''
+            return (
+              <g key={entry.name} style={{ transition: 'opacity .2s ease' }} opacity={dimmed(entry.name) ? 0.22 : 1}>
+                {area ? <motion.path d={area} fill={`url(#${gradientId}-${entry.name})`} initial={{ opacity: 0 }} animate={{ opacity: dimmed(entry.name) ? 0.1 : 1 }} transition={{ duration: 0.6, ease: 'easeOut' }} /> : null}
+                {line ? <motion.path d={line} fill="none" stroke={entry.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, ease: 'easeOut' }} /> : null}
+                {points.map((point, index) => (
+                  <circle
+                    key={index}
+                    cx={point.x}
+                    cy={point.y}
+                    r={hoverIndex === index ? 4.5 : 2.5}
+                    fill={entry.color}
+                    stroke="white"
+                    strokeWidth={hoverIndex === index ? 2 : 0}
+                    style={{ transition: 'r .15s ease' }}
+                  />
+                ))}
+                {count <= 8 ? points.map((point, index) => (
+                  <text key={`label-${index}`} x={point.x} y={point.y - 10} textAnchor="middle" fontSize="10" fill="currentColor" opacity={hoverIndex === null || hoverIndex === index ? 0.85 : 0.3}>
+                    {entry.values[index] ?? 0}
+                  </text>
+                )) : null}
+              </g>
+            )
+          })}
+          {labels.map((label, index) => {
+            const band = count > 1 ? (width - padX * 2) / (count - 1) : width
+            const x = Math.max(0, pointX(index) - band / 2)
+            return (
+              <g key={label}>
+                <text x={pointX(index)} y={height - 10} textAnchor="middle" fontSize="9" fill="currentColor" opacity={hoverIndex === index ? 0.95 : 0.6}>{label}</text>
+                <rect
+                  x={x}
+                  y={padTop - 12}
+                  width={band}
+                  height={height - padTop - padBottom + 24}
+                  fill="transparent"
+                  className={onSelect ? 'cursor-pointer' : undefined}
+                  onMouseEnter={() => setHoverIndex(index)}
+                  onClick={() => onSelect?.(label, index)}
+                />
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[10px] text-muted">
+        <span>{zh ? '左轴 / 右轴为对应序列刻度' : 'Left / right axes scale their series'}</span>
+        <span>{xLabel}{onSelect ? (zh ? ' · 点击图表下钻明细' : ' · Click to drill down') : ''}</span>
+      </div>
+    </Card>
+  )
 }
 
 function ActivityLineChart({ values, onSelect, zh }: { values: number[]; onSelect: (index: number) => void; zh: boolean }): JSX.Element {
@@ -272,27 +394,42 @@ export default function MyActivity(): JSX.Element {
       {stats && stats.diffsFailed > 0 ? <div role="status" className="text-sm text-danger">{zh ? `${stats.diffsLoaded} 个提交差异已加载，${stats.diffsFailed} 个获取失败；代码行数及文件统计不完整。` : `${stats.diffsLoaded} diffs loaded, ${stats.diffsFailed} failed; line and file statistics are incomplete.`}</div> : null}
 
       <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
-        {showMonthlyCommits ? <Card className="p-5">
-          <div className="mb-4 text-sm font-semibold text-canvas-fg">{zh ? '按月提交与分支' : 'Monthly commits and branches'}</div>
-          <ActivityChart labels={stats?.months.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '数量（次 / 个）' : 'Count'} onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month)} series={[
-            { name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.months.map((m) => m.commits) ?? [] },
-            { name: zh ? '分支' : 'Branches', color: 'bg-secondary', values: stats?.months.map((m) => m.branches) ?? [] }
-          ]} />
-        </Card> : null}
-        {showMonthlyLines ? <Card className="p-5">
-          <div className="mb-4 text-sm font-semibold text-canvas-fg">{zh ? '按月代码增删' : 'Monthly code changes'}</div>
-          <ActivityChart labels={stats?.monthlyLines.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '代码行数（行）' : 'Lines'} onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month && Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))} series={[
-            { name: zh ? '新增' : 'Added', color: 'bg-ok', values: stats?.monthlyLines.map((m) => m.added) ?? [] },
-            { name: zh ? '删除' : 'Removed', color: 'bg-danger', values: stats?.monthlyLines.map((m) => m.removed) ?? [] }
-          ]} />
-        </Card> : null}
+        {showMonthlyCommits ? <ActivityChart
+          title={zh ? '按月提交与分支' : 'Monthly commits and branches'}
+          zh={zh}
+          labels={stats?.months.map((m) => m.month) ?? []}
+          xLabel={zh ? '月份' : 'Month'}
+          yLabel={zh ? '数量（次 / 个）' : 'Count'}
+          onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month)}
+          series={[
+            { name: zh ? '提交' : 'Commits', color: 'rgb(var(--primary))', values: stats?.months.map((m) => m.commits) ?? [] },
+            { name: zh ? '分支' : 'Branches', color: 'rgb(var(--secondary))', values: stats?.months.map((m) => m.branches) ?? [] }
+          ]}
+        /> : null}
+        {showMonthlyLines ? <ActivityChart
+          title={zh ? '按月代码增删' : 'Monthly code changes'}
+          zh={zh}
+          labels={stats?.monthlyLines.map((m) => m.month) ?? []}
+          xLabel={zh ? '月份' : 'Month'}
+          yLabel={zh ? '代码行数（行）' : 'Lines'}
+          onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month && Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))}
+          series={[
+            { name: zh ? '新增' : 'Added', color: 'rgb(var(--ok))', values: stats?.monthlyLines.map((m) => m.added) ?? [] },
+            { name: zh ? '删除' : 'Removed', color: 'rgb(var(--danger))', values: stats?.monthlyLines.map((m) => m.removed) ?? [] }
+          ]}
+        /> : null}
       </div>
 
       <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
-        {showWeekdays ? <Card className="p-5">
-          <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '按星期分布' : 'By weekday'}</div>
-          <ActivityChart labels={zh ? WEEKDAY_LABELS : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']} xLabel={zh ? '星期（本地时间）' : 'Weekday (local time)'} yLabel={zh ? '提交次数' : 'Commits'} onSelect={(_, index) => showCommits((commit) => new Date(commit.committedAt).getDay() === index)} series={[{ name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.weekdays ?? [] }]} />
-        </Card> : null}
+        {showWeekdays ? <ActivityChart
+          title={zh ? '按星期分布' : 'By weekday'}
+          zh={zh}
+          labels={zh ? WEEKDAY_LABELS : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']}
+          xLabel={zh ? '星期（本地时间）' : 'Weekday (local time)'}
+          yLabel={zh ? '提交次数' : 'Commits'}
+          onSelect={(_, index) => showCommits((commit) => new Date(commit.committedAt).getDay() === index)}
+          series={[{ name: zh ? '提交' : 'Commits', color: 'rgb(var(--primary))', values: stats?.weekdays ?? [] }]}
+        /> : null}
         {showHours ? <Card className="p-4">
           <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '按小时提交趋势' : 'Commit activity by hour'}</div>
           <ActivityLineChart values={stats?.hours ?? []} zh={zh} onSelect={(hour) => showCommits((commit) => new Date(commit.committedAt).getHours() === hour)} />
