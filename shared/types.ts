@@ -181,7 +181,7 @@ export interface PersonalMergeRequest {
   repositoryName: string
   source: Exclude<RepositorySource, 'local'>
   webUrl?: string
-  role: 'author' | 'reviewer'
+  role: 'author' | 'reviewer' | 'pending-reviewer'
 }
 
 export interface PersonalRepositoryStats {
@@ -261,6 +261,44 @@ export interface PersonalActivity {
     diffStatus: 'loaded' | 'failed'
     files: PersonalCommitFile[]
   }>
+}
+
+export interface PersonalAiConfig {
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+}
+
+export interface PersonalAiConfigDraft {
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
+export interface PersonalAiMessage {
+  id?: string
+  role: 'user' | 'assistant'
+  content: string
+  status?: 'complete' | 'running' | 'failed'
+  createdAt?: string
+}
+
+export interface PersonalAiConversation {
+  id: string
+  title: string
+  status: 'idle' | 'running' | 'failed'
+  updatedAt: string
+  createdAt: string
+}
+
+export interface PersonalAiTask {
+  id: string
+  conversationId: string | null
+  kind: 'chat'
+  status: 'running' | 'complete' | 'failed'
+  error: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CachedPersonalActivity {
@@ -768,6 +806,15 @@ export interface BranchApi {
   changePassword(newPassword: string): Promise<boolean>
   getMyActivity(months?: number): Promise<PersonalActivity>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
+  getPersonalAiConfig(): Promise<PersonalAiConfig>
+  savePersonalAiConfig(config: PersonalAiConfigDraft): Promise<PersonalAiConfig>
+  testPersonalAiConnection(): Promise<{ ok: boolean; message: string }>
+  listPersonalAiConversations(): Promise<PersonalAiConversation[]>
+  createPersonalAiConversation(): Promise<PersonalAiConversation>
+  deletePersonalAiConversation(id: string): Promise<void>
+  listPersonalAiMessages(conversationId: string): Promise<PersonalAiMessage[]>
+  startPersonalAiChat(conversationId: string, question: string, months: number): Promise<PersonalAiTask>
+  getPersonalAiTask(id: string): Promise<PersonalAiTask | null>
   onScanProgress(callback: (progress: ScanProgress) => void): () => void
   onNavigate(callback: (route: string) => void): () => void
 }

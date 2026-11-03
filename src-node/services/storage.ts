@@ -91,6 +91,46 @@ CREATE TABLE IF NOT EXISTS user_activity_cache (
   UNIQUE(email, repository_id, kind)
 );
 
+CREATE TABLE IF NOT EXISTS user_ai_config (
+  user_key TEXT PRIMARY KEY,
+  base_url TEXT NOT NULL,
+  model TEXT NOT NULL,
+  api_key_encrypted TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS user_ai_conversations (
+  id TEXT PRIMARY KEY,
+  user_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'idle',
+  updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_conversations_owner ON user_ai_conversations(user_key, updated_at);
+
+CREATE TABLE IF NOT EXISTS user_ai_messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  user_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'complete',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_messages_conversation ON user_ai_messages(user_key, conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS user_ai_tasks (
+  id TEXT PRIMARY KEY,
+  user_key TEXT NOT NULL,
+  conversation_id TEXT,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_tasks_owner ON user_ai_tasks(user_key, updated_at);
+
 CREATE TABLE IF NOT EXISTS monitoring_rules (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL DEFAULT 1,

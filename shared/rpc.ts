@@ -79,7 +79,12 @@ export const EXPOSED_METHODS = [
   'getSession',
   'changePassword',
   'getMyActivity',
-  'getCommitFile'
+  'getCommitFile',
+  'getPersonalAiConfig',
+  'savePersonalAiConfig',
+  'testPersonalAiConnection',
+  'listPersonalAiConversations', 'createPersonalAiConversation', 'deletePersonalAiConversation',
+  'listPersonalAiMessages', 'startPersonalAiChat', 'getPersonalAiTask'
 ] as const
 
 export type ExposedMethod = (typeof EXPOSED_METHODS)[number]

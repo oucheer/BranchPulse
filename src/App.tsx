@@ -23,6 +23,8 @@ import Email from './pages/Email'
 import Login from './pages/Login'
 import MyActivity from './pages/MyActivity'
 import CommitDetails from './pages/CommitDetails'
+import PersonalAi from './pages/PersonalAi'
+import MyTimeline from './pages/MyTimeline'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -41,6 +43,8 @@ const pages = [
   { path: '/settings', element: <Settings /> },
   { path: '/email', element: <Email /> },
   { path: '/my-activity', element: <MyActivity /> },
+  { path: '/my-timeline', element: <MyTimeline /> },
+  { path: '/my-ai', element: <PersonalAi /> },
   { path: '/my-activity/commit/:repositoryId/:sha', element: <CommitDetails /> },
   { path: '/login', element: <Login /> }
 ]
@@ -107,7 +111,7 @@ export default function App(): JSX.Element {
       const key = `gitmanager:last-route:${session.email.toLowerCase()}:${session.source ?? ''}:${session.accountId ?? session.username.toLowerCase()}`
       const saved = localStorage.getItem(key)
       const valid = saved !== null && pages.some((page) => page.path === saved && page.path !== '/login'
-        && !(role === 'admin' && page.path === '/my-activity'))
+        && !(role === 'admin' && ['/my-activity', '/my-timeline', '/my-ai'].includes(page.path)))
       if (valid && saved !== '/') navigate(saved, { replace: true })
     } catch { /* storage may be unavailable */ }
   }, [session, ready, location.pathname, navigate, role])
@@ -226,7 +230,7 @@ export default function App(): JSX.Element {
     return <Navigate to="/" replace />
   }
 
-  if (role === 'admin' && (location.pathname === '/my-activity' || location.pathname.startsWith('/my-activity/commit/'))) {
+  if (role === 'admin' && (location.pathname === '/my-activity' || location.pathname.startsWith('/my-activity/commit/') || location.pathname === '/my-timeline' || location.pathname === '/my-ai')) {
     return <Navigate to="/" replace />
   }
 

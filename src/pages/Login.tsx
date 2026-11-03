@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { GitBranch, LogIn, Shield, User } from 'lucide-react'
+import { GitBranch, LogIn, Shield, User, ArrowRight } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { Card } from '../components/ui'
 
@@ -30,21 +30,19 @@ export default function Login(): JSX.Element {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-canvas px-4">
-      <Card className="w-full max-w-sm p-6">
-        <div className="mb-5 flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-gradient-to-br from-primary to-secondary">
-            <GitBranch size={18} className="text-white" />
-          </div>
-          <div className="space-y-3">
-            <div className="text-base font-bold text-canvas-fg">GitManager</div>
-            <div className="text-xs text-muted">{zh ? '请选择身份登录' : 'Sign in to continue'}</div>
-          </div>
+    <div className="login-scene relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-4 py-8">
+      <div className="login-glow login-glow-one" /><div className="login-glow login-glow-two" />
+      <Card className="login-panel relative z-10 w-full max-w-md p-7 sm:p-9">
+        <div className="mb-7 flex items-center gap-3">
+          <div className="login-mark flex h-11 w-11 items-center justify-center rounded-xl"><GitBranch size={21} className="text-white" /></div>
+          <div><div className="text-lg font-bold text-canvas-fg">GitManager</div><div className="mt-1 text-xs text-muted">{zh ? '统一查看代码协作与研发活动' : 'Your engineering activity workspace'}</div></div>
         </div>
+        <h1 className="mb-1 text-xl font-semibold text-canvas-fg">{zh ? '欢迎回来' : 'Welcome back'}</h1>
+        <p className="mb-6 text-sm text-muted">{zh ? '登录以继续使用 GitManager' : 'Sign in to continue to GitManager'}</p>
 
         <div className="mb-4 grid grid-cols-2 gap-2">
           <button
-            className={`flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+            className={`flex items-center justify-center gap-1.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors ${
               mode === 'admin' ? 'border-primary/60 bg-primary/10 text-primary' : 'border-line bg-elevated text-muted hover:text-canvas-fg'
             }`}
             onClick={() => setMode('admin')}
@@ -86,8 +84,8 @@ export default function Login(): JSX.Element {
           </div>
         )}
 
-        <button className="btn btn-primary mt-5 w-full" disabled={busy} onClick={() => void submit()}>
-          <LogIn size={14} /> {busy ? (zh ? '登录中…' : 'Signing in…') : (zh ? '登录' : 'Sign in')}
+        <button className="login-submit btn btn-primary mt-6 w-full justify-between" disabled={busy} onClick={() => void submit()}>
+          <span className="flex items-center gap-2"><LogIn size={15} />{busy ? (zh ? '登录中…' : 'Signing in…') : (zh ? '登录' : 'Sign in')}</span><ArrowRight size={16} />
         </button>
       </Card>
     </div>

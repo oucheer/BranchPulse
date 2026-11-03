@@ -182,6 +182,14 @@ export function encryptSecret(value: string): string {
   return plainEncode(value)
 }
 
+export function isSecretEncryptionAvailable(): boolean {
+  try {
+    return backend.isAvailable()
+  } catch {
+    return false
+  }
+}
+
 export function decryptSecret(value: string | undefined | null): string {
   if (!value) return ''
   if (value.startsWith(PLAIN_PREFIX)) return plainDecode(value)

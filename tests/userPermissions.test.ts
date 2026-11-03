@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { bootstrap, type BootstrapResult } from '../server/services'
 import { createServer, type GitManagerServer } from '../server/http'
+import { createDefaultSecretBackend, registerSecretBackend } from '../src-node/utils/secrets'
 
 let workDir: string
 let previousUserData: string | undefined
@@ -16,6 +17,7 @@ beforeEach(async () => {
   previousUserData = process.env.GITMANAGER_USER_DATA_DIR
   process.env.GITMANAGER_USER_DATA_DIR = path.join(workDir, 'profile')
   runtime = await bootstrap()
+  registerSecretBackend({ isAvailable: () => true, encrypt: (value) => `test:${value}`, decrypt: (value) => value.replace(/^test:/, '') })
   appServer = createServer({ api: runtime.api })
   const address = await appServer.listen(0, '127.0.0.1')
   base = `http://127.0.0.1:${address.port}`
@@ -26,6 +28,7 @@ afterEach(async () => {
   appServer = null
   runtime?.shutdown()
   runtime = null
+  registerSecretBackend(createDefaultSecretBackend())
   if (previousUserData === undefined) delete process.env.GITMANAGER_USER_DATA_DIR
   else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   fs.rmSync(workDir, { recursive: true, force: true })
@@ -103,6 +106,66 @@ describe('user permissions', () => {
     expect(read.status).toBe(200)
     const write = await rpcAsUser(credential, 'addWhitelist', [{ repositoryId: null, pattern: 'main', type: 'glob' }])
     expect(write.status).toBe(403)
+  })
+
+  it('lets a normal user save and use personal AI configuration without granting admin writes', async () => {
+    const { token } = await loginAs('user')
+    const saved = await rpc(token, 'savePersonalAiConfig', [{ baseUrl: 'https://ai.example/v1', model: 'test-model', apiKey: 'test-key' }])
+    expect(saved.status).toBe(200)
+    expect(saved.body).toHaveProperty('result')
+    const readBack = await rpc(token, 'getPersonalAiConfig')
+    expect(readBack.status).toBe(200)
+    expect(readBack.body.result).toEqual({ baseUrl: 'https://ai.example/v1', model: 'test-model', hasApiKey: true })
+    const created = await rpc(token, 'createPersonalAiConversation')
+    expect(created.status).toBe(200)
+    expect(created.body).toHaveProperty('result')
+    const conversation = created.body.result as { id: string }
+    if (!runtime) throw new Error('Test services were not initialized.')
+    runtime.services.userActivity.getActivity = async () => ({
+      commits: [], mergeRequests: [], commitDetails: [], branches: [],
+      stats: { activeDays: 0, commitCount: 0, mrAuthored: 0, mrReviewed: 0, byRepository: [], diffsLoaded: 0, diffsFailed: 0 }
+    } as never)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input, init) => String(input).startsWith('https://ai.example/')
+      ? new Response(JSON.stringify({ choices: [{ message: { content: '测试回答' } }] }), { status: 200 })
+      : originalFetch(input, init)
+    try {
+      const started = await rpc(token, 'startPersonalAiChat', [conversation.id, '我做了什么？', 1])
+      expect(started.status, JSON.stringify(started.body)).toBe(200)
+      const task = started.body.result as { id?: string } | null
+      expect(task, JSON.stringify(started.body)).toBeTruthy()
+      if (!task?.id) throw new Error(`AI chat did not return a task: ${JSON.stringify(started.body)}`)
+      expect(task.id).toBeTruthy()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      const status = await rpc(token, 'getPersonalAiTask', [task.id])
+      expect((status.body.result as { status: string }).status).toBe('complete')
+      const messages = await rpc(token, 'listPersonalAiMessages', [conversation.id])
+      expect(messages.status).toBe(200)
+      expect((messages.body.result as Array<{ content: string }>).map((message) => message.content)).toContain('测试回答')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    const stillForbidden = await rpc(token, 'saveNamingRule')
+    expect(stillForbidden.status).toBe(403)
+  })
+
+  it('keeps user identity isolated for overlapping requests', async () => {
+    const first = await loginAs('user')
+    runtime?.services.storage.insert('user_sessions', {
+      token: 'second-user-token', role: 'user', email: 'other@example.com', account_id: 'second',
+      created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60_000).toISOString()
+    })
+    runtime?.services.storage.save()
+    const [one, two] = await Promise.all([
+      rpc(first.token, 'createPersonalAiConversation'),
+      rpc('second-user-token', 'createPersonalAiConversation')
+    ])
+    expect(one.status).toBe(200)
+    expect(two.status).toBe(200)
+    const firstList = await rpc(first.token, 'listPersonalAiConversations')
+    const secondList = await rpc('second-user-token', 'listPersonalAiConversations')
+    expect((firstList.body.result as unknown[])).toHaveLength(1)
+    expect((secondList.body.result as unknown[])).toHaveLength(1)
   })
 
   it('lets an admin call a write method', async () => {

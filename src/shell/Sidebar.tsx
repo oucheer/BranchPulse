@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Bell, CalendarClock, FileBarChart, FolderGit2, Mail,
-  GitBranch, HardDrive, LayoutDashboard, LogOut, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge, User
+  GitBranch, GitCommitHorizontal, HardDrive, LayoutDashboard, LogOut, ScrollText, Settings, ShieldCheck, Sparkles, Tags, GitMerge, User
 } from 'lucide-react'
 import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
@@ -33,9 +33,17 @@ const sections: NavSection[] = [
     titleKey: 'navWorkspace',
     items: [
       { to: '/', label: 'dashboard', icon: LayoutDashboard, end: true },
-      { to: '/my-activity', label: 'myActivity', icon: User },
       { to: '/repositories', label: 'repositories', icon: FolderGit2 },
       { to: '/branches', label: 'branches', icon: GitBranch }
+    ]
+  },
+  {
+    title: 'PERSONAL',
+    titleKey: 'navPersonal',
+    items: [
+      { to: '/my-activity', label: 'myActivity', icon: User },
+      { to: '/my-timeline', label: '我的研发时间线', icon: GitCommitHorizontal },
+      { to: '/my-ai', label: 'AI研发助手', icon: Sparkles }
     ]
   },
   {
@@ -180,7 +188,7 @@ export default function Sidebar(): JSX.Element {
             </div>
             <div className="space-y-0.5">
               {section.items.filter((item) => {
-                if (role === 'admin' && item.to === '/my-activity') return false
+                if (role === 'admin' && ['/my-activity', '/my-timeline', '/my-ai'].includes(item.to)) return false
                 // 普通用户只读：这些页面的写操作按钮已经隐藏，入口也一并收起。
                 if (role === 'user' && ['/monitoring', '/naming-rules', '/whitelist', '/backup', '/email', '/audit'].includes(item.to)) return false
                 return true

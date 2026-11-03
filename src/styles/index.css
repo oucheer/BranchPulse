@@ -195,6 +195,41 @@ body {
   transition: box-shadow var(--motion-normal) var(--ease-out);
 }
 
+.login-scene::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .22;
+  background-image: linear-gradient(rgb(var(--line) / .22) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--line) / .22) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at center, black 10%, transparent 75%);
+}
+.login-glow {
+  position: absolute;
+  width: 24rem;
+  height: 24rem;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: .2;
+  pointer-events: none;
+  animation: login-float 10s ease-in-out infinite alternate;
+}
+.login-glow-one { top: -8rem; left: calc(50% - 24rem); background: #1683d8; }
+.login-glow-two { right: calc(50% - 25rem); bottom: -11rem; background: #46b59a; animation-delay: -4s; }
+.login-panel {
+  border-color: rgb(var(--line) / .85);
+  background: rgb(var(--surface) / .88);
+  box-shadow: 0 24px 90px rgb(0 0 0 / .22), 0 0 0 1px rgb(255 255 255 / .04) inset;
+  backdrop-filter: blur(22px);
+  animation: login-enter 500ms cubic-bezier(.2,.75,.25,1) both;
+}
+.login-mark { background: linear-gradient(135deg, #1683d8, #26a981); box-shadow: 0 8px 24px rgb(22 131 216 / .3); }
+.login-submit { transition: transform 180ms ease, box-shadow 180ms ease; }
+.login-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 24px rgb(22 131 216 / .25); }
+@keyframes login-float { from { transform: translate3d(0, -8px, 0) scale(.96); } to { transform: translate3d(22px, 18px, 0) scale(1.06); } }
+@keyframes login-enter { from { opacity: 0; transform: translateY(12px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

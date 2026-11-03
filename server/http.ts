@@ -4,7 +4,7 @@ import path from 'node:path'
 import { URL } from 'node:url'
 import type { ScanProgress, UserSession } from '@shared/types'
 import type { GitManagerApi } from '../src-node/api'
-import { readReportFile, listFoldersForWeb } from '../src-node/api'
+import { readReportFile, listFoldersForWeb, runWithApiSession } from '../src-node/api'
 import { logger } from '../src-node/utils/logger'
 import { dataDir, reportsDir, userDataDir } from '../src-node/utils/paths'
 import { invoke } from './rpc'
@@ -20,7 +20,10 @@ const USER_ALLOWED_METHODS = new Set([
   'calendarRuns', 'listNotifications', 'listReports', 'exportReport',
   'listReportSchedules', 'listBackups', 'listAudit', 'getSettings',
   'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity',
-  'getMyActivity', 'getCommitFile'
+  'getCommitFile', 'getPersonalAiConfig', 'savePersonalAiConfig',
+  'testPersonalAiConnection',
+  'listPersonalAiConversations', 'createPersonalAiConversation', 'deletePersonalAiConversation',
+  'listPersonalAiMessages', 'startPersonalAiChat', 'getPersonalAiTask'
 ])
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -153,7 +156,7 @@ export function createServer(options: ServerOptions): GitManagerServer {
       sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
       return
     }
-    const { status, body } = await invoke(api, method, args)
+    const { status, body } = await runWithApiSession(session, () => invoke(api, method, args))
     sendJson(res, status, body)
   }
 

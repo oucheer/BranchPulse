@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
 import fs from 'node:fs'
 import type {
@@ -56,6 +57,7 @@ import type { BackupService } from './services/backup'
 import type { ConfigPortService } from './services/configPort'
 import type { UserService, GitLabIdentity } from './services/user'
 import type { UserActivityService } from './services/userActivity'
+import type { PersonalAiService } from './services/personalAi'
 import { dataDir, reportsDir, userDataDir, ensureDir } from './utils/paths'
 import { listFolders, type FolderListing } from './utils/folders'
 import { openPath } from './utils/open'
@@ -80,6 +82,7 @@ export interface AppServices {
   configPort: ConfigPortService
   users: UserService
   userActivity: UserActivityService
+  personalAi: PersonalAiService
 }
 
 export interface GitManagerApiOptions {
@@ -187,6 +190,27 @@ export interface GitManagerApi {
   changePassword(newPassword: string): Promise<boolean>
   getMyActivity(months?: number): Promise<PersonalActivity>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
+  getPersonalAiConfig(): Promise<ReturnType<PersonalAiService['getConfig']>>
+  savePersonalAiConfig(config: import('@shared/types').PersonalAiConfigDraft): Promise<ReturnType<PersonalAiService['saveConfig']>>
+  testPersonalAiConnection(): ReturnType<PersonalAiService['testConnection']>
+  listPersonalAiConversations(): Promise<ReturnType<PersonalAiService['listConversations']>>
+  createPersonalAiConversation(): Promise<ReturnType<PersonalAiService['createConversation']>>
+  deletePersonalAiConversation(id: string): Promise<void>
+  listPersonalAiMessages(conversationId: string): Promise<ReturnType<PersonalAiService['listMessages']>>
+  startPersonalAiChat(conversationId: string, question: string, months: number): Promise<ReturnType<PersonalAiService['startChat']>>
+  getPersonalAiTask(id: string): Promise<ReturnType<PersonalAiService['getTask']>>
+}
+
+const requestSession = new AsyncLocalStorage<UserSession | null>()
+let fallbackSession: UserSession | null = null
+
+export function runWithApiSession<T>(session: UserSession | null, callback: () => T): T {
+  return requestSession.run(session, callback)
+}
+
+function activeSession(): UserSession | null {
+  const scoped = requestSession.getStore()
+  return scoped === undefined ? fallbackSession : scoped
 }
 
 function dateStamp(): string {
@@ -227,14 +251,13 @@ function scanRunFromRow(row: Record<string, unknown>, repositoryIds?: string[]):
 }
 
 export function createGitManagerApi(services: AppServices, options: GitManagerApiOptions): GitManagerApi {
-  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort, users, userActivity } = services
+  const { storage, gitlab, repository, branch, naming, protection, monitoring, email, scheduler, report, reportSchedules, groups, audit, settings, backup, configPort, users, userActivity, personalAi } = services
 
   let progressSink = options.onProgress ?? ((): void => {})
-  // Bearer tokens arrive per request; `currentSession` only carries the role and
-  // email through the RPC call that is executing right now.
-  let currentSession: import('@shared/types').UserSession | null = null
+  // Web RPCs execute in an async-local session so concurrent users cannot share identity.
   function bindSession(session: UserSession | null): void {
-    currentSession = session
+    if (requestSession.getStore() !== undefined) return
+    fallbackSession = session
   }
 
   function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {
@@ -612,7 +635,8 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     getAppVersion: async () => options.appVersion(),
     saveSettings: async (s) => {
       try {
-        if (currentSession && currentSession.role !== 'admin') {
+        const session = activeSession()
+        if (session && session.role !== 'admin') {
           throw new Error('普通用户没有修改设置的权限。')
         }
         const saved = settings.save(s)
@@ -733,24 +757,72 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     },
 
     logout: async () => {
-      const session = currentSession
+      const session = activeSession()
       if (session) audit.record('user_logout', { role: session.role, email: session.email || session.displayName })
       bindSession(null)
       return true
     },
 
-    getSession: async () => currentSession,
+    getSession: async () => activeSession(),
 
     changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
 
     getMyActivity: async (months: number = 6) => {
-      if (!currentSession) throw new Error('请先登录。')
-      return userActivity.getActivity(currentSession, months)
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return userActivity.getActivity(session, months)
     },
 
     getCommitFile: async (repositoryId: string, sha: string, path: string) => {
-      if (!currentSession) throw new Error('请先登录。')
-      return userActivity.getCommitFile(currentSession, repositoryId, sha, path)
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return userActivity.getCommitFile(session, repositoryId, sha, path)
+    },
+
+    getPersonalAiConfig: async () => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.getConfig(session)
+    },
+    savePersonalAiConfig: async (config) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.saveConfig(session, config)
+    },
+    testPersonalAiConnection: async () => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.testConnection(session)
+    },
+    listPersonalAiConversations: async () => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.listConversations(session)
+    },
+    createPersonalAiConversation: async () => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.createConversation(session)
+    },
+    deletePersonalAiConversation: async (id) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      personalAi.deleteConversation(session, id)
+    },
+    listPersonalAiMessages: async (id) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.listMessages(session, id)
+    },
+    startPersonalAiChat: async (conversationId, question, months) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.startChat(session, conversationId, question, months)
+    },
+    getPersonalAiTask: async (id) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      return personalAi.getTask(session, id)
     },
 
   }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, CalendarDays, FileCode, FileDiff, Flame, GitBranch, GitMerge,
-  GitCommitHorizontal, Users
+  Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitCommitHorizontal, FileText
 } from 'lucide-react'
 import type { PersonalActivity } from '@shared/types'
 import { readMyActivityMonths, saveMyActivityMonths, useAppStore } from '../stores/appStore'
@@ -11,8 +10,74 @@ import { Link, useNavigate } from 'react-router-dom'
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee', local: 'Local' } as const
 
-function ActivityChart({ labels, series, xLabel, yLabel }: {
-  labels: string[]; series: Array<{ name: string; values: number[]; color: string }>; xLabel: string; yLabel: string
+function downloadReview(name: string, type: string, content: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
+
+function buildReview(data: PersonalActivity, months: number, zh: boolean): string {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() - months + 1, 1)
+  const range = `${start.toLocaleDateString()} - ${now.toLocaleDateString()}`
+  const topPaths = data.stats.topFiles.slice(0, 8)
+  const projects = data.stats.byRepository
+  const commitLines = data.commits.slice(0, 30).map((commit) => `- ${commit.committedAt.slice(0, 10)} | ${commit.repositoryName} | ${commit.subject}`)
+  const mrLines = data.mergeRequests.slice(0, 30).map((mr) => `- ${mr.repositoryName} | ${mr.title} | ${mr.state} | ${mr.role}`)
+  const projectLines = projects.map((repo) => `- ${repo.repositoryName}: ${repo.commits} commits, ${repo.activeDays} active days, +${repo.added}/-${repo.removed} lines, ${repo.mrAuthored} authored MRs, ${repo.mrReviewed} reviewed MRs`)
+  const fileLines = topPaths.map((file) => `- ${file.path}: ${file.commits} commits, +${file.added}/-${file.removed}`)
+  const lines = [
+    `# ${zh ? '个人研发活动复盘' : 'Personal development review'}`, '',
+    `> ${zh ? '统计范围' : 'Range'}: ${range} (${months} ${zh ? '个月' : 'months'})`, '',
+    `## ${zh ? '工作概览（数据事实）' : 'Overview (verified data)'}`,
+    `- ${zh ? '提交' : 'Commits'}: ${data.commits.length}`,
+    `- ${zh ? '活跃天数' : 'Active days'}: ${data.stats.activeDays}`,
+    `- ${zh ? '合并请求' : 'Merge requests'}: ${data.mergeRequests.length} (${zh ? '发起' : 'authored'} ${data.stats.mrAuthored}, ${zh ? '评审参与' : 'reviewed'} ${data.stats.mrReviewed})`,
+    `- ${zh ? '代码变化' : 'Code changes'}: +${data.stats.linesAdded} / -${data.stats.linesRemoved} (${zh ? '仅为变更规模，不代表工作量' : 'change volume only, not effort'})`,
+    `- ${zh ? '覆盖仓库' : 'Repositories'}: ${data.stats.repositoryCount}`, '',
+    `## ${zh ? '按项目成果（数据事实）' : 'By project (verified data)'}`,
+    ...(projectLines.length ? projectLines : [`- ${zh ? '该时间范围无仓库活动记录' : 'No repository activity in this range'}`]), '',
+    `## ${zh ? '主要修改文件（数据事实）' : 'Files changed (verified data)'}`,
+    ...(fileLines.length ? fileLines : [`- ${zh ? '文件级差异数据未获取到' : 'File-level diff data unavailable'}`]), '',
+    `## ${zh ? '提交记录' : 'Commit records'}`,
+    ...(commitLines.length ? commitLines : [`- ${zh ? '无提交记录' : 'No commits'}`]), '',
+    `## ${zh ? '合并请求记录' : 'Merge request records'}`,
+    ...(mrLines.length ? mrLines : [`- ${zh ? '无合并请求记录' : 'No merge requests'}`]), '',
+    `## ${zh ? '尚未完成事项' : 'Open work'}`,
+    `- ${zh ? 'Git 活动数据不能可靠判断事项是否完成；请结合未合并 MR 与项目计划人工确认。' : 'Git activity alone cannot establish completion; review open MRs and project plans.'}`, '',
+    `## ${zh ? '工作内容归纳（基于提交描述的整理，不是独立验证的事实）' : 'Narrative (organized from commit descriptions, not independently verified)'}`,
+    `- ${data.commits.slice(0, 12).map((commit) => commit.subject).filter(Boolean).join('；') || (zh ? '暂无足够提交描述供归纳。' : 'Not enough commit descriptions to summarize.')}`,
+    '', `> ${zh ? '本报告直接汇总已获取的 Git 记录；代码行数不用于推断投入或工作量。' : 'This report summarizes fetched Git records; line counts are not used as a proxy for effort.'}`
+  ]
+  return lines.join('\n')
+}
+
+function reviewHtml(markdown: string): string {
+  const html = markdown.split('\n').map((line) => {
+    if (line.startsWith('# ')) return `<h1>${escapeHtml(line.slice(2))}</h1>`
+    if (line.startsWith('## ')) return `<h2>${escapeHtml(line.slice(3))}</h2>`
+    if (line.startsWith('> ')) return `<blockquote>${escapeHtml(line.slice(2))}</blockquote>`
+    if (line.startsWith('- ')) return `<li>${escapeHtml(line.slice(2))}</li>`
+    return line ? `<p>${escapeHtml(line)}</p>` : ''
+  }).join('\n').replace(/(?:<li>.*<\/li>\n?)+/g, (list) => `<ul>${list}</ul>`)
+  return `<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>个人研发复盘</title><style>body{max-width:900px;margin:40px auto;padding:0 20px;font:16px/1.7 system-ui;color:#20242a}h1,h2{line-height:1.3}li{margin:.3em 0}blockquote{border-left:3px solid #1683d8;padding-left:12px;color:#555}</style><body>${html}</body></html>`
+}
+
+function localMonth(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function ActivityChart({ labels, series, xLabel, yLabel, onSelect }: {
+  labels: string[]; series: Array<{ name: string; values: number[]; color: string }>; xLabel: string; yLabel: string; onSelect?: (label: string, index: number) => void
 }): JSX.Element {
   const max = Math.max(1, ...series.flatMap((entry) => entry.values))
   return <div>
@@ -24,7 +89,7 @@ function ActivityChart({ labels, series, xLabel, yLabel }: {
       <div className="flex h-32 w-10 shrink-0 flex-col justify-between text-right text-[10px] text-muted"><span>{max}</span><span>{Math.round(max / 2)}</span><span>0</span></div>
       <div className="min-w-0 flex-1 overflow-x-auto">
         <div className="flex gap-2 border-b border-l border-line" style={{ minWidth: labels.length * 42 }}>
-          {labels.map((label, index) => <div key={label} className="min-w-0 flex-1">
+          {labels.map((label, index) => <button key={label} type="button" onClick={() => onSelect?.(label, index)} className="min-w-0 flex-1 border-0 bg-transparent p-0 text-center text-inherit" title={onSelect ? `查看 ${label} 明细` : undefined}>
             <div className="relative h-32">
               <div className="absolute inset-x-0 top-0 flex h-4 items-center justify-center gap-0.5 overflow-visible">
                 {series.map((entry) => {
@@ -41,12 +106,52 @@ function ActivityChart({ labels, series, xLabel, yLabel }: {
               })}
               </div>
             </div>
-          </div>)}
+          </button>)}
         </div>
         <div className="mt-1 flex gap-2" style={{ minWidth: labels.length * 42 }}>{labels.map((label) => <span key={label} className="flex-1 text-center text-[10px] text-muted">{label}</span>)}</div>
       </div>
     </div>
     <div className="mt-2 text-center text-xs text-muted">{xLabel}</div>
+  </div>
+}
+
+function ActivityLineChart({ values, onSelect, zh }: { values: number[]; onSelect: (index: number) => void; zh: boolean }): JSX.Element {
+  const [period, setPeriod] = useState<24 | 12 | 6>(24)
+  const [active, setActive] = useState<number | null>(null)
+  const start = 24 - period
+  const visible = values.slice(start)
+  const max = Math.max(1, ...visible)
+  const points = visible.map((value, index) => ({ x: 12 + (index / Math.max(visible.length - 1, 1)) * 276, y: 84 - (value / max) * 68, value }))
+  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')
+  const smooth = points.length > 2 ? points.reduce((d, point, index) => {
+    if (index === 0) return `M ${point.x} ${point.y}`
+    const previous = points[index - 1]!
+    const mid = (previous.x + point.x) / 2
+    return `${d} C ${mid} ${previous.y}, ${mid} ${point.y}, ${point.x} ${point.y}`
+  }, '') : path
+  const selected = active === null ? null : points[active]
+  return <div>
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="flex gap-1 rounded-md bg-elevated p-1">{([6, 12, 24] as const).map((hours) => <button key={hours} className={`rounded px-2 py-1 text-[10px] ${period === hours ? 'bg-surface text-canvas-fg shadow-sm' : 'text-muted'}`} onClick={() => { setPeriod(hours); setActive(null) }}>{hours === 24 ? (zh ? '24时' : '24h') : `${hours}${zh ? '时' : 'h'}`}</button>)}</div>
+      <span className="text-[10px] text-muted">{zh ? '提交次数' : 'Commits'}</span>
+    </div>
+    <div className="flex items-end justify-between">
+      <div><div className="text-2xl font-semibold text-canvas-fg">{selected?.value ?? visible.reduce((sum, value) => sum + value, 0)}<span className="ml-1 text-xs font-normal text-muted">{zh ? '次' : 'commits'}</span></div><div className="text-[10px] text-muted">{selected ? `${start + (active ?? 0)}:00` : (zh ? '所选时段总计' : 'Selected period total')}</div></div>
+      {selected ? <span className="text-xs text-primary">{selected.value} {zh ? '次提交' : 'commits'}</span> : null}
+    </div>
+    <div className="mt-3 h-24">
+      <svg viewBox="0 0 300 96" className="h-full w-full overflow-visible" role="img" aria-label={zh ? '按小时提交趋势' : 'Commits by hour'} onMouseLeave={() => setActive(null)}>
+        <defs><linearGradient id="activityLine" x1="0" x2="1" y1="0" y2="0"><stop offset="0%" stopColor="#79caff" /><stop offset="100%" stopColor="#0788ff" /></linearGradient></defs>
+        <line x1="10" y1="86" x2="290" y2="86" stroke="currentColor" opacity=".12" />
+        <path d={smooth} fill="none" stroke="url(#activityLine)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((point, index) => <g key={index} onMouseEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => onSelect(start + index)} tabIndex={0} role="button" aria-label={`${start + index}:00 ${point.value}`} className="cursor-pointer">
+          <circle cx={point.x} cy={point.y} r="8" fill="transparent" />
+          {active === index ? <><line x1={point.x} y1={point.y} x2={point.x} y2="88" stroke="#0788ff" strokeDasharray="3 3" opacity=".4" /><circle cx={point.x} cy={point.y} r="5" fill="#0788ff" stroke="white" strokeWidth="2" /></> : null}
+        </g>)}
+      </svg>
+    </div>
+    <div className="mt-1 flex justify-between text-[10px] text-muted"><span>{start}:00</span><span>{start + Math.floor(period / 2)}:00</span><span>23:00</span></div>
+    <div className="mt-1 text-center text-[10px] text-muted">{zh ? '本地时间，悬停查看并点击下钻' : 'Local time; hover to inspect and click to drill down'}</div>
   </div>
 }
 
@@ -63,6 +168,14 @@ export default function MyActivity(): JSX.Element {
   const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}`
   const data = activityCache[cacheKey] ?? null
   const [showBranches, setShowBranches] = useState(false)
+  const [mrTab, setMrTab] = useState<'authored' | 'pending' | 'participated' | 'done'>('authored')
+  const [drilldown, setDrilldown] = useState<'all' | 'commits' | 'mergeRequests' | null>(null)
+  const [review, setReview] = useState('')
+  const [commitFilter, setCommitFilter] = useState<(commit: PersonalActivity['commits'][number]) => boolean>(() => () => true)
+  const showCommits = (filter?: (commit: PersonalActivity['commits'][number]) => boolean): void => {
+    setCommitFilter(() => filter ?? (() => true))
+    setDrilldown('commits')
+  }
 
   useEffect(() => {
     void loadMyActivity(months).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))
@@ -80,6 +193,23 @@ export default function MyActivity(): JSX.Element {
     }
     return map
   }, [data])
+  const chartMonths = stats?.months ?? []
+  const chartMonthlyLines = stats?.monthlyLines ?? []
+  const chartWeekdays = stats?.weekdays ?? []
+  const chartHours = stats?.hours ?? []
+  const showMonthlyCommits = chartMonths.filter((m) => m.commits || m.branches).length >= 5
+  const showMonthlyLines = chartMonthlyLines.filter((m) => m.added || m.removed).length >= 5
+  const showWeekdays = chartWeekdays.filter((value) => value > 0).length >= 2
+  const showHours = chartHours.filter((value) => value > 0).length >= 5
+  const visibleMergeRequests = (data?.mergeRequests ?? []).filter((mr) => {
+    const done = ['merged', 'closed'].includes(mr.state.toLowerCase())
+    if (mrTab === 'done') return done
+    if (done) return false
+    if (mrTab === 'authored') return mr.role === 'author'
+    if (mrTab === 'pending') return mr.role === 'pending-reviewer'
+    return mr.role === 'reviewer'
+  })
+  const filteredCommits = (data?.commits ?? []).filter(commitFilter)
 
   return (
     <div className="space-y-6">
@@ -112,52 +242,26 @@ export default function MyActivity(): JSX.Element {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 2xl:grid-cols-8">
-        <Card className="p-3">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <button className="text-left" onClick={() => drilldown === 'commits' ? setDrilldown(null) : showCommits()} aria-label={zh ? '查看提交明细' : 'Show commit details'}><Card className={`p-3 ${drilldown === 'commits' ? 'border-primary' : ''}`}>
           <div className="flex items-center gap-2 text-xs text-muted"><GitCommitHorizontal size={14} /> {zh ? '提交次数' : 'Commits'}</div>
           <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.commitCount ?? 0}</div>
-        </Card>
-        <Card className="p-3">
-          <div className="text-xs text-muted">{zh ? '新增 / 删除行' : 'Added / Removed'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">
-            <span className="text-ok">{stats?.linesAdded ?? 0}</span>
-            <span className="mx-1 text-muted">/</span>
-            <span className="text-danger">{stats?.linesRemoved ?? 0}</span>
-          </div>
-        </Card>
-        <Card className="p-3">
+        </Card></button>
+        <button className="text-left" onClick={() => showCommits()} aria-label={zh ? '查看提交明细' : 'Show commits'}><Card className="p-3">
           <div className="flex items-center gap-2 text-xs text-muted"><CalendarDays size={14} /> {zh ? '活跃天数' : 'Active days'}</div>
           <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.activeDays ?? 0}</div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 text-xs text-muted"><Flame size={14} /> {zh ? '当前 / 最长连续' : 'Current / Longest streak'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">
-            {stats?.currentStreak ?? 0}
-            <span className="mx-1 text-muted">/</span>
-            {stats?.longestStreak ?? 0}
-          </div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 text-xs text-muted"><GitBranch size={14} /> {zh ? '创建分支' : 'Branches'}</div>
-          <button className="mt-1 text-xl font-bold text-primary underline decoration-dotted" onClick={() => setShowBranches(!showBranches)} aria-expanded={showBranches}>{stats?.branchCount ?? 0}</button>
-        </Card>
-        <Card className="p-3">
-          <div className="text-xs text-muted" title={zh ? '按当前分支命名规则统计：合规包含有效或已排除分支；不规范表示不符合规则。' : 'Based on branch naming rules: compliant includes valid or excluded branches; non-compliant branches do not match a rule.'}>{zh ? '命名合规 / 不规范' : 'Naming compliant / non-compliant'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">
-            <span className="text-ok">{stats?.validBranches ?? 0}</span>
-            <span className="mx-1 text-muted">/</span>
-            <span className="text-danger">{stats?.invalidBranches ?? 0}</span>
-          </div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 text-xs text-muted"><GitMerge size={14} /> {zh ? '发起 MR' : 'MRs authored'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.mrAuthored ?? 0}</div>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 text-xs text-muted"><Users size={14} /> {zh ? '参与评审' : 'MRs reviewed'}</div>
-          <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.mrReviewed ?? 0}</div>
-        </Card>
+        </Card></button>
+        <button className="text-left" onClick={() => showCommits((commit) => Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))}><Card className="p-3">
+          <div className="text-xs text-muted">{zh ? '代码净变化' : 'Net code change'}</div>
+          <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.netLines ?? 0}<span className="ml-1 text-xs font-normal text-muted">(+{stats?.linesAdded ?? 0} / -{stats?.linesRemoved ?? 0})</span></div>
+        </Card></button>
+        <button className="text-left" onClick={() => { setMrTab('authored'); setDrilldown(drilldown === 'mergeRequests' ? null : 'mergeRequests') }}><Card className={`p-3 ${drilldown === 'mergeRequests' ? 'border-primary' : ''}`}>
+          <div className="flex items-center gap-2 text-xs text-muted"><GitMerge size={14} /> {zh ? '合并请求数' : 'Merge requests'}</div>
+          <div className="mt-1 text-xl font-bold text-canvas-fg">{data?.mergeRequests.length ?? 0}</div>
+        </Card></button>
       </div>
+
+      <details className="border-b border-line pb-3 text-xs text-muted"><summary className="cursor-pointer font-medium text-canvas-fg">{zh ? '詳細分析指标' : 'Detailed analysis metrics'}</summary><div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4"><span>{zh ? '新增/删除' : 'Added/removed'}: <b className="text-ok">{stats?.linesAdded ?? 0}</b> / <b className="text-danger">{stats?.linesRemoved ?? 0}</b></span><span>{zh ? '当前/最长连续' : 'Streak current/longest'}: {stats?.currentStreak ?? 0} / {stats?.longestStreak ?? 0}</span><button className="text-left" onClick={() => setShowBranches(!showBranches)}>{zh ? '创建分支' : 'Branches'}: {stats?.branchCount ?? 0}</button><span>{zh ? '命名合规/不规范' : 'Naming compliant/invalid'}: {stats?.validBranches ?? 0} / {stats?.invalidBranches ?? 0}</span><span>{zh ? '参与评审 MR' : 'Reviewed MRs'}: {stats?.mrReviewed ?? 0}</span><span>{zh ? '活跃周' : 'Active weeks'}: {stats?.activeWeeks ?? 0}</span><span>{zh ? '每活跃日平均提交' : 'Commits per active day'}: {stats?.averageCommitsPerActiveDay ?? 0}</span><span>{zh ? '仓库数' : 'Repositories'}: {stats?.repositoryCount ?? 0}</span></div></details>
 
       {showBranches ? <section className="space-y-2 border-y border-line py-4">
         <h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>
@@ -167,40 +271,40 @@ export default function MyActivity(): JSX.Element {
       </section> : null}
       {stats && stats.diffsFailed > 0 ? <div role="status" className="text-sm text-danger">{zh ? `${stats.diffsLoaded} 个提交差异已加载，${stats.diffsFailed} 个获取失败；代码行数及文件统计不完整。` : `${stats.diffsLoaded} diffs loaded, ${stats.diffsFailed} failed; line and file statistics are incomplete.`}</div> : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="p-5">
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+        {showMonthlyCommits ? <Card className="p-5">
           <div className="mb-4 text-sm font-semibold text-canvas-fg">{zh ? '按月提交与分支' : 'Monthly commits and branches'}</div>
-          <ActivityChart labels={stats?.months.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '数量（次 / 个）' : 'Count'} series={[
+          <ActivityChart labels={stats?.months.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '数量（次 / 个）' : 'Count'} onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month)} series={[
             { name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.months.map((m) => m.commits) ?? [] },
             { name: zh ? '分支' : 'Branches', color: 'bg-secondary', values: stats?.months.map((m) => m.branches) ?? [] }
           ]} />
-        </Card>
-        <Card className="p-5">
+        </Card> : null}
+        {showMonthlyLines ? <Card className="p-5">
           <div className="mb-4 text-sm font-semibold text-canvas-fg">{zh ? '按月代码增删' : 'Monthly code changes'}</div>
-          <ActivityChart labels={stats?.monthlyLines.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '代码行数（行）' : 'Lines'} series={[
+          <ActivityChart labels={stats?.monthlyLines.map((m) => m.month) ?? []} xLabel={zh ? '月份' : 'Month'} yLabel={zh ? '代码行数（行）' : 'Lines'} onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month && Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))} series={[
             { name: zh ? '新增' : 'Added', color: 'bg-ok', values: stats?.monthlyLines.map((m) => m.added) ?? [] },
             { name: zh ? '删除' : 'Removed', color: 'bg-danger', values: stats?.monthlyLines.map((m) => m.removed) ?? [] }
           ]} />
-        </Card>
+        </Card> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="p-5">
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+        {showWeekdays ? <Card className="p-5">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '按星期分布' : 'By weekday'}</div>
-          <ActivityChart labels={zh ? WEEKDAY_LABELS : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']} xLabel={zh ? '星期（本地时间）' : 'Weekday (local time)'} yLabel={zh ? '提交次数' : 'Commits'} series={[{ name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.weekdays ?? [] }]} />
-        </Card>
-        <Card className="p-5">
-          <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '按小时分布' : 'By hour'}</div>
-          <ActivityChart labels={Array.from({ length: 24 }, (_, hour) => `${hour}:00`)} xLabel={zh ? '小时（本地时间）' : 'Hour (local time)'} yLabel={zh ? '提交次数' : 'Commits'} series={[{ name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.hours ?? [] }]} />
-        </Card>
+          <ActivityChart labels={zh ? WEEKDAY_LABELS : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']} xLabel={zh ? '星期（本地时间）' : 'Weekday (local time)'} yLabel={zh ? '提交次数' : 'Commits'} onSelect={(_, index) => showCommits((commit) => new Date(commit.committedAt).getDay() === index)} series={[{ name: zh ? '提交' : 'Commits', color: 'bg-primary', values: stats?.weekdays ?? [] }]} />
+        </Card> : null}
+        {showHours ? <Card className="p-4">
+          <div className="mb-2 text-sm font-semibold text-canvas-fg">{zh ? '按小时提交趋势' : 'Commit activity by hour'}</div>
+          <ActivityLineChart values={stats?.hours ?? []} zh={zh} onSelect={(hour) => showCommits((commit) => new Date(commit.committedAt).getHours() === hour)} />
+        </Card> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="p-5">
-          <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '我的提交' : 'My Commits'}</div>
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+        {drilldown !== 'mergeRequests' ? <Card className="p-5">
+          <div className="mb-3 flex items-center justify-between text-sm font-semibold text-canvas-fg"><span>{zh ? '我的提交' : 'My Commits'}{drilldown === 'commits' ? ` (${filteredCommits.length})` : ''}</span>{drilldown ? <button className="text-xs text-primary" onClick={() => { setDrilldown(null); setCommitFilter(() => () => true) }}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
           <div className="max-h-96 space-y-2 overflow-auto pr-1">
-            {data?.commits.length === 0 ? <div className="text-xs text-muted">{zh ? '暂无提交记录' : 'No commits yet'}</div> : null}
-            {data?.commits.map((c) => {
+            {filteredCommits.length === 0 ? <div className="text-xs text-muted">{zh ? '没有符合条件的提交' : 'No matching commits'}</div> : null}
+            {filteredCommits.map((c) => {
               const detail = detailBySha.get(`${c.repositoryId}:${c.sha}`)
               return (
                 <div key={`${c.repositoryId}-${c.sha}`} className="rounded-md border border-line bg-elevated px-3 py-2">
@@ -233,13 +337,16 @@ export default function MyActivity(): JSX.Element {
               )
             })}
           </div>
-        </Card>
+        </Card> : null}
 
-        <Card className="p-5">
-          <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '我的合并请求' : 'My Merge Requests'}</div>
-          <div className="max-h-96 space-y-2 overflow-auto pr-1">
-            {data?.mergeRequests.length === 0 ? <div className="text-xs text-muted">{zh ? '暂无合并请求' : 'No merge requests'}</div> : null}
-            {data?.mergeRequests.map((mr) => (
+        {drilldown !== 'commits' ? <Card className="self-start p-5">
+          <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '合并请求与评审中心' : 'Merge requests and reviews'}</div>
+          <div className="mb-3 flex flex-wrap gap-1 border-b border-line">{([
+            ['authored', zh ? '我发起的' : 'Authored'], ['pending', zh ? '待我评审的' : 'Pending my review'], ['participated', zh ? '我参与的（平台标记评审）' : 'Reviewed by me'], ['done', zh ? '已完成' : 'Completed']
+          ] as const).map(([key, label]) => <button key={key} className={`border-b-2 px-2 py-2 text-xs ${mrTab === key ? 'border-primary text-primary' : 'border-transparent text-muted'}`} onClick={() => setMrTab(key)}>{label}</button>)}</div>
+          <div className="space-y-2">
+            {visibleMergeRequests.length === 0 ? <div className="py-2 text-xs text-muted">{mrTab === 'pending' ? (zh ? '平台未提供明确的待评审人数据，暂时没有可确认的记录。' : 'The forge does not provide explicit pending-reviewer data.') : (zh ? '暂无合并请求' : 'No merge requests')}</div> : null}
+            {visibleMergeRequests.map((mr) => (
               <a key={`${mr.repositoryId}-${mr.id}-${mr.role}`} href={mr.webUrl ?? '#'} target="_blank" rel="noreferrer" className="block rounded-md border border-line bg-elevated px-3 py-2 hover:border-primary/40">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-canvas-fg">{mr.title}</span>
@@ -248,15 +355,15 @@ export default function MyActivity(): JSX.Element {
                 <div className="mt-1 flex items-center gap-2 text-xs text-muted">
                   <span className="truncate">{mr.repositoryName}</span>
                   <span>{mr.sourceBranch} → {mr.targetBranch}</span>
-                  <span>{mr.role === 'author' ? (zh ? '发起' : 'Author') : (zh ? '待审' : 'Reviewer')}</span>
+                  <span>{mr.role === 'author' ? (zh ? '发起' : 'Author') : (zh ? '参与评审' : 'Reviewer')}</span>
                 </div>
               </a>
             ))}
           </div>
-        </Card>
+        </Card> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         <Card className="p-5">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '年度复盘' : 'Yearly review'}</div>
           <div className="overflow-x-auto">
@@ -314,7 +421,7 @@ export default function MyActivity(): JSX.Element {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         <Card className="p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg"><FileCode size={14} /> {zh ? '文件类型分布' : 'File types'}</div>
           <div className="space-y-2">
@@ -344,6 +451,14 @@ export default function MyActivity(): JSX.Element {
           </div>
         </Card>
       </div>
+
+      <Card className="self-start p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="flex items-center gap-2 text-sm font-semibold text-canvas-fg"><FileText size={15} />{zh ? '研发复盘报告' : 'Development review report'}</h2><p className="mt-1 text-xs text-muted">{zh ? '直接整合当前已加载的个人活动数据；事实和描述性归纳分开展示，无需配置 AI。' : 'Built from loaded activity data; facts are separated from narrative and no AI setup is required.'}</p></div>
+          <div className="flex gap-2"><button className="btn btn-secondary" disabled={!data} onClick={() => setReview(buildReview(data!, months, zh))}>{zh ? '生成复盘' : 'Generate review'}</button>{review ? <><button className="btn btn-ghost" onClick={() => downloadReview('personal-development-review.md', 'text/markdown;charset=utf-8', review)}><Download size={14} />Markdown</button><button className="btn btn-ghost" onClick={() => downloadReview('personal-development-review.html', 'text/html;charset=utf-8', reviewHtml(review))}><Download size={14} />HTML</button></> : null}</div>
+        </div>
+        {review ? <pre className="mt-4 max-h-[520px] overflow-auto whitespace-pre-wrap border-t border-line pt-4 font-sans text-sm text-canvas-fg">{review}</pre> : null}
+      </Card>
 
     </div>
   )
