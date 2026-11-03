@@ -100,7 +100,7 @@ describe('PersonalAiService', () => {
     expect(rows.has('gitlab:1')).toBe(false)
   })
 
-  it('persists a private conversation and completes its background task with sourced activity facts', async () => {
+  it('persists a private conversation and completes its background task with read-only tools', async () => {
     service.saveConfig(user('one@example.com', '1'), { baseUrl: 'https://ai.example/v1', model: 'model-a', apiKey: 'secret-a' })
     activityService.getActivity.mockResolvedValue({
       commits: [{ subject: 'Kernel fix', committedAt: '2026-01-01', repositoryName: 'kernel', sha: 'omitted' }],
@@ -111,12 +111,15 @@ describe('PersonalAiService', () => {
     const conversation = service.createConversation(user('one@example.com', '1'))
     const task = service.startChat(user('one@example.com', '1'), conversation.id, '这周做了什么？', 1)
     await vi.waitFor(() => expect(service.getTask(user('one@example.com', '1'), task.id)?.status).toBe('complete'))
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { messages: Array<{ content: string }> }
-    const context = JSON.parse(body.messages[0]!.content.split('个人数据：')[1]!) as { facts: { commitCount: number }; fileChanges: Array<{ path: string }> }
-    expect(context.fileChanges.map((file) => file.path)).toContain('drivers/print.c')
-    expect(context.facts.commitCount).toBe(1)
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      messages: Array<{ content: string }>
+      tools?: Array<{ function?: { name?: string } }>
+    }
+    expect(body.tools?.map((tool) => tool.function?.name)).toContain('get_activity_files')
+    expect(body.tools?.map((tool) => tool.function?.name)).toContain('get_activity_stats')
     expect(JSON.stringify(body)).not.toContain('forge-token')
     expect(JSON.stringify(body)).not.toContain('omitted')
+    expect(JSON.stringify(body)).not.toContain('drivers/print.c')
     expect(service.listMessages(user('one@example.com', '1'), conversation.id)).toHaveLength(2)
     expect(() => service.listMessages(user('two@example.com', '2'), conversation.id)).toThrow('会话不存在')
   })

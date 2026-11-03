@@ -41,6 +41,57 @@ function reportPrompt(activity: PersonalActivity, range: { start: string; end: s
   return `请基于以下 Git 活动数据生成中文研发复盘，结构包含工作内容归纳、按项目成果、主要修改模块、代码变化趋势、待继续事项、可直接用于周报/月报的文字。必须明确区分“数据事实”和“根据提交描述推断”；不能将代码行数等同工作量。没有证据的未完成事项必须说明无法从数据确认，不得臆测。只读分析。\n数据：${JSON.stringify(facts)}`
 }
 
+const AGENT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_activity_stats',
+      description: 'Read the user\'s personal activity summary computed by GitManager: commits, active days, monthly/weekday/hourly distributions, repositories, branches and merge-request roles.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_activity_commits',
+      description: 'Read the user\'s personal commits within the selected activity range. Optional text query matches subject, repository name or short SHA.',
+      parameters: {
+        type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_activity_merge_requests',
+      description: 'Read the user\'s merge requests within the selected activity range. Optional text query matches title, branch, repository, state or role.',
+      parameters: {
+        type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_activity_files',
+      description: 'Read changed files and line totals from the user\'s commits, with a short read-only sample patch when the forge provided one. Optional text query matches file path.',
+      parameters: {
+        type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_activity_branches',
+      description: 'Read branches currently tracked as created by the user. Optional text query matches branch or repository name.',
+      parameters: {
+        type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, additionalProperties: false
+      }
+    }
+  }
+] as const
+
 function localIsoDate(date: Date): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
@@ -144,16 +195,15 @@ export class PersonalAiService {
   private async runChat(session: UserSession, conversationId: string, taskId: string, question: string, months: number): Promise<void> {
     const owner = userKey(session)
     try {
-    const config = this.loadCredentials(session)
-    const activity = await this.activityService.getActivity(session, months)
-    const context = this.context(activity)
-    const history = this.storage.all<Record<string, unknown>>('SELECT role, content FROM user_ai_messages WHERE user_key = ? AND conversation_id = ? ORDER BY created_at, rowid', [owner, conversationId]).slice(-11, -1)
-    const messages = [
-      { role: 'system', content: `你是 GitManager 的只读个人研发数据分析助手。下方统计数字是服务端基于已获取个人 Git 数据计算的事实，不允许改写、估算或补齐；首先回答数据范围、数据覆盖情况和精确统计值，再解释。事实与根据提交描述作出的推断必须分开标注。未知不等于0，未提供的字段必须说“当前数据未提供”。提交数/MR数仅按具体记录核验，不以分支数推导提交数，不把代码行数说成工作量。不能执行或建议通过本系统修改、删除仓库内容。个人数据：${JSON.stringify(context)}` },
-      ...history.filter((entry) => entry.role === 'user' || entry.role === 'assistant').map(({ role, content }) => ({ role: String(role), content: String(content).slice(0, 4000) })),
-      { role: 'user', content: question }
-    ]
-      const answer = await this.complete(config, messages)
+      const config = this.loadCredentials(session)
+      const activity = await this.activityService.getActivity(session, months)
+      const history = this.storage.all<Record<string, unknown>>('SELECT role, content FROM user_ai_messages WHERE user_key = ? AND conversation_id = ? ORDER BY created_at, rowid', [owner, conversationId]).slice(-11, -1)
+      const messages: Array<Record<string, unknown>> = [
+        { role: 'system', content: '你是 GitManager 的只读个人研发数据分析助手。回答前优先使用提供的只读数据工具查询当前用户的 Git 活动，再用自然语言回答；不要使用固定标题或模板化段落。统计值必须来自工具返回的数据，不能估算或补齐；需要根据提交描述推断时明确说明是推断，不要把代码行数等同工作量。未知不等于0，工具没有覆盖的字段说明数据未提供。不能执行或建议通过本系统修改、删除仓库内容。' },
+        ...history.filter((entry) => entry.role === 'user' || entry.role === 'assistant').map(({ role, content }) => ({ role: String(role), content: String(content).slice(0, 4000) })),
+        { role: 'user', content: question }
+      ]
+      const answer = await this.agentLoop(config, messages, activity)
       this.storage.insert('user_ai_messages', { id: newId(), conversation_id: conversationId, user_key: owner, role: 'assistant', content: answer, status: 'complete', created_at: nowIso() })
       this.storage.update('user_ai_tasks', { status: 'complete', error: null, updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, taskId])
       this.storage.update('user_ai_conversations', { status: 'idle', updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, conversationId])
@@ -172,18 +222,88 @@ export class PersonalAiService {
     const defaultStart = localIsoDate(new Date(now.getFullYear(), now.getMonth() - months + 1, 1))
     const range = selectedRange && /^\d{4}-\d{2}-\d{2}$/.test(selectedRange.start) && /^\d{4}-\d{2}-\d{2}$/.test(selectedRange.end)
       && selectedRange.start <= selectedRange.end ? selectedRange : { start: defaultStart, end: localIsoDate(now) }
-    return this.complete(config, [{ role: 'user', content: reportPrompt(activity, range) }])
+    return (await this.complete(config, [{ role: 'user', content: reportPrompt(activity, range) }])).content
   }
 
-  private context(activity: PersonalActivity): unknown {
-    const fileChanges = activity.commitDetails.flatMap((detail) => detail.files.map(({ path, added, removed, patch }) => ({ path, added, removed, patch: patch?.slice(0, 1200) })))
-    return {
-      coverage: { commitsLoaded: activity.commits.length, commitDetailsLoaded: activity.commitDetails.length, diffsLoaded: activity.stats.diffsLoaded, diffsFailed: activity.stats.diffsFailed, mergeRequestsLoaded: activity.mergeRequests.length },
-      facts: { commitCount: activity.commits.length, activeDays: activity.stats.activeDays, linesAdded: activity.stats.linesAdded, linesRemoved: activity.stats.linesRemoved, branches: activity.branches.length, mergeRequests: activity.mergeRequests.length, authoredMergeRequests: activity.mergeRequests.filter((mr) => mr.role === 'author').length, reviewedMergeRequests: activity.mergeRequests.filter((mr) => mr.role !== 'author').length },
-      commits: activity.commits.map(({ subject, committedAt, repositoryName }) => ({ subject, committedAt, repositoryName })),
-      mergeRequests: activity.mergeRequests.map(({ title, state, role, repositoryName, sourceBranch, targetBranch }) => ({ title, state, role, repositoryName, sourceBranch, targetBranch })),
-      fileChanges,
-      stats: { activeDays: activity.stats.activeDays, commitCount: activity.stats.commitCount, mrAuthored: activity.stats.mrAuthored, mrReviewed: activity.stats.mrReviewed, byRepository: activity.stats.byRepository }
+  private agentLoop(
+    config: { baseUrl: string; model: string; apiKey: string },
+    messages: Array<Record<string, unknown>>,
+    activity: PersonalActivity
+  ): Promise<string> {
+    return this.runAgentLoop(config, messages, activity, 0)
+  }
+
+  private async runAgentLoop(
+    config: { baseUrl: string; model: string; apiKey: string },
+    messages: Array<Record<string, unknown>>,
+    activity: PersonalActivity,
+    round: number
+  ): Promise<string> {
+    if (round >= 5) return '这个问题需要的数据工具调用次数过多，请把问题拆小后再试。'
+    const result = await this.complete(config, messages, AGENT_TOOLS)
+    if (!result.toolCalls.length) return result.content
+    messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.rawToolCalls })
+    for (const call of result.toolCalls) {
+      let payload: unknown
+      try {
+        payload = this.runTool(call.name, call.arguments, activity)
+      } catch (err) {
+        payload = { error: err instanceof Error ? err.message : String(err) }
+      }
+      messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(payload) })
+    }
+    return this.runAgentLoop(config, messages, activity, round + 1)
+  }
+
+  private runTool(name: string, rawArguments: string, activity: PersonalActivity): unknown {
+    const args = rawArguments ? JSON.parse(rawArguments) as Record<string, unknown> : {}
+    const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : ''
+    const limit = Math.max(1, Math.min(Number(args.limit) || 20, 200))
+    const match = (value: string | undefined | null): boolean => query ? String(value ?? '').toLowerCase().includes(query) : true
+    switch (name) {
+      case 'get_activity_stats':
+        return activity.stats
+      case 'get_activity_commits':
+        return {
+          total: activity.commits.length,
+          items: activity.commits
+            .filter((commit) => match(commit.subject) || match(commit.repositoryName) || match(commit.shortSha))
+            .slice(0, limit)
+            .map(({ subject, committedAt, repositoryName, shortSha }) => ({ subject, committedAt, repositoryName, shortSha }))
+        }
+      case 'get_activity_merge_requests':
+        return {
+          total: activity.mergeRequests.length,
+          items: activity.mergeRequests
+            .filter((mr) => match(mr.title) || match(mr.repositoryName) || match(mr.sourceBranch) || match(mr.targetBranch) || match(mr.state))
+            .slice(0, limit)
+            .map(({ title, state, role, repositoryName, sourceBranch, targetBranch, createdAt }) => ({ title, state, role, repositoryName, sourceBranch, targetBranch, createdAt }))
+        }
+      case 'get_activity_files': {
+        const fileMap = new Map<string, { path: string; commits: number; added: number; removed: number; samplePatch?: string }>()
+        for (const detail of activity.commitDetails) {
+          for (const file of detail.files) {
+            if (!match(file.path)) continue
+            const entry = fileMap.get(file.path) ?? { path: file.path, commits: 0, added: 0, removed: 0 }
+            entry.commits += 1
+            entry.added += file.added
+            entry.removed += file.removed
+            if (!entry.samplePatch && file.patch) entry.samplePatch = file.patch.slice(0, 300)
+            fileMap.set(file.path, entry)
+          }
+        }
+        return { total: fileMap.size, items: [...fileMap.values()].sort((a, b) => (b.added + b.removed) - (a.added + a.removed)).slice(0, limit) }
+      }
+      case 'get_activity_branches':
+        return {
+          total: activity.branches.length,
+          items: activity.branches
+            .filter((branch) => match(branch.name) || match(branch.repositoryName))
+            .slice(0, limit)
+            .map(({ name, type, createdAt, repositoryName }) => ({ name, type, createdAt, repositoryName }))
+        }
+      default:
+        throw new Error(`未知的数据工具：${name}`)
     }
   }
 
@@ -203,12 +323,16 @@ export class PersonalAiService {
     return { baseUrl, model: row.model, apiKey }
   }
 
-  private async complete(config: { baseUrl: string; model: string; apiKey: string }, messages: Array<{ role: string; content: string }>): Promise<string> {
+  private async complete(
+    config: { baseUrl: string; model: string; apiKey: string },
+    messages: Array<Record<string, unknown>>,
+    tools?: typeof AGENT_TOOLS
+  ): Promise<{ content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; rawToolCalls: unknown }> {
     let response: Response
     try {
       response = await fetch(completionUrl(config.baseUrl), {
       method: 'POST', headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: config.model, messages, temperature: 0.2 }), signal: AbortSignal.timeout(60_000), redirect: 'error'
+      body: JSON.stringify({ model: config.model, messages, ...(tools ? { tools } : {}), temperature: 0.2 }), signal: AbortSignal.timeout(60_000), redirect: 'error'
       })
     } catch {
       throw new Error('无法连接模型服务。请确认 API URL（通常需要填写 https://域名 或 https://域名/v1）、服务状态和网络连接。')
@@ -217,10 +341,17 @@ export class PersonalAiService {
       const detail = (await response.text().catch(() => '')).slice(0, 300)
       throw new Error(`AI 请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`)
     }
-    let body: { choices?: Array<{ message?: { content?: unknown } }> }
+    let body: { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }> }
     try { body = await response.json() as typeof body } catch { throw new Error('模型服务返回的不是有效 JSON。请检查 API URL 是否指向兼容接口。') }
-    const content = body.choices?.[0]?.message?.content
-    if (typeof content !== 'string' || !content.trim()) throw new Error('模型未返回有效内容。请确认模型名称有效且服务支持 Chat Completions。')
-    return content.trim()
+    const message = body.choices?.[0]?.message
+    const content = typeof message?.content === 'string' ? message.content.trim() : ''
+    const rawToolCalls = Array.isArray(message?.tool_calls) ? message?.tool_calls : []
+    const toolCalls = rawToolCalls.flatMap((entry) => {
+      const call = entry as { id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }
+      if (call.type !== 'function' || !call.id || typeof call.function?.name !== 'string') return []
+      return [{ id: String(call.id), name: call.function.name, arguments: typeof call.function.arguments === 'string' ? call.function.arguments : '{}' }]
+    })
+    if (!content && !toolCalls.length) throw new Error('模型未返回有效内容。请确认模型名称有效且服务支持 Chat Completions。')
+    return { content, toolCalls, rawToolCalls }
   }
 }
