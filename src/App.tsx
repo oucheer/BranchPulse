@@ -26,6 +26,7 @@ import CommitDetails from './pages/CommitDetails'
 import PersonalAi from './pages/PersonalAi'
 import MyTimeline from './pages/MyTimeline'
 import RepositoryActivityDetail from './pages/RepositoryActivityDetail'
+import MonthlyActivityDetail from './pages/MonthlyActivityDetail'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -45,6 +46,7 @@ const pages = [
   { path: '/email', element: <Email /> },
   { path: '/my-activity', element: <MyActivity /> },
   { path: '/my-activity/repository/:repositoryId', element: <RepositoryActivityDetail /> },
+  { path: '/my-activity/drilldown', element: <MonthlyActivityDetail /> },
   { path: '/my-timeline', element: <MyTimeline /> },
   { path: '/my-ai', element: <PersonalAi /> },
   { path: '/my-activity/commit/:repositoryId/:sha', element: <CommitDetails /> },
@@ -118,6 +120,7 @@ export default function App(): JSX.Element {
       const savedPathname = saved?.split('?')[0] ?? ''
       const valid = saved !== null && (pages.some((page) => page.path === savedPathname && page.path !== '/login')
         || /^\/my-activity\/repository\/[^/]+$/.test(savedPathname)
+        || savedPathname === '/my-activity/drilldown'
         || /^\/my-activity\/commit\/[^/]+\/[^/]+$/.test(savedPathname))
         && savedPathname !== '/login'
         && !(role === 'admin' && (savedPathname === '/my-activity' || savedPathname.startsWith('/my-activity/')))
