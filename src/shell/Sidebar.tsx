@@ -13,6 +13,7 @@ import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
 import { isEffectOn, useEffectSettings } from '../lib/effects'
 import DepthText from '../components/DepthText'
+import DitherVeil from '../components/DitherVeil'
 
 interface NavItem {
   to: string
@@ -91,6 +92,7 @@ export default function Sidebar(): JSX.Element {
   const scanning = useAppStore((s) => s.scanning)
   const effectSettings = useEffectSettings()
   const effectsEnabled = isEffectOn(effectSettings, 'depthText')
+  const ditherEnabled = isEffectOn(effectSettings, 'ditherVeil')
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const navRef = useRef<HTMLElement | null>(null)
@@ -167,6 +169,7 @@ export default function Sidebar(): JSX.Element {
         onMouseMove={onNavMouseMove}
         onMouseLeave={onNavMouseLeave}
       >
+        {ditherEnabled ? <DitherVeil /> : null}
         {/* Active indicator rail */}
         <AnimatePresence>
           {indicator.visible ? (

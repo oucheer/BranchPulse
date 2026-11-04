@@ -25,6 +25,7 @@ import MyActivity from './pages/MyActivity'
 import CommitDetails from './pages/CommitDetails'
 import PersonalAi from './pages/PersonalAi'
 import MyTimeline from './pages/MyTimeline'
+import RepositoryActivityDetail from './pages/RepositoryActivityDetail'
 
 const pages = [
   { path: '/', element: <Dashboard /> },
@@ -43,6 +44,7 @@ const pages = [
   { path: '/settings', element: <Settings /> },
   { path: '/email', element: <Email /> },
   { path: '/my-activity', element: <MyActivity /> },
+  { path: '/my-activity/repository/:repositoryId', element: <RepositoryActivityDetail /> },
   { path: '/my-timeline', element: <MyTimeline /> },
   { path: '/my-ai', element: <PersonalAi /> },
   { path: '/my-activity/commit/:repositoryId/:sha', element: <CommitDetails /> },
@@ -113,9 +115,14 @@ export default function App(): JSX.Element {
     try {
       const key = routeKey(session, role)
       const saved = localStorage.getItem(key)
-      const valid = saved !== null && pages.some((page) => page.path === saved && page.path !== '/login'
-        && !(role === 'admin' && ['/my-activity', '/my-timeline', '/my-ai'].includes(page.path)))
-      if (valid && saved !== '/') navigate(saved, { replace: true })
+      const savedPathname = saved?.split('?')[0] ?? ''
+      const valid = saved !== null && (pages.some((page) => page.path === savedPathname && page.path !== '/login')
+        || /^\/my-activity\/repository\/[^/]+$/.test(savedPathname)
+        || /^\/my-activity\/commit\/[^/]+\/[^/]+$/.test(savedPathname))
+        && savedPathname !== '/login'
+        && !(role === 'admin' && (savedPathname === '/my-activity' || savedPathname.startsWith('/my-activity/')))
+        && !(role === 'admin' && ['/my-timeline', '/my-ai'].includes(savedPathname))
+      if (valid && savedPathname !== '/') navigate(saved, { replace: true })
     } catch { /* storage may be unavailable */ }
   }, [session, ready, location.pathname, navigate, role])
 
@@ -127,9 +134,9 @@ export default function App(): JSX.Element {
         routeIdentity.current = identity
         return
       }
-      localStorage.setItem(identity, location.pathname)
+      localStorage.setItem(identity, `${location.pathname}${location.search}`)
     } catch { /* storage may be unavailable */ }
-  }, [session, role, location.pathname])
+  }, [session, role, location.pathname, location.search])
 
   useEffect(() => {
     return window.gitmanager.onNavigate((route) => navigate(route))

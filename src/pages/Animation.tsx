@@ -61,6 +61,13 @@ const effectToggles: EffectToggle[] = [
     labelEn: 'Splash particles',
     descZh: '启动画面的粒子文字',
     descEn: 'Particle text on the splash screen'
+  },
+  {
+    key: 'ditherVeil',
+    labelZh: '导航微粒 veil',
+    labelEn: 'Navigation dither veil',
+    descZh: '侧栏导航区域的交互微粒效果',
+    descEn: 'Interactive dither particles in the navigation area'
   }
 ]
 
