@@ -72,6 +72,9 @@ export default function App(): JSX.Element {
   const restoredRoute = useRef(false)
   const routeIdentity = useRef('')
 
+  const routeKey = (currentSession: typeof session, currentRole: typeof role): string =>
+    `gitmanager:last-route:${currentRole ?? ''}:${currentSession?.email.toLowerCase() ?? ''}:${currentSession?.source ?? ''}:${currentSession?.accountId ?? currentSession?.username.toLowerCase() ?? ''}`
+
   useEffect(() => {
     if (!effectsEnabled) return
     const onPointerMove = (e: PointerEvent): void => {
@@ -108,7 +111,7 @@ export default function App(): JSX.Element {
     restoredRoute.current = true
     if (location.pathname !== '/') return
     try {
-      const key = `gitmanager:last-route:${session.email.toLowerCase()}:${session.source ?? ''}:${session.accountId ?? session.username.toLowerCase()}`
+      const key = routeKey(session, role)
       const saved = localStorage.getItem(key)
       const valid = saved !== null && pages.some((page) => page.path === saved && page.path !== '/login'
         && !(role === 'admin' && ['/my-activity', '/my-timeline', '/my-ai'].includes(page.path)))
@@ -119,15 +122,14 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!session || location.pathname === '/login') return
     try {
-      const identity = `${session.email.toLowerCase()}:${session.source ?? ''}:${session.accountId ?? session.username.toLowerCase()}`
+      const identity = routeKey(session, role)
       if (routeIdentity.current !== identity) {
         routeIdentity.current = identity
         return
       }
-      const key = `gitmanager:last-route:${identity}`
-      localStorage.setItem(key, location.pathname)
+      localStorage.setItem(identity, location.pathname)
     } catch { /* storage may be unavailable */ }
-  }, [session, location.pathname])
+  }, [session, role, location.pathname])
 
   useEffect(() => {
     return window.gitmanager.onNavigate((route) => navigate(route))

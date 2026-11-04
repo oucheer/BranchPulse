@@ -65,12 +65,13 @@ export class UserActivityService {
     private readonly namingService: NamingService
   ) {}
 
-  async getActivity(session: UserSession, months: number = 6): Promise<PersonalActivity> {
+  async getActivity(session: UserSession, months: number = 6, repositoryIds?: string[]): Promise<PersonalActivity> {
     const accessToken = session.gitlabToken
     if (!accessToken) throw new Error('请先使用 Access Token 登录后再查看个人活动。')
     const normalizedMonths = Math.max(1, Math.min(Number(months) || 6, 36))
     const email = session.email.toLowerCase().trim()
-    const repos = this.repositoryService.list()
+    const allRepos = this.repositoryService.list()
+    const repos = repositoryIds ? allRepos.filter((repo) => repositoryIds.includes(repo.id)) : allRepos
     const since = new Date()
     since.setHours(0, 0, 0, 0)
     since.setDate(1)
@@ -81,7 +82,7 @@ export class UserActivityService {
     const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, accessToken, normalizedMonths)
     const stats = this.buildStats(session, commits, details, mergeRequests, repos, normalizedMonths)
     const repoById = new Map(repos.map((repo) => [repo.id, repo]))
-    const branches = this.branchService.listBranches().filter((branch) => matchesUserToCreator(
+    const branches = this.branchService.listBranches(repos.map((repo) => repo.id)).filter((branch) => matchesUserToCreator(
       session, branch.creator, repoById.get(branch.repositoryId)?.source ?? 'local'
     )).map((branch) => ({
       repositoryId: branch.repositoryId,

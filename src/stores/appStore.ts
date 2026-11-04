@@ -208,12 +208,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMyActivity: async (months, force = false) => {
     const session = get().session
     if (!session) return
-    const key = `${activityIdentity(session)}|${months}`
+    const repositoryScope = [...get().selectedRepositoryIds].sort().join(',')
+    const key = `${activityIdentity(session)}|${months}|${repositoryScope}`
     if (!force && get().myActivityCache[key]) return
     const requestId = ++myActivityRequestId
     set({ myActivityBusy: true })
     try {
-      const result = await window.gitmanager.getMyActivity(months)
+      const result = await window.gitmanager.getMyActivity(months, get().selectedRepositoryIds)
       if (requestId !== myActivityRequestId || get().session?.email.toLowerCase() !== session.email.toLowerCase()) return
       const next = { ...get().myActivityCache, [key]: result }
       set({ myActivityCache: next })
@@ -359,7 +360,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextSettings = { ...settings, selectedRepositoryIds: next }
     set({ selectedRepositoryIds: next, settings: nextSettings })
     try {
-      await window.gitmanager.saveSettings(nextSettings)
+      if (get().role === 'admin') await window.gitmanager.saveSettings(nextSettings)
+      else await window.gitmanager.setMyRepositorySelection(next)
       await get().refresh()
     } catch (err) {
       get().toast(err instanceof Error ? err.message : String(err), 'error')

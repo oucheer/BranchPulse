@@ -791,6 +791,7 @@ export interface BranchApi {
 
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
+  setMyRepositorySelection(repositoryIds: string[]): Promise<string[]>
   getAppVersion(): Promise<string>
   /** `filePath` is picked in the page; without it the file lands in the data directory. */
   exportConfig(extras?: ConfigExtras, filePath?: string): Promise<ConfigExportResult>
@@ -804,7 +805,7 @@ export interface BranchApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: number): Promise<PersonalActivity>
+  getMyActivity(months?: number, repositoryIds?: string[]): Promise<PersonalActivity>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   getPersonalAiConfig(): Promise<PersonalAiConfig>
   savePersonalAiConfig(config: PersonalAiConfigDraft): Promise<PersonalAiConfig>

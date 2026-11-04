@@ -70,7 +70,7 @@ export const EXPOSED_METHODS = [
   'listAudit',
   'exportAuditLogs',
   'getSettings',
-  'saveSettings',
+  'saveSettings', 'setMyRepositorySelection',
   'getAppVersion',
   'exportConfig',
   'importConfig',

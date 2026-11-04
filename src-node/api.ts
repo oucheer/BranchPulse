@@ -189,7 +189,8 @@ export interface GitManagerApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: number): Promise<PersonalActivity>
+  getMyActivity(months?: number, repositoryIds?: string[]): Promise<PersonalActivity>
+  setMyRepositorySelection(repositoryIds: string[]): Promise<string[]>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   getPersonalAiConfig(): Promise<ReturnType<PersonalAiService['getConfig']>>
   savePersonalAiConfig(config: import('@shared/types').PersonalAiConfigDraft): Promise<ReturnType<PersonalAiService['saveConfig']>>
@@ -272,7 +273,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     const row = storage.get<{ settings_json: string }>('SELECT settings_json FROM user_preferences WHERE user_key = ?', [personalKey(session)])
     const preferences = row ? JSON.parse(row.settings_json) as Partial<AppSettings> : {
       theme: base.theme, colorTheme: base.colorTheme, backgroundTheme: base.backgroundTheme,
-      language: base.language, selectedRepositoryIds: base.selectedRepositoryIds
+      language: base.language, selectedRepositoryIds: []
     }
     if (!row) {
       storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?)', [personalKey(session), JSON.stringify(preferences)])
@@ -695,6 +696,20 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       }
     },
 
+    setMyRepositorySelection: async (repositoryIds) => {
+      const session = activeSession()
+      if (!session) throw new Error('请先登录。')
+      if (session.role === 'admin') return settings.get().selectedRepositoryIds
+      const selectedRepositoryIds = [...new Set(repositoryIds.filter((id) => repository.get(id)))]
+      const base = currentSettings()
+      storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?) ON CONFLICT(user_key) DO UPDATE SET settings_json = excluded.settings_json', [personalKey(session), JSON.stringify({
+        theme: base.theme, colorTheme: base.colorTheme, backgroundTheme: base.backgroundTheme, language: base.language,
+        selectedRepositoryIds
+      })])
+      storage.save()
+      return selectedRepositoryIds
+    },
+
     onScanProgress: () => () => {},
     onNavigate: () => () => {},
 
@@ -806,10 +821,14 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
     changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
 
-    getMyActivity: async (months: number = 6) => {
+    getMyActivity: async (months: number = 6, repositoryIds?: string[]) => {
       const session = activeSession()
       if (!session) throw new Error('请先登录。')
-      return userActivity.getActivity(session, months)
+      const selected = repositoryIds ?? currentSettings().selectedRepositoryIds
+      const available = new Set(repository.list().map((repo) => repo.id))
+      const filtered = selected.filter((id) => available.has(id))
+      const scope = session.role === 'admin' && filtered.length === 0 ? undefined : filtered
+      return userActivity.getActivity(session, months, scope)
     },
 
     getCommitFile: async (repositoryId: string, sha: string, path: string) => {

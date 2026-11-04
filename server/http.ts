@@ -19,7 +19,7 @@ const USER_ALLOWED_METHODS = new Set([
   'getMonitoring', 'listEmailGroups', 'getEmailConfig', 'listJobs', 'listRuns',
   'calendarRuns', 'listNotifications', 'listReports', 'exportReport',
   'listReportSchedules', 'listBackups', 'listAudit', 'getSettings',
-  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity', 'saveSettings',
+  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity', 'saveSettings', 'setMyRepositorySelection',
   'getCommitFile', 'getPersonalAiConfig', 'savePersonalAiConfig',
   'testPersonalAiConnection',
   'listPersonalAiConversations', 'createPersonalAiConversation', 'deletePersonalAiConversation',

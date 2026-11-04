@@ -46,6 +46,18 @@ export default function Repositories(): JSX.Element {
   }, [repositories, branches])
 
   useEffect(() => {
+    if (role === 'admin') return
+    let cancelled = false
+    const poll = window.setInterval(() => {
+      if (!cancelled) void refresh().catch(() => undefined)
+    }, 20000)
+    return () => {
+      cancelled = true
+      window.clearInterval(poll)
+    }
+  }, [role, refresh])
+
+  useEffect(() => {
     if (!gitlabApiKeyTouched) setGitlabApiKey(settings.gitlabApiKey ?? '')
   }, [gitlabApiKeyTouched, settings.gitlabApiKey])
 
