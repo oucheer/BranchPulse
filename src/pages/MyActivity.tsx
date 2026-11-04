@@ -313,7 +313,7 @@ function RepositoryDonut({ stats, data, zh, onSelect }: { stats: NonNullable<Per
       </svg><div className="absolute inset-0 flex flex-col items-center justify-center text-center"><motion.div key={active ?? 'total'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="text-2xl font-bold text-canvas-fg">{active ? (() => { const e = entries.find((item) => item.repositoryId === active); return e ? e.commits + e.mrAuthored + e.mrReviewed : total })() : total}</motion.div><div className="text-[10px] text-muted">{active ? (entries.find((e) => e.repositoryId === active)?.repositoryName ?? '') : (zh ? '贡献总数' : 'Total')}</div></div></div>
       <div className="min-w-0 flex-1 space-y-2">{entries.length ? entries.map((entry, index) => <button key={entry.repositoryId} type="button" className="flex w-full items-center justify-between gap-2 text-left text-xs" onClick={() => { setSelected(entry.repositoryId); onSelect(entry.repositoryId) }} onMouseEnter={() => setHovered(entry.repositoryId)} onMouseLeave={() => setHovered(null)}><span className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: `hsl(${(index * 67 + 190) % 360} 82% 58%)` }} /><span className="truncate text-canvas-fg">{entry.repositoryName}</span></span><span className="shrink-0 text-muted">{entry.commits + entry.mrAuthored + entry.mrReviewed}</span></button>) : <div className="text-xs text-muted">{zh ? '暂无仓库贡献' : 'No repository activity'}</div>}</div>
     </div>
-    {active ? <RepositoryDrilldown data={data} repositoryId={active} zh={zh} /> : null}
+    {selected ? <RepositoryDrilldown data={data} repositoryId={selected} zh={zh} /> : null}
   </Card>
 }
 
@@ -322,15 +322,7 @@ function RepositoryCommitChart({ stats, data, zh, onSelect }: { stats: NonNullab
   const [selected, setSelected] = useState<string | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
   const active = hovered ?? selected
-  return <Card className="p-5"><div className="mb-3"><div className="text-sm font-semibold text-canvas-fg">{zh ? '按仓库提交与合并请求' : 'Commits and merge requests by repository'}</div><div className="mt-0.5 text-[10px] text-muted">{zh ? '横坐标为仓库，点击柱形查看明细' : 'Repositories on the x-axis, click a bar for details'}</div></div><div className="flex h-52 items-end gap-2 overflow-x-auto border-b border-line pb-1">{stats.byRepository.map((entry) => { const mr = entry.mrAuthored + entry.mrReviewed; return <button key={entry.repositoryId} type="button" className="group flex h-full min-w-16 flex-1 flex-col items-center justify-end gap-1" onClick={() => { setSelected(entry.repositoryId); onSelect(entry.repositoryId) }} onMouseEnter={() => setHovered(entry.repositoryId)} onMouseLeave={() => setHovered(null)}><div className="flex h-40 w-full items-end justify-center gap-1"><span className="w-4 rounded-t bg-primary transition-all group-hover:opacity-75" style={{ height: `${entry.commits / max * 100}%`, minHeight: entry.commits ? 4 : 0 }} /><span className="w-4 rounded-t bg-secondary transition-all group-hover:opacity-75" style={{ height: `${mr / max * 100}%`, minHeight: mr ? 4 : 0 }} /></div><span className="max-w-20 truncate text-[10px] text-muted" title={entry.repositoryName}>{entry.repositoryName}</span></button> })}</div><div className="mt-2 flex gap-4 text-[10px] text-muted"><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-primary" />{zh ? '提交' : 'Commits'}</span><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-secondary" />{zh ? '合并请求' : 'Merge requests'}</span></div>{active ? <RepositoryDrilldown data={data} repositoryId={active} zh={zh} /> : null}</Card>
-}
-
-function RepositoryRankings({ stats, data, zh, onSelect }: { stats: NonNullable<PersonalActivity['stats']>; data: PersonalActivity; zh: boolean; onSelect: (id: string) => void }): JSX.Element {
-  const [selected, setSelected] = useState<string | null>(null)
-  const [hovered, setHovered] = useState<string | null>(null)
-  const active = hovered ?? selected
-  const max = Math.max(1, ...stats.byRepository.map((entry) => entry.added + entry.removed))
-  return <Card className="p-5"><div className="mb-3"><div className="text-sm font-semibold text-canvas-fg">{zh ? '仓库代码增删排名' : 'Ranked repository code changes'}</div><div className="mt-0.5 text-[10px] text-muted">{zh ? '按变更规模排名，折线展示提交趋势' : 'Ranked by change volume with commit sparklines'}</div></div><div className="space-y-2">{stats.byRepository.slice().sort((a, b) => b.added + b.removed - (a.added + a.removed)).map((entry, index) => { const values = data.commits.filter((commit) => commit.repositoryId === entry.repositoryId).slice(0, 12).reverse(); const points = values.map((_, i) => `${(i / Math.max(values.length - 1, 1)) * 72},${24 - ((i + 1) / Math.max(values.length, 1)) * 18}`); return <button key={entry.repositoryId} type="button" className="flex w-full items-center gap-3 border-b border-line py-2 text-left" onClick={() => { setSelected(entry.repositoryId); onSelect(entry.repositoryId) }} onMouseEnter={() => setHovered(entry.repositoryId)} onMouseLeave={() => setHovered(null)}><span className="w-5 text-xs text-muted">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs font-medium text-canvas-fg">{entry.repositoryName}</span><svg viewBox="0 0 72 24" className="h-6 w-20 shrink-0"><polyline points={points.join(' ')} fill="none" stroke="rgb(var(--primary))" strokeWidth="2" /></svg><span className="w-24 text-right text-xs"><span className="text-ok">+{entry.added}</span> <span className="text-danger">-{entry.removed}</span><span className="ml-1 text-muted">{Math.round((entry.added + entry.removed) / max * 100)}%</span></span></button> })}</div>{active ? <RepositoryDrilldown data={data} repositoryId={active} zh={zh} /> : null}</Card>
+  return <Card className="p-5"><div className="mb-3"><div className="text-sm font-semibold text-canvas-fg">{zh ? '按仓库提交与合并请求' : 'Commits and merge requests by repository'}</div><div className="mt-0.5 text-[10px] text-muted">{zh ? '横坐标为仓库，点击柱形查看明细' : 'Repositories on the x-axis, click a bar for details'}</div></div><div className="flex h-52 items-end gap-2 overflow-x-auto border-b border-line pb-1">{stats.byRepository.map((entry) => { const mr = entry.mrAuthored + entry.mrReviewed; return <button key={entry.repositoryId} type="button" className="group flex h-full min-w-16 flex-1 flex-col items-center justify-end gap-1" onClick={() => { setSelected(entry.repositoryId); onSelect(entry.repositoryId) }} onMouseEnter={() => setHovered(entry.repositoryId)} onMouseLeave={() => setHovered(null)}><div className="flex h-40 w-full items-end justify-center gap-1"><span className="w-4 rounded-t bg-primary transition-all group-hover:opacity-75" style={{ height: `${entry.commits / max * 100}%`, minHeight: entry.commits ? 4 : 0 }} /><span className="w-4 rounded-t bg-secondary transition-all group-hover:opacity-75" style={{ height: `${mr / max * 100}%`, minHeight: mr ? 4 : 0 }} /></div><span className="max-w-20 truncate text-[10px] text-muted" title={entry.repositoryName}>{entry.repositoryName}</span></button> })}</div><div className="mt-2 flex gap-4 text-[10px] text-muted"><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-primary" />{zh ? '提交' : 'Commits'}</span><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-secondary" />{zh ? '合并请求' : 'Merge requests'}</span></div>{selected ? <RepositoryDrilldown data={data} repositoryId={selected} zh={zh} /> : null}</Card>
 }
 
 export default function MyActivity(): JSX.Element {
@@ -447,7 +439,7 @@ export default function MyActivity(): JSX.Element {
       </section> : null}
       {stats && stats.diffsFailed > 0 ? <div role="status" className="text-sm text-danger">{zh ? `${stats.diffsLoaded} 个提交差异已加载，${stats.diffsFailed} 个获取失败；代码行数及文件统计不完整。` : `${stats.diffsLoaded} diffs loaded, ${stats.diffsFailed} failed; line and file statistics are incomplete.`}</div> : null}
 
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+      <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         {showMonthlyCommits ? <ActivityChart
           title={zh ? '按月提交与分支' : 'Monthly commits and branches'}
           zh={zh}
@@ -460,7 +452,18 @@ export default function MyActivity(): JSX.Element {
             { name: zh ? '分支' : 'Branches', color: 'rgb(var(--secondary))', values: stats?.months.map((m) => m.branches) ?? [] }
           ]}
         /> : null}
-        {showMonthlyLines && data ? <RepositoryRankings stats={stats!} data={data} zh={zh} onSelect={(repositoryId) => showCommits((commit) => commit.repositoryId === repositoryId)} /> : null}
+        {showMonthlyLines ? <ActivityChart
+          title={zh ? '按月代码增删' : 'Monthly code changes'}
+          zh={zh}
+          labels={stats?.monthlyLines.map((m) => m.month) ?? []}
+          xLabel={zh ? '月份' : 'Month'}
+          yLabel={zh ? '代码行数（行）' : 'Lines'}
+          onSelect={(month) => showCommits((commit) => localMonth(commit.committedAt) === month && Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))}
+          series={[
+            { name: zh ? '新增' : 'Added', color: 'rgb(var(--ok))', values: stats?.monthlyLines.map((m) => m.added) ?? [] },
+            { name: zh ? '删除' : 'Removed', color: 'rgb(var(--danger))', values: stats?.monthlyLines.map((m) => m.removed) ?? [] }
+          ]}
+        /> : null}
       </div>
 
       <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
@@ -468,8 +471,8 @@ export default function MyActivity(): JSX.Element {
         {stats && data ? <RepositoryCommitChart stats={stats} data={data} zh={zh} onSelect={(repositoryId) => showCommits((commit) => commit.repositoryId === repositoryId)} /> : null}
       </div>
 
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
-        {drilldown !== 'mergeRequests' ? <Card className="p-5">
+      <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
+        {drilldown !== 'mergeRequests' ? <Card className="h-full p-5">
           <div className="mb-3 flex items-center justify-between text-sm font-semibold text-canvas-fg"><span>{zh ? '我的提交' : 'My Commits'}{drilldown === 'commits' ? ` (${filteredCommits.length})` : ''}</span>{drilldown ? <button className="text-xs text-primary" onClick={() => { setDrilldown(null); setCommitFilter(() => () => true) }}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
           <div className="max-h-96 space-y-2 overflow-auto pr-1">
             {filteredCommits.length === 0 ? <div className="text-xs text-muted">{zh ? '没有符合条件的提交' : 'No matching commits'}</div> : null}
@@ -508,7 +511,7 @@ export default function MyActivity(): JSX.Element {
           </div>
         </Card> : null}
 
-        {drilldown !== 'commits' ? <Card className="p-5">
+        {drilldown !== 'commits' ? <Card className="h-full p-5">
           <div className="mb-3 text-sm font-semibold text-canvas-fg">{zh ? '合并请求与评审中心' : 'Merge requests and reviews'}</div>
           <div className="mb-3 flex flex-wrap gap-1 border-b border-line">{([
             ['authored', zh ? '我发起的' : 'Authored'], ['pending', zh ? '待我评审的' : 'Pending my review'], ['participated', zh ? '我参与的（平台标记评审）' : 'Reviewed by me'], ['done', zh ? '已完成' : 'Completed']
