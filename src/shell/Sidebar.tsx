@@ -165,26 +165,27 @@ export default function Sidebar(): JSX.Element {
       {/* Navigation */}
       <nav
         ref={navRef}
-        className="relative flex-1 overflow-y-auto px-2 py-4"
+        className="relative isolate flex-1 overflow-y-auto px-2 py-4"
         onMouseMove={onNavMouseMove}
         onMouseLeave={onNavMouseLeave}
       >
         {ditherEnabled ? <DitherVeil /> : null}
-        {/* Active indicator rail */}
-        <AnimatePresence>
-          {indicator.visible ? (
-            <motion.div
-              className="absolute left-0 w-[3px] rounded-r-full bg-primary"
-              initial={{ opacity: 0 }}
-              animate={{ top: indicator.top, height: indicator.height, opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={motionToken.spring}
-              style={{ marginLeft: 0 }}
-            />
-          ) : null}
-        </AnimatePresence>
+        <div className="relative z-10">
+          {/* Active indicator rail */}
+          <AnimatePresence>
+            {indicator.visible ? (
+              <motion.div
+                className="absolute left-0 z-20 w-[3px] rounded-r-full bg-primary"
+                initial={{ opacity: 0 }}
+                animate={{ top: indicator.top, height: indicator.height, opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={motionToken.spring}
+                style={{ marginLeft: 0 }}
+              />
+            ) : null}
+          </AnimatePresence>
 
-        {sections.map((section, sIdx) => (
+          {sections.map((section, sIdx) => (
           <div key={section.title} className={sIdx > 0 ? 'mt-5' : ''}>
             <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted opacity-60">
               {tr(section.titleKey)}
@@ -222,7 +223,8 @@ export default function Sidebar(): JSX.Element {
               })}
             </div>
           </div>
-        ))}
+          ))}
+        </div>
       </nav>
 
       {/* Footer */}

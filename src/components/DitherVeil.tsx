@@ -69,5 +69,5 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
     }
   }, [opacity])
 
-  return <canvas ref={canvasRef} aria-hidden="true" className={`pointer-events-none absolute inset-0 h-full w-full ${className}`} />
+  return <canvas ref={canvasRef} aria-hidden="true" className={`pointer-events-none absolute inset-0 z-0 h-full w-full overflow-hidden ${className}`} />
 }

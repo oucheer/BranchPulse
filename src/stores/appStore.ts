@@ -356,6 +356,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSelectedRepositoryIds: async (repositoryIds) => {
+    const previousSelectedRepositoryIds = get().selectedRepositoryIds
+    const previousSettings = get().settings
     const next = [...new Set(repositoryIds)]
     const settings = get().settings
     const nextSettings = { ...settings, selectedRepositoryIds: next }
@@ -365,6 +367,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       else await window.gitmanager.setMyRepositorySelection(next)
       await get().refresh()
     } catch (err) {
+      set({ selectedRepositoryIds: previousSelectedRepositoryIds, settings: previousSettings })
       get().toast(err instanceof Error ? err.message : String(err), 'error')
     }
   },

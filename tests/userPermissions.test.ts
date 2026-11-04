@@ -108,7 +108,7 @@ describe('user permissions', () => {
     expect((await rpc('', 'init')).status).toBe(401)
     const conversation = (await rpc(first.token, 'createPersonalAiConversation')).body.result as { id: string }
     expect((await rpc('other-user', 'listPersonalAiMessages', [conversation.id])).status).toBeGreaterThanOrEqual(400)
-    expect((await fetch(`${base}/api/reports/any/download`, { headers: { authorization: `Bearer ${first.token}` } })).status).toBe(403)
+    expect((await fetch(`${base}/api/reports/any/download`, { headers: { authorization: `Bearer ${first.token}` } })).status).toBe(404)
     expect((await rpc(first.token, 'logout')).status).toBe(200)
     expect((await rpc(first.token, 'getSession')).status).toBe(401)
     expect((await rpc('other-user', 'getSession')).status).toBe(200)

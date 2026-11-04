@@ -142,12 +142,12 @@ export function createServer(options: ServerOptions): GitManagerServer {
       sendJson(res, 403, { error: '普通用户没有执行此操作的权限。' })
       return
     }
-    if (session?.role === 'user' && ['listNotifications', 'exportReport'].includes(method)) {
+    if (session?.role === 'user' && ['listNotifications'].includes(method)) {
       sendJson(res, 403, { error: '此功能仅对管理员开放。' })
       return
     }
     // Keep legacy bootstrap reads compatible without exposing administrative data.
-    if (session?.role === 'user' && ['listJobs', 'listRuns', 'calendarRuns', 'listReports', 'listReportSchedules', 'listBackups', 'listAudit', 'listEmailGroups'].includes(method)) {
+    if (session?.role === 'user' && ['listJobs', 'listRuns', 'calendarRuns', 'listReportSchedules', 'listBackups', 'listAudit', 'listEmailGroups'].includes(method)) {
       sendJson(res, 200, { result: [] })
       return
     }
@@ -224,9 +224,9 @@ export function createServer(options: ServerOptions): GitManagerServer {
     }
   }
 
-  function handleReportFile(res: http.ServerResponse, id: string, mode: 'download' | 'view'): void {
+  function handleReportFile(res: http.ServerResponse, id: string, mode: 'download' | 'view', session: UserSession): void {
     void (async () => {
-      const reports = await api.listReports()
+      const reports = await runWithApiSession(session, () => api.listReports())
       const record = reports.find((report) => report.id === id)
       if (!record) {
         sendText(res, 404, 'Report not found.')
@@ -294,14 +294,15 @@ export function createServer(options: ServerOptions): GitManagerServer {
         return
       }
       if (pathname.startsWith('/api/reports/') && (pathname.endsWith('/download') || pathname.endsWith('/view'))) {
-        if (readSession(req)?.role !== 'admin') {
-          sendJson(res, 403, { error: '此功能仅对管理员开放。' })
+        const session = readSession(req)
+        if (!session) {
+          sendJson(res, 401, { error: '请先登录。' })
           return
         }
         const mode = pathname.endsWith('/view') ? 'view' : 'download'
         const suffix = `/${mode}`
         const id = decodeURIComponent(pathname.slice('/api/reports/'.length, -suffix.length))
-        handleReportFile(res, id, mode)
+        handleReportFile(res, id, mode, session)
         return
       }
       if (pathname.startsWith('/api/rpc/')) {

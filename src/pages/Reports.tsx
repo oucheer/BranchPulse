@@ -253,12 +253,14 @@ export default function Reports(): JSX.Element {
           <h1 className="text-lg font-bold text-canvas-fg">{tr('reports')}</h1>
           <div className="text-xs text-muted">{reports.length} 份报告</div>
         </div>
-        <button className="btn" title="查看服务器报告目录" onClick={() => void openFolder()}>
-          <FolderOpen size={14} /> 报告目录
-        </button>
+        {isAdmin ? (
+          <button className="btn" title="查看服务器报告目录" onClick={() => void openFolder()}>
+            <FolderOpen size={14} /> 报告目录
+          </button>
+        ) : null}
       </div>
 
-      <Card className="p-4">
+      {isAdmin ? <Card className="p-4">
         <div className="mb-3 text-sm font-semibold text-canvas-fg">立即生成</div>
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -281,7 +283,7 @@ export default function Reports(): JSX.Element {
               : `报告按仓库分区汇总当前勾选的 ${selectedRepositoryIds.length} 个仓库。`}
           </div>
         </div>
-      </Card>
+      </Card> : null}
 
       {isAdmin ? (
       <Card className="p-4">
