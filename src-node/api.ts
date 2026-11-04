@@ -189,7 +189,7 @@ export interface GitManagerApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: number, repositoryIds?: string[]): Promise<PersonalActivity>
+  getMyActivity(months?: number, repositoryIds?: string[], range?: import('@shared/types').PersonalActivityRange): Promise<PersonalActivity>
   setMyRepositorySelection(repositoryIds: string[]): Promise<string[]>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   getPersonalAiConfig(): Promise<ReturnType<PersonalAiService['getConfig']>>
@@ -821,14 +821,14 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
     changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
 
-    getMyActivity: async (months: number = 6, repositoryIds?: string[]) => {
+    getMyActivity: async (months: number = 6, repositoryIds?: string[], range?: import('@shared/types').PersonalActivityRange) => {
       const session = activeSession()
       if (!session) throw new Error('请先登录。')
       const selected = repositoryIds ?? currentSettings().selectedRepositoryIds
       const available = new Set(repository.list().map((repo) => repo.id))
       const filtered = selected.filter((id) => available.has(id))
       const scope = session.role === 'admin' && filtered.length === 0 ? undefined : filtered
-      return userActivity.getActivity(session, months, scope)
+      return userActivity.getActivity(session, months, scope, range)
     },
 
     getCommitFile: async (repositoryId: string, sha: string, path: string) => {

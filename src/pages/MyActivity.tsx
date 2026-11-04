@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import {
   Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitBranch, FileText
 } from 'lucide-react'
-import type { PersonalActivity } from '@shared/types'
+import type { PersonalActivity, PersonalActivityRange } from '@shared/types'
 import { readMyActivityMonths, saveMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge, Card } from '../components/ui'
 import { Link, useNavigate } from 'react-router-dom'
@@ -314,8 +314,10 @@ export default function MyActivity(): JSX.Element {
   const navigate = useNavigate()
   const zh = language === 'zh'
   const [months, setMonths] = useState<number>(() => readMyActivityMonths(session))
+  const [draftRange, setDraftRange] = useState<PersonalActivityRange>({ start: '', end: '' })
+  const [range, setRange] = useState<PersonalActivityRange | null>(null)
   const repositoryScope = selectedRepositoryIds.slice().sort().join(',')
-  const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${repositoryScope}`
+  const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${range ? `${range.start}|${range.end}` : ''}|${repositoryScope}`
   const data = activityCache[cacheKey] ?? null
   const [mrTab, setMrTab] = useState<'authored' | 'pending' | 'participated' | 'done'>('authored')
   const [review, setReview] = useState('')
@@ -327,12 +329,13 @@ export default function MyActivity(): JSX.Element {
     setCommitFilter(() => filter ?? (() => true))
     setCommitFilterActive(Boolean(filter))
   }
-  const openRepository = (repositoryId: string): void => navigate(`/my-activity/repository/${encodeURIComponent(repositoryId)}?months=${months}`)
-  const openMonthlyDetail = (kind: 'commits' | 'lines', month: string): void => navigate(`/my-activity/drilldown?kind=${kind}&month=${encodeURIComponent(month)}&months=${months}`)
+  const rangeQuery = range ? `&start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}` : ''
+  const openRepository = (repositoryId: string): void => navigate(`/my-activity/repository/${encodeURIComponent(repositoryId)}?months=${months}${rangeQuery}`)
+  const openMonthlyDetail = (kind: 'commits' | 'lines', month: string): void => navigate(`/my-activity/drilldown?kind=${kind}&month=${encodeURIComponent(month)}&months=${months}${rangeQuery}`)
 
   useEffect(() => {
-    void loadMyActivity(months).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))
-  }, [months, repositoryScope, session?.email, session?.source, loadMyActivity, toast])
+    void loadMyActivity(months, false, range).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))
+  }, [months, range?.start, range?.end, repositoryScope, session?.email, session?.source, loadMyActivity, toast])
 
   useEffect(() => {
     saveMyActivityMonths(session, months)
@@ -369,9 +372,10 @@ export default function MyActivity(): JSX.Element {
           <p className="mt-0.5 text-xs text-muted">{zh ? '提交、代码增删、分支与多维复盘' : 'Commits, code changes, branches and review stats'}</p>
         </div>
         <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <select
             value={months}
-            onChange={(e) => setMonths(Number(e.target.value))}
+            onChange={(e) => { setMonths(Number(e.target.value)); setRange(null); setDraftRange({ start: '', end: '' }) }}
             className="rounded-md border border-line bg-elevated px-3 py-1.5 text-sm text-canvas-fg outline-none transition-colors focus:border-primary/50"
             title={zh ? '选择统计时间范围' : 'Choose activity range'}
           >
@@ -386,10 +390,22 @@ export default function MyActivity(): JSX.Element {
               </option>
             ))}
           </select>
-          <button className="btn btn-primary" disabled={busy} onClick={() => void loadMyActivity(months, true).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))}>
+          <label className="sr-only" htmlFor="activity-range-start">{zh ? '开始日期' : 'Start date'}</label>
+          <input id="activity-range-start" type="date" value={draftRange.start} onChange={(e) => setDraftRange((current) => ({ ...current, start: e.target.value }))} className="rounded-md border border-line bg-elevated px-2 py-1.5 text-sm text-canvas-fg" title={zh ? '自定义开始日期' : 'Custom start date'} />
+          <span className="text-xs text-muted">至</span>
+          <label className="sr-only" htmlFor="activity-range-end">{zh ? '结束日期' : 'End date'}</label>
+          <input id="activity-range-end" type="date" value={draftRange.end} onChange={(e) => setDraftRange((current) => ({ ...current, end: e.target.value }))} className="rounded-md border border-line bg-elevated px-2 py-1.5 text-sm text-canvas-fg" title={zh ? '自定义结束日期' : 'Custom end date'} />
+          <button className="btn btn-secondary" disabled={busy || !draftRange.start || !draftRange.end || draftRange.start > draftRange.end} onClick={() => setRange({ ...draftRange })}>{zh ? '应用日期' : 'Apply dates'}</button>
+          {range ? <button className="btn btn-ghost" disabled={busy} onClick={() => { setRange(null); setDraftRange({ start: '', end: '' }) }}>{zh ? '恢复月份' : 'Use months'}</button> : null}
+          <button className="btn btn-primary" disabled={busy} onClick={() => void loadMyActivity(months, true, range).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))}>
             <Activity size={14} /> {zh ? '刷新' : 'Refresh'}
           </button>
+          </div>
         </div>
+      </div>
+      <div className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <span>{zh ? '统计范围' : 'Range'}: {range ? `${range.start} 至 ${range.end}` : (() => { const now = new Date(); const start = new Date(now.getFullYear(), now.getMonth() - months + 1, 1); return `${start.toLocaleDateString()} 至 ${now.toLocaleDateString()}` })()}</span>
+        {busy ? <span role="status" className="text-primary">{zh ? '获取数据中，请稍候…' : 'Fetching activity data...'}</span> : null}
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">

@@ -15,15 +15,16 @@ export default function RepositoryActivityDetail(): JSX.Element {
   const cache = useAppStore((state) => state.myActivityCache)
   const load = useAppStore((state) => state.loadMyActivity)
   const months = Number(params.get('months')) || readMyActivityMonths(session)
+  const range = params.get('start') && params.get('end') ? { start: params.get('start')!, end: params.get('end')! } : null
   const scope = selectedRepositoryIds.slice().sort().join(',')
-  const key = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${scope}`
+  const key = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${range ? `${range.start}|${range.end}` : ''}|${scope}`
   const data = cache[key]
   const repository = data?.stats.byRepository.find((entry) => entry.repositoryId === repositoryId)
   const commits = useMemo(() => data?.commits.filter((commit) => commit.repositoryId === repositoryId) ?? [], [data, repositoryId])
   const mergeRequests = useMemo(() => data?.mergeRequests.filter((mr) => mr.repositoryId === repositoryId) ?? [], [data, repositoryId])
   const zh = language === 'zh'
 
-  useEffect(() => { void load(months) }, [load, months, scope])
+  useEffect(() => { void load(months, false, range) }, [load, months, range?.start, range?.end, scope])
 
   if (!data || !repository) {
     return <Card className="p-6"><div className="text-sm text-muted">{zh ? '正在加载仓库明细…' : 'Loading repository details...'}</div></Card>

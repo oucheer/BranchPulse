@@ -22,19 +22,20 @@ export default function MonthlyActivityDetail(): JSX.Element {
   const kind = params.get('kind') === 'lines' ? 'lines' : 'commits'
   const month = params.get('month') ?? ''
   const months = Number(params.get('months')) || readMyActivityMonths(session)
+  const range = params.get('start') && params.get('end') ? { start: params.get('start')!, end: params.get('end')! } : null
   const scope = selectedRepositoryIds.slice().sort().join(',')
-  const key = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${scope}`
+  const key = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${range ? `${range.start}|${range.end}` : ''}|${scope}`
   const data = cache[key]
   const commits = useMemo(() => data?.commits.filter((commit) => localMonth(commit.committedAt) === month) ?? [], [data, month])
   const details = useMemo(() => new Map((data?.commitDetails ?? []).map((detail) => [`${detail.repositoryId}:${detail.sha}`, detail])), [data])
   const zh = language === 'zh'
 
-  useEffect(() => { void load(months) }, [load, months, scope])
+  useEffect(() => { void load(months, false, range) }, [load, months, range?.start, range?.end, scope])
 
   return <div className="space-y-4">
     <button className="btn btn-ghost" onClick={() => navigate('/my-activity')}><ArrowLeft size={14} />{zh ? '返回个人活动' : 'Back to my activity'}</button>
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h1 className="text-lg font-bold text-canvas-fg">{kind === 'lines' ? (zh ? '按月代码增删明细' : 'Monthly code change details') : (zh ? '按月提交明细' : 'Monthly commit details')}</h1><p className="mt-1 text-xs text-muted">{month} · {zh ? `最近 ${months} 个月` : `Last ${months} months`}</p></div>
+      <div><h1 className="text-lg font-bold text-canvas-fg">{kind === 'lines' ? (zh ? '按月代码增删明细' : 'Monthly code change details') : (zh ? '按月提交明细' : 'Monthly commit details')}</h1><p className="mt-1 text-xs text-muted">{month} · {range ? `${range.start} 至 ${range.end}` : (zh ? `最近 ${months} 个月` : `Last ${months} months`)}</p></div>
       <Badge tone="primary"><GitCommitHorizontal size={12} className="mr-1 inline" />{commits.length} {zh ? '提交' : 'commits'}</Badge>
     </div>
     <Card className="p-5">

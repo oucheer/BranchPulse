@@ -263,6 +263,11 @@ export interface PersonalActivity {
   }>
 }
 
+export interface PersonalActivityRange {
+  start: string
+  end: string
+}
+
 export interface PersonalAiConfig {
   baseUrl: string
   model: string
@@ -805,7 +810,7 @@ export interface BranchApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: number, repositoryIds?: string[]): Promise<PersonalActivity>
+  getMyActivity(months?: number, repositoryIds?: string[], range?: PersonalActivityRange): Promise<PersonalActivity>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   getPersonalAiConfig(): Promise<PersonalAiConfig>
   savePersonalAiConfig(config: PersonalAiConfigDraft): Promise<PersonalAiConfig>

@@ -75,7 +75,7 @@ interface AppState {
   toasts: Toast[]
   myActivityCache: Record<string, PersonalActivity>
   myActivityBusy: boolean
-  loadMyActivity: (months: number, force?: boolean) => Promise<void>
+  loadMyActivity: (months: number, force?: boolean, range?: { start: string; end: string } | null) => Promise<void>
   refresh: () => Promise<void>
   restoreSession: () => Promise<UserSession | null>
   login: (username: string | null, password: string | null, email: string | null, gitlabToken?: string) => Promise<void>
@@ -205,16 +205,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
   myActivityCache: readActivityCache(),
   myActivityBusy: false,
-  loadMyActivity: async (months, force = false) => {
+  loadMyActivity: async (months, force = false, range = null) => {
     const session = get().session
     if (!session) return
     const repositoryScope = [...get().selectedRepositoryIds].sort().join(',')
-    const key = `${activityIdentity(session)}|${months}|${repositoryScope}`
+    const rangeKey = range ? `${range.start}|${range.end}` : ''
+    const key = `${activityIdentity(session)}|${months}|${rangeKey}|${repositoryScope}`
     if (!force && get().myActivityCache[key]) return
     const requestId = ++myActivityRequestId
     set({ myActivityBusy: true })
     try {
-      const result = await window.gitmanager.getMyActivity(months, get().selectedRepositoryIds)
+      const result = await window.gitmanager.getMyActivity(months, get().selectedRepositoryIds, range ?? undefined)
       if (requestId !== myActivityRequestId || get().session?.email.toLowerCase() !== session.email.toLowerCase()) return
       const next = { ...get().myActivityCache, [key]: result }
       set({ myActivityCache: next })

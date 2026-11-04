@@ -5,7 +5,7 @@ import type { BranchService } from './branch'
 import type { NamingService } from './naming'
 import type {
   PersonalActivity, PersonalCommit, PersonalCommitFile, PersonalMergeRequest, PersonalRepositoryStats,
-  PersonalSourceStats, PersonalStats, PersonalYearStats, RemoteRepositorySource, Repository, RepositorySource, UserSession
+  PersonalSourceStats, PersonalStats, PersonalYearStats, PersonalActivityRange, RemoteRepositorySource, Repository, RepositorySource, UserSession
 } from '@shared/types'
 import { matchesUserToCreator } from '@shared/identity'
 import { logger } from '../utils/logger'
@@ -65,26 +65,36 @@ export class UserActivityService {
     private readonly namingService: NamingService
   ) {}
 
-  async getActivity(session: UserSession, months: number = 6, repositoryIds?: string[]): Promise<PersonalActivity> {
+  async getActivity(session: UserSession, months: number = 6, repositoryIds?: string[], range?: PersonalActivityRange): Promise<PersonalActivity> {
     const accessToken = session.gitlabToken
     if (!accessToken) throw new Error('请先使用 Access Token 登录后再查看个人活动。')
     const normalizedMonths = Math.max(1, Math.min(Number(months) || 6, 36))
     const email = session.email.toLowerCase().trim()
     const allRepos = this.repositoryService.list()
     const repos = repositoryIds ? allRepos.filter((repo) => repositoryIds.includes(repo.id)) : allRepos
-    const since = new Date()
-    since.setHours(0, 0, 0, 0)
-    since.setDate(1)
-    since.setMonth(since.getMonth() - normalizedMonths + 1)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const validRange = range && /^\d{4}-\d{2}-\d{2}$/.test(range.start) && /^\d{4}-\d{2}-\d{2}$/.test(range.end) ? range : null
+    const since = validRange ? new Date(`${validRange.start}T00:00:00`) : new Date(today.getFullYear(), today.getMonth() - normalizedMonths + 1, 1)
+    const endExclusive = validRange ? new Date(`${validRange.end}T00:00:00`) : new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+    if (validRange) endExclusive.setDate(endExclusive.getDate() + 1)
+    if (Number.isNaN(since.getTime()) || Number.isNaN(endExclusive.getTime()) || since >= endExclusive) throw new Error('个人活动日期范围无效。')
+    const rangeMonths = Math.max(1, (endExclusive.getFullYear() - since.getFullYear()) * 12 + endExclusive.getMonth() - since.getMonth() + 1)
+    if (rangeMonths > 36) throw new Error('个人活动日期范围不能超过 36 个月。')
     const sinceIso = since.toISOString()
+    const endIso = endExclusive.toISOString()
 
-    const { commits, details } = await this.collectCommits(session, email, repos, sinceIso, accessToken, normalizedMonths)
-    const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, accessToken, normalizedMonths)
-    const stats = this.buildStats(session, commits, details, mergeRequests, repos, normalizedMonths)
+    const cacheMonths = validRange ? rangeMonths : normalizedMonths
+    const { commits, details } = await this.collectCommits(session, email, repos, sinceIso, endIso, accessToken, cacheMonths)
+    const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, endIso, accessToken, cacheMonths)
+    const stats = this.buildStats(session, commits, details, mergeRequests, repos, cacheMonths, localDate(since), localDate(new Date(endExclusive.getTime() - 1)))
     const repoById = new Map(repos.map((repo) => [repo.id, repo]))
     const branches = this.branchService.listBranches(repos.map((repo) => repo.id)).filter((branch) => matchesUserToCreator(
       session, branch.creator, repoById.get(branch.repositoryId)?.source ?? 'local'
-    )).map((branch) => ({
+    )).filter((branch) => {
+      const created = branch.createdAt ? localDate(branch.createdAt) : ''
+      return !created || (created >= localDate(since) && created <= localDate(new Date(endExclusive.getTime() - 1)))
+    }).map((branch) => ({
       repositoryId: branch.repositoryId,
       repositoryName: repoById.get(branch.repositoryId)?.name ?? branch.repositoryId,
       name: branch.name, type: branch.type, createdAt: branch.createdAt
@@ -115,6 +125,7 @@ export class UserActivityService {
     email: string,
     repos: Repository[],
     sinceIso: string,
+    endIso: string,
     gitlabToken: string,
     months: number
   ): Promise<{ commits: PersonalCommit[]; details: PersonalActivity['commitDetails'] }> {
@@ -134,11 +145,11 @@ export class UserActivityService {
         const fresh = await this.fetchCommits(repo, email, sinceIso, gitlabToken, account)
         const merged = new Map(rows.map((row) => [row.sha, row]))
         for (const row of fresh) merged.set(row.sha, row)
-        rows = [...merged.values()].filter((row) => row.committedAt >= sinceIso)
+        rows = [...merged.values()].filter((row) => row.committedAt >= sinceIso && row.committedAt < endIso)
         rows.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
         this.saveCache(owner, repo.id, cacheKind, rows)
       } catch (error) {
-        rows = rows.filter((row) => row.committedAt >= sinceIso)
+        rows = rows.filter((row) => row.committedAt >= sinceIso && row.committedAt < endIso)
         logger.warn(`Commit list lookup failed for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`)
       }
       for (const c of rows) {
@@ -221,7 +232,7 @@ export class UserActivityService {
       })).filter((row) => row.sha && row.committedAt)
   }
 
-  private async collectMergeRequests(session: UserSession, repos: Repository[], sinceIso: string, gitlabToken: string, months: number): Promise<PersonalMergeRequest[]> {
+  private async collectMergeRequests(session: UserSession, repos: Repository[], sinceIso: string, endIso: string, gitlabToken: string, months: number): Promise<PersonalMergeRequest[]> {
     const results: PersonalMergeRequest[] = []
     const cacheKind = `mrs:${months}m`
     const owner = this.cacheOwner(session)
@@ -241,7 +252,7 @@ export class UserActivityService {
         }
         for (const mr of fetched[role] ?? []) rowsByRole.set(`${mr.id}:${role}`, mr)
       }
-      let rows = [...rowsByRole.values()].filter((r) => r.createdAt >= sinceIso)
+      let rows = [...rowsByRole.values()].filter((r) => r.createdAt >= sinceIso && r.createdAt < endIso)
       const authored = new Set(rows.filter((r) => r.role === 'author').map((r) => r.id))
       rows = rows.filter((r) => r.role !== 'reviewer' || !authored.has(r.id))
       if (succeeded) this.saveCache(owner, repo.id, cacheKind, rows)
@@ -271,7 +282,7 @@ export class UserActivityService {
             createdAt: String(r.created_at ?? ''),
             webUrl: String(r.web_url ?? ''),
             role
-          })).filter((row) => row.id && row.createdAt >= since)
+        })).filter((row) => row.id && row.createdAt >= since)
       } catch (error) {
         logger.warn(`${role} merge request lookup failed for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -285,7 +296,9 @@ export class UserActivityService {
     details: PersonalActivity['commitDetails'],
     mergeRequests: PersonalMergeRequest[],
     repos: Repository[],
-    months: number
+    months: number,
+    startDay: string,
+    endDay: string
   ): PersonalStats {
     const allBranches = this.branchService.listBranches()
     const repoById = new Map(repos.map((repo) => [repo.id, repo]))
@@ -298,11 +311,13 @@ export class UserActivityService {
     const invalidBranches = myBranches.filter((b) => b.naming.status === 'invalid').length
 
     const monthMap = new Map<string, { commits: number; branches: number }>()
-    for (let i = months - 1; i >= 0; i -= 1) {
-      const d = new Date()
-      d.setDate(1)
-      d.setMonth(d.getMonth() - i)
-      monthMap.set(localMonth(d), { commits: 0, branches: 0 })
+    const monthCursor = new Date(`${startDay.slice(0, 7)}-01T00:00:00`)
+    const lastMonth = endDay.slice(0, 7)
+    while (!Number.isNaN(monthCursor.getTime())) {
+      const month = localMonth(monthCursor)
+      monthMap.set(month, { commits: 0, branches: 0 })
+      if (month === lastMonth) break
+      monthCursor.setMonth(monthCursor.getMonth() + 1)
     }
     for (const c of commits) {
       const m = localMonth(c.committedAt)
