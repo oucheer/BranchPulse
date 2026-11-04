@@ -19,7 +19,7 @@ const USER_ALLOWED_METHODS = new Set([
   'getMonitoring', 'listEmailGroups', 'getEmailConfig', 'listJobs', 'listRuns',
   'calendarRuns', 'listNotifications', 'listReports', 'exportReport',
   'listReportSchedules', 'listBackups', 'listAudit', 'getSettings',
-  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity',
+  'getAppVersion', 'getSession', 'login', 'logout', 'getMyActivity', 'saveSettings',
   'getCommitFile', 'getPersonalAiConfig', 'savePersonalAiConfig',
   'testPersonalAiConnection',
   'listPersonalAiConversations', 'createPersonalAiConversation', 'deletePersonalAiConversation',
@@ -116,14 +116,15 @@ function resolveStaticPath(root: string, pathname: string): string | null {
  */
 export function createServer(options: ServerOptions): GitManagerServer {
   const { api } = options
-  const clients = new Set<http.ServerResponse>()
+  const clients = new Map<http.ServerResponse, string>()
   let server: http.Server | null = null
 
   function broadcast(event: string, payload: unknown): void {
     if (clients.size === 0) return
     const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
-    for (const client of [...clients]) {
+    for (const [client, token] of [...clients]) {
       try {
+        if (api.resolveSession(token)?.role !== 'admin') continue
         client.write(frame)
       } catch {
         clients.delete(client)
@@ -133,12 +134,25 @@ export function createServer(options: ServerOptions): GitManagerServer {
 
   async function handleRpc(req: http.IncomingMessage, res: http.ServerResponse, method: string): Promise<void> {
     const session = readSession(req)
-    if (!session && method !== 'login' && method !== 'init') {
+    if (!session && method !== 'login') {
       sendJson(res, 401, { error: '请先登录。' })
       return
     }
     if (session && session.role !== 'admin' && !USER_ALLOWED_METHODS.has(method)) {
       sendJson(res, 403, { error: '普通用户没有执行此操作的权限。' })
+      return
+    }
+    if (session?.role === 'user' && ['listNotifications', 'exportReport'].includes(method)) {
+      sendJson(res, 403, { error: '此功能仅对管理员开放。' })
+      return
+    }
+    // Keep legacy bootstrap reads compatible without exposing administrative data.
+    if (session?.role === 'user' && ['listJobs', 'listRuns', 'calendarRuns', 'listReports', 'listReportSchedules', 'listBackups', 'listAudit', 'listEmailGroups'].includes(method)) {
+      sendJson(res, 200, { result: [] })
+      return
+    }
+    if (session?.role === 'user' && method === 'getEmailConfig') {
+      sendJson(res, 200, { result: null })
       return
     }
     let args: unknown[] = []
@@ -179,7 +193,8 @@ export function createServer(options: ServerOptions): GitManagerServer {
       'x-accel-buffering': 'no'
     })
     res.write(': connected\n\n')
-    clients.add(res)
+    const token = new URL(req.url ?? '/', 'http://localhost').searchParams.get('token') ?? ''
+    clients.set(res, token)
     const keepAlive = setInterval(() => {
       try {
         res.write(': ping\n\n')
@@ -271,10 +286,18 @@ export function createServer(options: ServerOptions): GitManagerServer {
         return
       }
       if (pathname === '/api/fs/folders') {
+        if (readSession(req)?.role !== 'admin') {
+          sendJson(res, 403, { error: '此功能仅对管理员开放。' })
+          return
+        }
         handleFolders(res, url)
         return
       }
       if (pathname.startsWith('/api/reports/') && (pathname.endsWith('/download') || pathname.endsWith('/view'))) {
+        if (readSession(req)?.role !== 'admin') {
+          sendJson(res, 403, { error: '此功能仅对管理员开放。' })
+          return
+        }
         const mode = pathname.endsWith('/view') ? 'view' : 'download'
         const suffix = `/${mode}`
         const id = decodeURIComponent(pathname.slice('/api/reports/'.length, -suffix.length))
@@ -321,7 +344,7 @@ export function createServer(options: ServerOptions): GitManagerServer {
       return { port: actualPort, host }
     },
     async close() {
-      for (const client of [...clients]) {
+      for (const [client] of [...clients]) {
         try {
           client.end()
         } catch {

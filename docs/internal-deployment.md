@@ -6,6 +6,19 @@
 
 ## 1. `npm start` 后网页打不开
 
+### AI 密钥保存与内网模型
+
+Linux 的 Node 服务没有 Windows 桌面密钥库。请生成一次 32 字节密钥并持久保留：
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+export GITMANAGER_ENCRYPTION_KEY='<生成的64位十六进制字符串>'
+export GITMANAGER_AI_ALLOW_PRIVATE_NETWORK=1
+node dist/server/index.cjs
+```
+
+不要在每次启动时生成新密钥，否则旧凭据无法解密。systemd 服务需在权限为 `0600` 的 `EnvironmentFile` 中保存以上变量并在服务配置添加 `EnvironmentFile=/etc/gitmanager.env`，然后重启服务。项目目录的 `.env` 不会被自动加载。密钥丢失、更换或从 Windows 迁移时需重新填写 API 凭据；实际密钥不可提交到 Git。开启私网访问代表允许用户连接服务端可达的内网模型，仅应在可信内网部署启用。
+
 **原因**：`server/index.ts:10` 的默认监听地址是 `127.0.0.1`，只绑定回环地址，外部机器连不上；服务本身是正常运行的。
 
 **处理**：启动时显式指定监听所有网卡，并放行防火墙端口。

@@ -210,12 +210,22 @@ export default function Reports(): JSX.Element {
   const openReportFile = async (id: string, reportFormat: string): Promise<void> => {
     try {
       if (reportFormat === 'html') {
-        const preview = window.open(reportViewPath(id), '_blank')
+        const preview = window.open('about:blank', '_blank')
         if (!preview) {
           toast('浏览器阻止了报告预览窗口，请允许本站打开新窗口后重试。', 'warn')
           return
         }
         preview.opener = null
+        try {
+          const response = await fetch(reportViewPath(id), { headers: { authorization: `Bearer ${sessionStorage.getItem('gitmanager:session-token') ?? ''}` } })
+          if (!response.ok) throw new Error(`报告预览失败（HTTP ${response.status}）。`)
+          const url = URL.createObjectURL(await response.blob())
+          preview.location.href = url
+          window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        } catch (error) {
+          preview.close()
+          throw error
+        }
         return
       }
       await downloadReportFile(id)

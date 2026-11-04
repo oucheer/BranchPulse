@@ -115,6 +115,13 @@ function loadDpapiKey(): Buffer | null {
 let cachedKey: Buffer | null | undefined
 
 function aesKey(): Buffer | null {
+  const configured = process.env.GITMANAGER_ENCRYPTION_KEY
+  if (configured !== undefined) {
+    if (!/^[a-fA-F0-9]{64}$/.test(configured)) {
+      throw new Error('GITMANAGER_ENCRYPTION_KEY must contain exactly 64 hexadecimal characters (32 bytes).')
+    }
+    return Buffer.from(configured, 'hex')
+  }
   if (cachedKey !== undefined) return cachedKey
   cachedKey = chromiumOsCryptKey() ?? loadDpapiKey()
   return cachedKey

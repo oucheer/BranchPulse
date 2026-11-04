@@ -18,6 +18,11 @@ export default function Login(): JSX.Element {
   const [busy, setBusy] = useState(false)
 
   const submit = async (): Promise<void> => {
+    if (busy) return
+    if (mode === 'admin' ? !username.trim() || !password : !email.trim() || !accessToken.trim()) {
+      toast(zh ? '请填写全部登录信息。' : 'Please complete all sign-in fields.', 'error')
+      return
+    }
     setBusy(true)
     try {
       if (mode === 'admin') await login(username.trim(), password, null)
@@ -59,6 +64,7 @@ export default function Login(): JSX.Element {
           </button>
         </div>
 
+        <form onSubmit={(event) => { event.preventDefault(); void submit() }}>
         {mode === 'admin' ? (
           <div className="space-y-3">
             <div>
@@ -84,9 +90,10 @@ export default function Login(): JSX.Element {
           </div>
         )}
 
-        <button className="login-submit btn btn-primary mt-6 w-full justify-between" disabled={busy} onClick={() => void submit()}>
+        <button type="submit" className="login-submit btn btn-primary mt-6 w-full justify-between" disabled={busy}>
           <span className="flex items-center gap-2"><LogIn size={15} />{busy ? (zh ? '登录中…' : 'Signing in…') : (zh ? '登录' : 'Sign in')}</span><ArrowRight size={16} />
         </button>
+        </form>
       </Card>
     </div>
   )

@@ -230,6 +230,8 @@ export default function App(): JSX.Element {
     return <Navigate to="/" replace />
   }
 
+  if (role === 'user' && location.pathname === '/notifications') return <Navigate to="/" replace />
+
   if (role === 'admin' && (location.pathname === '/my-activity' || location.pathname.startsWith('/my-activity/commit/') || location.pathname === '/my-timeline' || location.pathname === '/my-ai')) {
     return <Navigate to="/" replace />
   }

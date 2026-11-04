@@ -81,6 +81,21 @@ describe('PersonalAiService', () => {
     expect(() => service.getConfig({ ...user('', ''), role: 'admin' })).toThrow('普通用户')
   })
 
+  it('allows private model endpoints only when the server explicitly enables them', () => {
+    const previous = process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK
+    try {
+      delete process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK
+      const draft = { baseUrl: 'http://10.0.0.12:8000/v1', model: 'internal', apiKey: 'secret' }
+      expect(() => service.saveConfig(user('one@example.com', '1'), draft)).toThrow('GITMANAGER_AI_ALLOW_PRIVATE_NETWORK')
+      process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK = '1'
+      expect(service.saveConfig(user('one@example.com', '1'), draft).hasApiKey).toBe(true)
+      expect(() => service.saveConfig(user('one@example.com', '1'), { ...draft, baseUrl: 'file:///etc/passwd' })).toThrow('HTTP(S)')
+    } finally {
+      if (previous === undefined) delete process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK
+      else process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK = previous
+    }
+  })
+
   it('requires a complete saved configuration before testing the provider', async () => {
     await expect(service.testConnection(user('one@example.com', '1'))).rejects.toThrow('请先配置 API URL、模型和密钥')
   })

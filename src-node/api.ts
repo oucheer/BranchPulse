@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
 import fs from 'node:fs'
+import { matchesUserToCreator } from '@shared/identity'
 import type {
   AppSettings,
   AuditEntry,
@@ -260,6 +261,34 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     fallbackSession = session
   }
 
+  function personalKey(session: UserSession): string {
+    return `${session.role}:${session.source ?? ''}:${session.accountId ?? session.email.toLowerCase()}`
+  }
+
+  function currentSettings(): AppSettings {
+    const base = settings.get()
+    const session = activeSession()
+    if (!session || session.role === 'admin') return base
+    const row = storage.get<{ settings_json: string }>('SELECT settings_json FROM user_preferences WHERE user_key = ?', [personalKey(session)])
+    const preferences = row ? JSON.parse(row.settings_json) as Partial<AppSettings> : {
+      theme: base.theme, colorTheme: base.colorTheme, backgroundTheme: base.backgroundTheme,
+      language: base.language, selectedRepositoryIds: base.selectedRepositoryIds
+    }
+    if (!row) {
+      storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?)', [personalKey(session), JSON.stringify(preferences)])
+      storage.save()
+    }
+    return { ...base, ...preferences, gitPath: '', gitlabApiKey: undefined, hasGitlabApiKey: false }
+  }
+
+  function visibleBranches(repositoryIds?: string[]): BranchSummary[] {
+    const rows = branch.listBranches(repositoryIds)
+    const session = activeSession()
+    if (!session || session.role === 'admin') return rows
+    const repos = new Map(repository.list().map((repo) => [repo.id, repo]))
+    return rows.filter((row) => matchesUserToCreator(session, row.creator, repos.get(row.repositoryId)?.source ?? 'local'))
+  }
+
   function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {
     const rows = repositoryIds?.length
       ? storage.all<Record<string, unknown>>(
@@ -356,15 +385,15 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     },
 
     async init(): Promise<DashboardSnapshot> {
-      const currentSettings = settings.get()
-      const selectedRepositoryIds = currentSettings.selectedRepositoryIds
-      const scanRuns = selectedRepositoryIds.length === 0 ? [] : listScanRuns(selectedRepositoryIds, 50)
+      const selectedRepositoryIds = currentSettings().selectedRepositoryIds
+      const isUser = activeSession()?.role === 'user'
+      const scanRuns = isUser || selectedRepositoryIds.length === 0 ? [] : listScanRuns(selectedRepositoryIds, 50)
       return {
         repositories: repository.list(),
-        branches: branch.listBranches(selectedRepositoryIds.length === 0 ? [] : undefined),
+        branches: visibleBranches(selectedRepositoryIds),
         scanRuns,
-        notifications: selectedRepositoryIds.length === 0 ? [] : monitoring.listNotifications(selectedRepositoryIds),
-        settings: settings.get(),
+        notifications: isUser || selectedRepositoryIds.length === 0 ? [] : monitoring.listNotifications(selectedRepositoryIds),
+        settings: currentSettings(),
         monitoring: await getMonitoring(selectedRepositoryIds[0] ?? null),
         selectedRepositoryIds
       }
@@ -412,8 +441,11 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         throw err
       }
     },
-    listBranches: async (repositoryIds) => branch.listBranches(repositoryIds),
-    getBranch: (criteria, repositoryIds) => branch.getBranch(criteria, repositoryIds),
+    listBranches: async (repositoryIds) => visibleBranches(repositoryIds),
+    getBranch: async (criteria, repositoryIds) => {
+      const found = await branch.getBranch(criteria, repositoryIds)
+      return found && visibleBranches(repositoryIds).some((row) => row.id === found.id) ? found : null
+    },
     notifyBranch: (bs) => monitoring.notifyBranch(bs),
     notifyBranchesEmail: (bs) => monitoring.notifyBranchesEmail(bs),
     notifySelfEmail: (bs) => monitoring.notifySelfEmail(bs),
@@ -601,7 +633,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       }
     },
 
-    getSettings: async () => settings.get(),
+    getSettings: async () => currentSettings(),
     exportConfig: async (extras = {}, filePath) => {
       const target = filePath?.trim() || path.join(dataDir(), `gitmanager-config-${dateStamp()}.json`)
       try {
@@ -637,7 +669,13 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       try {
         const session = activeSession()
         if (session && session.role !== 'admin') {
-          throw new Error('普通用户没有修改设置的权限。')
+          const personal = {
+            theme: s.theme, colorTheme: s.colorTheme, backgroundTheme: s.backgroundTheme, language: s.language,
+            selectedRepositoryIds: s.selectedRepositoryIds.filter((id) => repository.get(id))
+          }
+          storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?) ON CONFLICT(user_key) DO UPDATE SET settings_json = excluded.settings_json', [personalKey(session), JSON.stringify(personal)])
+          storage.save()
+          return currentSettings()
         }
         const saved = settings.save(s)
         audit.record('settings_updated', {
@@ -759,6 +797,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     logout: async () => {
       const session = activeSession()
       if (session) audit.record('user_logout', { role: session.role, email: session.email || session.displayName })
+      if (session) users.logout(session.token)
       bindSession(null)
       return true
     },

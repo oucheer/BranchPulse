@@ -73,7 +73,7 @@ export default function FolderPicker({
           params.set('files', '1')
           if (extensionKey) params.set('ext', extensionKey)
         }
-        const response = await fetch(`${FOLDERS_PATH}?${params.toString()}`)
+        const response = await fetch(`${FOLDERS_PATH}?${params.toString()}`, { headers: { authorization: `Bearer ${sessionStorage.getItem('gitmanager:session-token') ?? ''}` } })
         const payload = (await response.json()) as FolderListing & { error?: string }
         if (!response.ok || payload.error) throw new Error(payload.error ?? '无法读取目录')
         setListing(payload)

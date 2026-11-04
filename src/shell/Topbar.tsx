@@ -8,6 +8,7 @@ import { layout, shadow } from '../design-system/tokens'
 
 export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void }): JSX.Element {
   const language = useAppStore((s) => s.language)
+  const role = useAppStore((s) => s.role)
   const notifications = useAppStore((s) => s.notifications)
   const scanning = useAppStore((s) => s.scanning)
   const repositories = useAppStore((s) => s.repositories)
@@ -49,10 +50,10 @@ export default function Topbar({ onOpenPalette }: { onOpenPalette: () => void })
             <Activity size={12} className="animate-spin" /> {tr('running')}
           </span>
         ) : null}
-        <button className="relative rounded-md p-1.5 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => navigate('/notifications')} aria-label="Notifications">
+        {role === 'admin' ? <button className="relative rounded-md p-1.5 text-muted transition-colors hover:bg-line/40 hover:text-canvas-fg" onClick={() => navigate('/notifications')} aria-label="Notifications">
           <Bell size={16} />
           {unread > 0 ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-danger" /> : null}
-        </button>
+        </button> : null}
       </div>
     </header>
   )

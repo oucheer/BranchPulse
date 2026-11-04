@@ -18,7 +18,7 @@ function safeBaseUrl(value: string): string {
   const privateHost = host === 'localhost' || host === '::1' || host.endsWith('.localhost') || host.endsWith('.local')
     || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)
     || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host)
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || privateHost) throw new Error('API URL 必须是有效的公网 HTTP(S) 地址。')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || (privateHost && process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK !== '1')) throw new Error('API URL 必须是有效的 HTTP(S) 地址。内网模型需由服务端设置 GITMANAGER_AI_ALLOW_PRIVATE_NETWORK=1。')
   return url.toString().replace(/\/$/, '')
 }
 
@@ -165,7 +165,7 @@ export class PersonalAiService {
     if (baseUrl && !model) throw new Error('请填写模型名称。')
     const previous = this.storage.get<StoredConfig>('SELECT base_url, model, api_key_encrypted FROM user_ai_config WHERE user_key = ?', [key])
     const apiKey = String(draft.apiKey ?? '').trim()
-    if (apiKey && !isSecretEncryptionAvailable()) throw new Error('当前服务未配置可用的系统密钥库，无法安全保存 API 密钥。')
+    if (apiKey && !isSecretEncryptionAvailable()) throw new Error('服务端加密不可用。Linux / Node 部署请设置 GITMANAGER_ENCRYPTION_KEY（64 位十六进制密钥）并重启服务，再保存 API 密钥。')
     const encrypted = apiKey ? encryptSecret(apiKey) : (previous?.api_key_encrypted ?? '')
     if (apiKey && encrypted.startsWith('plain:')) throw new Error('API 密钥未能加密，已取消保存。请检查服务端系统密钥库配置。')
     if (!baseUrl && !apiKey && !previous) return this.getConfig(session)

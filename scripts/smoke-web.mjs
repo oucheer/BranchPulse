@@ -196,6 +196,8 @@ async function checkFolderPickerStability(send, evaluate, networkRequests) {
   })()`)
   if (opened !== true) return { opened: false, detail: String(opened), listings: 0, roots: 0 }
 
+  // Windows drive discovery can block on disconnected network drives.
+  await waitFor(() => evaluate(`!document.querySelector('.fixed.inset-0.z-50 svg.animate-spin')`), 'folder listing to finish', 60_000)
   await new Promise((resolve) => setTimeout(resolve, 3000))
 
   const state = await evaluate(`(() => {
@@ -254,9 +256,16 @@ async function main() {
     }
     console.log(`[smoke] renderer bundle served: ${assetPath}`)
 
+    const loginResponse = await fetch(`${BASE}/api/rpc/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(['admin', 'pantum', null])
+    })
+    const loginBody = await loginResponse.json()
+    if (!loginBody.result?.token) throw new Error('Smoke admin login failed')
+    const token = loginBody.result.token
     const initResponse = await fetch(`${BASE}/api/rpc/init`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: '[]'
     })
     const initBody = await initResponse.json()
@@ -267,7 +276,7 @@ async function main() {
 
     const unknownResponse = await fetch(`${BASE}/api/rpc/definitelyNotAMethod`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: '[]'
     })
     if (unknownResponse.status !== 404) {
@@ -280,6 +289,8 @@ async function main() {
     await send('Runtime.enable')
 
     await send('Page.navigate', { url: `${BASE}/` })
+    await waitFor(() => evaluate(`location.origin !== 'null'`), 'browser origin')
+    await evaluate(`sessionStorage.setItem('gitmanager:session-token', ${JSON.stringify(token)}); location.reload()`)
     await waitFor(
       () => evaluate(`Boolean(document.querySelector('h1')) || Boolean(document.querySelector('.text-danger'))`),
       'the app shell to render'

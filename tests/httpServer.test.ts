@@ -23,7 +23,7 @@ function api(overrides: Partial<GitManagerApi> = {}): GitManagerApi {
 }
 
 async function start(overrides: Partial<GitManagerApi> = {}, withStatic = true): Promise<void> {
-  server = createServer({ api: api(overrides), ...(withStatic ? { staticDir } : {}) })
+  server = createServer({ api: api({ resolveSession: () => ({ role: 'admin', token: 'test-admin' } as never), ...overrides }), ...(withStatic ? { staticDir } : {}) })
   const address = await server.listen(0, '127.0.0.1')
   base = `http://127.0.0.1:${address.port}`
 }
@@ -69,7 +69,7 @@ describe('GET /api/fs/folders', () => {
 
     await start()
     const query = new URLSearchParams({ path: target, files: '1', ext: ' .JSON , txt ' })
-    const response = await fetch(`${base}/api/fs/folders?${query}`)
+    const response = await fetch(`${base}/api/fs/folders?${query}`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(200)
     const body = (await response.json()) as { files: { name: string }[]; path: string }
     expect(body.path).toBe(path.resolve(target))
@@ -81,14 +81,14 @@ describe('GET /api/fs/folders', () => {
     fs.mkdirSync(target, { recursive: true })
     fs.writeFileSync(path.join(target, 'notes.txt'), 'x')
     await start()
-    const response = await fetch(`${base}/api/fs/folders?path=${encodeURIComponent(target)}`)
+    const response = await fetch(`${base}/api/fs/folders?path=${encodeURIComponent(target)}`, { headers: { authorization: 'Bearer test-admin' } })
     const body = (await response.json()) as { files: unknown[] }
     expect(body.files).toEqual([])
   })
 
   it('answers with 400 for an unreadable directory instead of failing the request', async () => {
     await start()
-    const response = await fetch(`${base}/api/fs/folders?path=${encodeURIComponent(path.join(workDir, 'missing'))}`)
+    const response = await fetch(`${base}/api/fs/folders?path=${encodeURIComponent(path.join(workDir, 'missing'))}`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ error: expect.stringContaining('目录不存在或不可访问') })
   })
@@ -109,7 +109,7 @@ describe('report files', () => {
       exportReport: async () => null as never
     } as unknown as Partial<GitManagerApi>)
 
-    const response = await fetch(`${base}/api/reports/report-1/download`)
+    const response = await fetch(`${base}/api/reports/report-1/download`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('text/csv; charset=utf-8')
     expect(response.headers.get('content-disposition')).toContain('attachment')
@@ -122,7 +122,7 @@ describe('report files', () => {
       listReports: async () => [{ id: 'report-preview', path: file }]
     } as unknown as Partial<GitManagerApi>)
 
-    const response = await fetch(`${base}${reportViewPath('report-preview')}`)
+    const response = await fetch(`${base}${reportViewPath('report-preview')}`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
     expect(response.headers.get('content-disposition')).toContain('inline')
@@ -136,14 +136,14 @@ describe('report files', () => {
       listReports: async () => [{ id: 'report-preview', path: file }]
     } as unknown as Partial<GitManagerApi>)
 
-    const response = await fetch(`${base}${reportViewPath('report-preview')}`)
+    const response = await fetch(`${base}${reportViewPath('report-preview')}`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-disposition')).toContain('attachment')
   })
 
   it('answers 404 for an unknown report id', async () => {
     await start({ listReports: async () => [] } as unknown as Partial<GitManagerApi>)
-    const response = await fetch(`${base}/api/reports/nope/download`)
+    const response = await fetch(`${base}/api/reports/nope/download`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(404)
   })
 
@@ -154,7 +154,7 @@ describe('report files', () => {
       listReports: async () => [{ id: 'escape', path: outside }]
     } as unknown as Partial<GitManagerApi>)
 
-    const response = await fetch(`${base}/api/reports/escape/download`)
+    const response = await fetch(`${base}/api/reports/escape/download`, { headers: { authorization: 'Bearer test-admin' } })
     expect(response.status).toBe(404)
     expect(await response.text()).not.toContain('top secret')
   })

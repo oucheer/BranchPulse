@@ -59,6 +59,27 @@ npm start
 
 内网/离线环境部署的完整步骤见 [docs/internal-deployment.md](docs/internal-deployment.md)。
 
+### Linux 服务端 AI 密钥
+
+无桌面环境的 Node 服务不需要系统密钥库。部署时生成一次 AES-256 密钥，并将其固定保存在服务的受保护环境配置中：
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+export GITMANAGER_ENCRYPTION_KEY='<上一步生成的64位十六进制字符串>'
+# 连接内网模型时由服务器管理员显式开启
+export GITMANAGER_AI_ALLOW_PRIVATE_NETWORK=1
+npm start
+# 也可以直接运行 node dist/server/index.cjs
+```
+
+以上变量必须传入实际运行 Node 的进程。使用 systemd 时写入权限为 `0600` 的 `EnvironmentFile`，修改后重启服务；仅在交互式终端 export 不会更新已运行的服务。应用不会自动读取项目根目录的 `.env`。
+
+密钥用于 AES-256-GCM 加密，API 配置按登录用户分别持久化，浏览器只读取是否已保存密钥。请备份并长期保留同一密钥，不要每次启动重新生成；丢失或更换后需要重新填写原有凭据。已有 Windows DPAPI 密文不能直接移到 Linux 解密，需要重新填写。不要提交真实密钥或将其写入前端环境变量。
+
+### 用户隔离
+
+应用使用共享数据库：仓库目录与命名规则由管理员维护并供团队只读查看。普通用户分支列表仅显示本人的分支；界面偏好、仓库选择、AI 配置及对话按会话确定的身份隔离。普通用户不可读取管理员邮件配置、审计、通知、调度记录、备份和团队报告。注销后服务器会撤销当前会话令牌，不影响其他已登录会话。
+
 ## 常用命令
 
 ```bash

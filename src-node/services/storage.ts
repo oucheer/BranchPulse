@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_key TEXT PRIMARY KEY,
+  settings_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS user_sessions (
   token TEXT PRIMARY KEY,
   role TEXT NOT NULL,

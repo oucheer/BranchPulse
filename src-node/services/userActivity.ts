@@ -54,6 +54,9 @@ function emptyRepositoryStats(repositoryId: string, repositoryName: string, sour
 }
 
 export class UserActivityService {
+  private cacheOwner(session: UserSession): string {
+    return `v2:${session.source ?? ''}:${session.accountId ?? session.username}:${session.email.toLowerCase().trim()}`
+  }
   constructor(
     private readonly storage: StorageService,
     private readonly gitlab: GitLabService,
@@ -116,8 +119,9 @@ export class UserActivityService {
   ): Promise<{ commits: PersonalCommit[]; details: PersonalActivity['commitDetails'] }> {
     const forgeAccount = { id: session.gitlabUserId, username: session.username.trim().toLowerCase() }
     const cacheKind = `commits:${months}m`
-    const cached = this.loadCache<CachedCommit>(session.email, cacheKind)
-    const legacyCached = this.loadCache<CachedCommit>(session.email, 'commits')
+    const owner = this.cacheOwner(session)
+    const cached = this.loadCache<CachedCommit>(owner, cacheKind)
+    const legacyCached = this.loadCache<CachedCommit>(owner, 'commits')
     const results: PersonalCommit[] = []
     const linesBySha = new Map<string, CommitDiffTotals>()
     const diffStatus = new Map<string, 'loaded' | 'failed'>()
@@ -131,7 +135,7 @@ export class UserActivityService {
         for (const row of fresh) merged.set(row.sha, row)
         rows = [...merged.values()].filter((row) => row.committedAt >= sinceIso)
         rows.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
-        this.saveCache(session.email, repo.id, cacheKind, rows)
+        this.saveCache(owner, repo.id, cacheKind, rows)
       } catch (error) {
         rows = rows.filter((row) => row.committedAt >= sinceIso)
         logger.warn(`Commit list lookup failed for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`)
@@ -141,7 +145,7 @@ export class UserActivityService {
       }
     }
     results.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
-    const cachedDiffs = this.loadCache<CachedCommitDiff>(session.email, 'commit_diffs:v2')
+    const cachedDiffs = this.loadCache<CachedCommitDiff>(owner, 'commit_diffs:v2')
     let diffsChanged = false
     // 逐 commit 统计代码行数；单个失败不影响整体统计。
     for (const repo of repos) {
@@ -180,7 +184,7 @@ export class UserActivityService {
           results.filter((c) => c.repositoryId === repo.id).map((c) => c.sha)
         )
       }
-      this.saveCommitDiffCache(session.email, shasByProject, linesBySha)
+      this.saveCommitDiffCache(owner, shasByProject, linesBySha)
     }
     const details = results.map((commit) => ({
       sha: commit.sha,
@@ -219,8 +223,9 @@ export class UserActivityService {
   private async collectMergeRequests(session: UserSession, repos: Repository[], sinceIso: string, gitlabToken: string, months: number): Promise<PersonalMergeRequest[]> {
     const results: PersonalMergeRequest[] = []
     const cacheKind = `mrs:${months}m`
-    const cachedByRepo = this.loadCache<CachedMergeRequest>(session.email, cacheKind)
-    const legacyCached = this.loadCache<CachedMergeRequest>(session.email, 'mrs')
+    const owner = this.cacheOwner(session)
+    const cachedByRepo = this.loadCache<CachedMergeRequest>(owner, cacheKind)
+    const legacyCached = this.loadCache<CachedMergeRequest>(owner, 'mrs')
     for (const repo of repos) {
       if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
       const previous = cachedByRepo.get(repo.id) ?? legacyCached.get(repo.id) ?? []
@@ -238,7 +243,7 @@ export class UserActivityService {
       let rows = [...rowsByRole.values()].filter((r) => r.createdAt >= sinceIso)
       const authored = new Set(rows.filter((r) => r.role === 'author').map((r) => r.id))
       rows = rows.filter((r) => r.role !== 'reviewer' || !authored.has(r.id))
-      if (succeeded) this.saveCache(session.email, repo.id, cacheKind, rows)
+      if (succeeded) this.saveCache(owner, repo.id, cacheKind, rows)
       for (const mr of rows) {
         results.push({ ...mr, repositoryId: repo.id, repositoryName: repo.name, source: repo.source })
       }

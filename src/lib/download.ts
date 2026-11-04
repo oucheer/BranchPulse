@@ -18,7 +18,7 @@ function fileNameFrom(disposition: string, fallback: string): string {
  * the machine running the server.
  */
 export async function downloadReportFile(id: string): Promise<void> {
-  const response = await fetch(reportDownloadPath(id))
+  const response = await fetch(reportDownloadPath(id), { headers: { authorization: `Bearer ${sessionStorage.getItem('gitmanager:session-token') ?? ''}` } })
   if (!response.ok) {
     const detail = await response.text()
     throw new Error(detail || `报告文件不可下载（HTTP ${response.status}）。`)

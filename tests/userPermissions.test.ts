@@ -87,6 +87,33 @@ async function rpc(token: string, method: string, args: unknown[] = []): Promise
 }
 
 describe('user permissions', () => {
+  it('isolates preferences, protects administrative data, and revokes only the logged-out session', async () => {
+    const first = await loginAs('user')
+    const admin = await loginAs('admin')
+    runtime!.services.storage.insert('user_sessions', {
+      token: 'other-user', role: 'user', email: 'other@example.com', account_id: 'other',
+      created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60_000).toISOString()
+    })
+    const adminSettings = (await rpc(admin.token, 'getSettings')).body.result as Record<string, unknown>
+    const saved = await rpc(first.token, 'saveSettings', [{ ...adminSettings, language: 'en', gitlabApiKey: 'injected-admin-token', gitlabUrl: 'https://evil.example' }])
+    expect(saved.status).toBe(200)
+    expect((saved.body.result as Record<string, unknown>).language).toBe('en')
+    expect(((await rpc(admin.token, 'getSettings')).body.result as Record<string, unknown>).language).toBe(adminSettings.language)
+    expect(((await rpc('other-user', 'getSettings')).body.result as Record<string, unknown>).language).toBe(adminSettings.language)
+    expect(runtime!.services.settings.get().gitlabUrl).toBe(adminSettings.gitlabUrl)
+    expect(runtime!.services.settings.getGitLabToken()).not.toBe('injected-admin-token')
+    expect((await rpc(first.token, 'getEmailConfig')).body.result).toBeNull()
+    expect((await rpc(first.token, 'listAudit')).body.result).toEqual([])
+    expect((await rpc(first.token, 'listNotifications')).status).toBe(403)
+    expect((await rpc('', 'init')).status).toBe(401)
+    const conversation = (await rpc(first.token, 'createPersonalAiConversation')).body.result as { id: string }
+    expect((await rpc('other-user', 'listPersonalAiMessages', [conversation.id])).status).toBeGreaterThanOrEqual(400)
+    expect((await fetch(`${base}/api/reports/any/download`, { headers: { authorization: `Bearer ${first.token}` } })).status).toBe(403)
+    expect((await rpc(first.token, 'logout')).status).toBe(200)
+    expect((await rpc(first.token, 'getSession')).status).toBe(401)
+    expect((await rpc('other-user', 'getSession')).status).toBe(200)
+    expect((await rpc(admin.token, 'getSession')).status).toBe(200)
+  })
   it('rejects unauthenticated RPC calls with 401', async () => {
     const { status } = await rpc('', 'listRepositories')
     expect(status).toBe(401)

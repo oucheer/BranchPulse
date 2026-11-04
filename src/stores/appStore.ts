@@ -243,23 +243,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         return
       }
 
-      // The login screen only needs the public dashboard snapshot. A full
-      // bootstrap before authentication hits protected endpoints, and each 401
-      // reloads the page before the user can ever log in.
-      if (!get().session) {
-        const snapshot = await window.gitmanager.init()
-        set({
-          ready: true,
-          appVersion: '',
-          repositories: snapshot.repositories,
-          branches: snapshot.branches,
-          scanRuns: snapshot.scanRuns,
-          notifications: snapshot.notifications,
-          selectedRepositoryIds: snapshot.selectedRepositoryIds ?? snapshot.settings.selectedRepositoryIds ?? [],
-          settings: snapshot.settings
-        })
-        localStorage.setItem(LANGUAGE_KEY, snapshot.settings.language)
-        set({ language: snapshot.settings.language })
+      // Do not request protected data until a session has been established.
+      const sessionToken = get().session?.token
+      if (!sessionToken) {
+        set({ ready: true })
         return
       }
 
@@ -279,6 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.gitmanager.listBackups(selected),
         window.gitmanager.getAppVersion()
       ])
+      if (get().session?.token !== sessionToken) return
       set({
         ready: true,
         appVersion: appVersion ?? '',
@@ -338,6 +326,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const session = await window.gitmanager.login(username, password, email, gitlabToken)
     // 每个标签页独立保存 token，同一浏览器的多个标签页互不影响。
     sessionStorage.setItem(SESSION_KEY, session.token)
+    window.dispatchEvent(new Event('gitmanager:session-changed'))
     set({ session, role: session.role, myEmail: session.email, startupError: null })
     await get().refresh()
   },
@@ -345,10 +334,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   logout: async () => {
     try { await window.gitmanager.logout() } catch { /* token already gone */ }
     sessionStorage.removeItem(SESSION_KEY)
+    window.dispatchEvent(new Event('gitmanager:session-changed'))
     // The app itself is still initialized; only the identity changes. Resetting
     // `ready` here would strand the tab on the root Loading screen because no
     // startup refresh runs after logout.
-    set({ session: null, role: null, myEmail: '' })
+    set({ session: null, role: null, myEmail: '', repositories: [], branches: [], notifications: [], scanRuns: [], selectedRepositoryIds: [], reports: [], audit: [], jobs: [], calendarRuns: [], reportSchedules: [], backups: [], emailGroups: [], namingRules: [], whitelist: [], protected: [], emailConfig: null, progress: null, scanning: false, myActivityBusy: false })
     myActivityRequestId += 1
   },
 

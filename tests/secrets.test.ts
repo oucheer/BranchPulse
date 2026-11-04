@@ -7,6 +7,7 @@ import type { SecretBackend } from '../src-node/utils/secrets'
 let workDir: string
 let previousUserData: string | undefined
 let previousDataDir: string | undefined
+let previousEncryptionKey: string | undefined
 
 /**
  * The encryption key is cached per process, so every test loads a private copy
@@ -22,6 +23,8 @@ beforeEach(() => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-secrets-'))
   previousUserData = process.env.GITMANAGER_USER_DATA_DIR
   previousDataDir = process.env.GITMANAGER_DATA_DIR
+  previousEncryptionKey = process.env.GITMANAGER_ENCRYPTION_KEY
+  delete process.env.GITMANAGER_ENCRYPTION_KEY
   process.env.GITMANAGER_USER_DATA_DIR = workDir
   delete process.env.GITMANAGER_DATA_DIR
 })
@@ -31,10 +34,32 @@ afterEach(() => {
   else process.env.GITMANAGER_USER_DATA_DIR = previousUserData
   if (previousDataDir === undefined) delete process.env.GITMANAGER_DATA_DIR
   else process.env.GITMANAGER_DATA_DIR = previousDataDir
+  if (previousEncryptionKey === undefined) delete process.env.GITMANAGER_ENCRYPTION_KEY
+  else process.env.GITMANAGER_ENCRYPTION_KEY = previousEncryptionKey
   fs.rmSync(workDir, { recursive: true, force: true })
 })
 
 describe('secret round trip', () => {
+  it('uses a server AES key without a desktop key store and survives restart', async () => {
+    process.env.GITMANAGER_ENCRYPTION_KEY = 'ab'.repeat(32)
+    const first = await freshSecretsModule()
+    expect(first.isSecretEncryptionAvailable()).toBe(true)
+    const encrypted = first.encryptSecret('private-model-key')
+    expect(encrypted.startsWith('plain:')).toBe(false)
+    expect(encrypted).not.toContain('private-model-key')
+    expect(first.encryptSecret('private-model-key')).not.toBe(encrypted)
+    const restarted = await freshSecretsModule()
+    expect(restarted.decryptSecret(encrypted)).toBe('private-model-key')
+    process.env.GITMANAGER_ENCRYPTION_KEY = 'cd'.repeat(32)
+    expect(restarted.decryptSecret(encrypted)).toBe('')
+  })
+
+  it('rejects malformed server keys rather than selecting a desktop key', async () => {
+    process.env.GITMANAGER_ENCRYPTION_KEY = 'too-short'
+    const secrets = await freshSecretsModule()
+    expect(secrets.isSecretEncryptionAvailable()).toBe(false)
+    expect(() => secrets.createDefaultSecretBackend().encrypt('key')).toThrow('64 hexadecimal')
+  })
   it('encrypts and decrypts through a registered backend', async () => {
     const { encryptSecret, decryptSecret, registerSecretBackend } = await freshSecretsModule()
     registerSecretBackend({

@@ -59,7 +59,8 @@ function createEventChannel<T>(event: string): (listener: (payload: T) => void) 
 
   const ensureSource = (): void => {
     if (source || typeof EventSource === 'undefined') return
-    source = new EventSource(EVENTS_PATH)
+    const token = sessionStorage.getItem('gitmanager:session-token') ?? ''
+    source = new EventSource(`${EVENTS_PATH}?token=${encodeURIComponent(token)}`)
     source.addEventListener(event, (message) => {
       let payload: T
       try {
@@ -72,6 +73,12 @@ function createEventChannel<T>(event: string): (listener: (payload: T) => void) 
     // `onerror` is informational: the browser retries the connection itself.
     source.onerror = () => undefined
   }
+
+  window.addEventListener('gitmanager:session-changed', () => {
+    source?.close()
+    source = null
+    if (listeners.size > 0) ensureSource()
+  })
 
   return (listener) => {
     listeners.add(listener)
