@@ -838,7 +838,14 @@ export default function Branches(): JSX.Element {
               <button className="no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/5" onClick={selectAllVisible}>{zh ? '全选' : 'All'}</button>
               <button
                 className={`no-specular flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs transition-colors ${issueFilter === '' ? 'bg-primary/10 text-primary hover:border-primary/40' : 'text-muted hover:border-primary/40 hover:text-primary'}`}
-                onClick={() => setIssueFilter('')}
+                onClick={() => {
+                  setScope('all')
+                  setRepoFilterIds(null)
+                  setSearch('')
+                  setIssueFilter('')
+                  setCreatorFilter('')
+                  setGroupFilter('')
+                }}
               >{zh ? '所有分支' : 'All branches'}</button>
               {([
                 { value: 'stale', label: zh ? '已停更' : 'Stale', tone: 'text-warn' },
@@ -917,7 +924,7 @@ export default function Branches(): JSX.Element {
                       <span className="shrink-0 tabular-nums text-[10px] text-muted">{sectionBranches.length}</span>
                     </div>
                   ) : null}
-                  {sectionBranches.slice(0, 200).map((b) => (
+                  {sectionBranches.map((b) => (
                     <ExplorerRow
                       key={`${b.id}-${b.type}`}
                       b={b}

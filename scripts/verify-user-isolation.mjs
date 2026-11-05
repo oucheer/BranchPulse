@@ -6,7 +6,6 @@ import http from 'node:http'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
 import { build } from 'esbuild'
 
 // Set GITMANAGER_PLAYWRIGHT_MODULE to a Playwright installation outside this repo.
@@ -16,8 +15,9 @@ const { chromium } = await import(process.env.GITMANAGER_PLAYWRIGHT_MODULE
 const root = process.cwd()
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gm-playwright-'))
 process.env.GITMANAGER_USER_DATA_DIR = path.join(temp, 'profile')
-process.env.GITMANAGER_ENCRYPTION_KEY = randomBytes(32).toString('hex')
 process.env.GITMANAGER_AI_ALLOW_PRIVATE_NETWORK = '1'
+// Fixed fixture for the isolated test profile, never a deployment credential.
+process.env.GITMANAGER_ENCRYPTION_KEY = 'ab'.repeat(32)
 let browser
 let child
 const model = http.createServer((req, res) => {
@@ -33,6 +33,21 @@ try {
   process.env.NODE_PATH = path.join(root, 'node_modules')
   require('node:module').Module._initPaths()
   const runtime = await require(seedBundle).bootstrap()
+  const now = new Date().toISOString()
+  runtime.services.storage.insert('repositories', { id: 'branch-fixture', name: 'Branch verification', path: '/branch-fixture', source: 'gitlab', created_at: now, total_branches: 205 })
+  for (let index = 0; index < 205; index++) {
+    const name = `feature/verified-${String(index).padStart(3, '0')}`
+    const row = {
+      id: `verified-${index}`, repositoryId: 'branch-fixture', repositoryName: 'Branch verification', name, displayName: name, type: 'local',
+      existsLocally: true, existsRemotely: false, isHead: false,
+      creator: { name: index === 0 ? 'one' : 'other', email: '', username: index === 0 ? 'one' : 'other', firstCommitAt: now, confidence: 'medium' },
+      createdAt: now, lastCommitAt: now, lastCommitSha: 'fixture', lastAuthor: 'other', commitCount: 1, ahead: 0, behind: 0,
+      merged: false, mergedInto: null, baseBranch: 'main', inactiveDays: 0, ageDays: 0, naming: { status: 'valid' },
+      health: { score: 100, level: 'healthy', factors: [] }, protection: { whitelisted: false, isDefault: false, protected: false, rules: [] },
+      state: 'active', stale: false, thresholdDays: 180, thresholdUnit: 'days', cleanupCandidate: false, recentCommits: []
+    }
+    runtime.services.storage.insert('branches', { id: row.id, key: `branch-fixture|local|${name}`, repository_id: 'branch-fixture', name, type: 'local', data_json: JSON.stringify(row) })
+  }
   for (const id of ['one', 'two']) {
     await runtime.services.users.loginUser(`${id}@example.com`, { userId: id === 'one' ? 101 : 102, username: id, email: `${id}@example.com`, displayName: id, source: 'gitlab' }, 'seed-token')
   }
@@ -71,6 +86,35 @@ try {
     assert.equal(await userPage.getByLabel('Notifications', { exact: true }).count(), 0)
   }
   const [first, second] = pages
+  await first.evaluate(() => window.gitmanager.setMyRepositorySelection(['branch-fixture']))
+  await first.reload({ waitUntil: 'domcontentloaded' })
+  await first.goto(`${base}/#/branches`, { waitUntil: 'domcontentloaded' })
+  await first.getByText('feature/verified-000', { exact: true }).first().waitFor()
+  assert.equal(await first.getByText('feature/verified-204', { exact: true }).count(), 0)
+  await first.getByRole('button', { name: '全部', exact: true }).click()
+  await first.getByText('feature/verified-204', { exact: true }).first().waitFor()
+  assert.equal(await first.locator('span.font-mono.font-medium').filter({ hasText: /^feature\/verified-/ }).count(), 205)
+  await first.getByRole('button', { name: '我的', exact: true }).click()
+  await first.getByRole('button', { name: '所有分支', exact: true }).click()
+  await first.getByText('feature/verified-204', { exact: true }).first().waitFor()
+  await first.goto(`${base}/#/`, { waitUntil: 'domcontentloaded' })
+  await first.getByRole('button', { name: /分支总数/ }).filter({ hasText: '1' }).waitFor()
+  await first.getByRole('button', { name: '全部', exact: true }).click()
+  await first.getByRole('button', { name: /分支总数/ }).filter({ hasText: '205' }).waitFor()
+  assert.equal(await first.evaluate(() => window.gitmanager.listBranches().then((rows) => rows.length)), 205)
+  console.log('[playwright] Mine/All branch scope, reset filters and more than 200 branch rows passed')
+  await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
+  const keyInput = first.getByPlaceholder('sk-...')
+  await keyInput.fill('secret-test')
+  await first.getByRole('button', { name: '显示密钥', exact: true }).click()
+  assert.equal(await keyInput.getAttribute('type'), 'text')
+  await first.getByRole('button', { name: '隐藏密钥', exact: true }).click()
+  assert.equal(await keyInput.getAttribute('type'), 'password')
+  await first.getByLabel('API URL', { exact: true }).fill(modelUrl)
+  await first.getByLabel('模型', { exact: true }).fill('internal')
+  await first.getByRole('button', { name: '测试连接', exact: true }).click()
+  await first.getByText('模型服务连接成功。', { exact: true }).waitFor()
+  console.log('[playwright] Key visibility and testing the current draft passed')
   const rpc = (page, method, args = []) => page.evaluate(async ({ method, args }) => {
     const response = await fetch(`/api/rpc/${method}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionStorage.getItem('gitmanager:session-token')}` }, body: JSON.stringify(args) })
     return { status: response.status, body: await response.json() }

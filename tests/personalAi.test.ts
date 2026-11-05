@@ -115,6 +115,18 @@ describe('PersonalAiService', () => {
     expect(rows.has('gitlab:1')).toBe(false)
   })
 
+  it('distinguishes authentication and network failures from unreadable credentials', async () => {
+    const session = user('one@example.com', '1')
+    service.saveConfig(session, { baseUrl: 'https://ai.example/v1', model: 'model-a', apiKey: 'secret-a' })
+    const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 401 }))
+    await expect(service.testConnection(session)).rejects.toThrow('API Key 无效或没有模型访问权限')
+    request.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }))
+    await expect(service.testConnection(session)).rejects.toThrow('无法解析模型服务域名')
+    registerSecretBackend({ isAvailable: () => true, encrypt: (value) => value, decrypt: () => '' })
+    await expect(service.testConnection(session)).rejects.toThrow('已保存的 API 密钥无法解密')
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
   it('persists a private conversation and completes its background task with read-only tools', async () => {
     service.saveConfig(user('one@example.com', '1'), { baseUrl: 'https://ai.example/v1', model: 'model-a', apiKey: 'secret-a' })
     activityService.getActivity.mockResolvedValue({

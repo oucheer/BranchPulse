@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -127,12 +127,16 @@ describe('user permissions', () => {
   })
 
   it('lets a normal user read the branch list but not save naming rules', async () => {
+    const otherBranch = { id: 'other-branch', repositoryId: 'repo-1', creator: { email: 'other@example.com' } }
+    const branchRead = vi.spyOn(runtime!.services.branch, 'listBranches').mockReturnValue([otherBranch] as never)
     const token = await loginAs('user')
     const credential = { token: token.token, role: 'user' }
     const read = await rpcAsUser(credential, 'listBranches')
     expect(read.status).toBe(200)
+    expect(read.body.result).toEqual([otherBranch])
     const write = await rpcAsUser(credential, 'addWhitelist', [{ repositoryId: null, pattern: 'main', type: 'glob' }])
     expect(write.status).toBe(403)
+    branchRead.mockRestore()
   })
 
   it('lets a normal user save and use personal AI configuration without granting admin writes', async () => {

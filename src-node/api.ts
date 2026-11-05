@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
 import fs from 'node:fs'
-import { matchesUserToCreator } from '@shared/identity'
 import type {
   AppSettings,
   AuditEntry,
@@ -283,11 +282,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
   }
 
   function visibleBranches(repositoryIds?: string[]): BranchSummary[] {
-    const rows = branch.listBranches(repositoryIds)
-    const session = activeSession()
-    if (!session || session.role === 'admin') return rows
-    const repos = new Map(repository.list().map((repo) => [repo.id, repo]))
-    return rows.filter((row) => matchesUserToCreator(session, row.creator, repos.get(row.repositoryId)?.source ?? 'local'))
+    return branch.listBranches(repositoryIds)
   }
 
   function listScanRuns(repositoryIds?: string[], limit = 50): ScanRun[] {

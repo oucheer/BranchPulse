@@ -29,6 +29,22 @@ function completionUrl(baseUrl: string): string {
   return `${normalized}/v1/chat/completions`
 }
 
+function connectionError(error: unknown): Error {
+  const value = error as { name?: string; cause?: { code?: string } }
+  if (value?.name === 'TimeoutError' || value?.name === 'AbortError') return new Error('模型服务请求超时，请检查服务状态或稍后重试。')
+  const code = value?.cause?.code
+  const reasons: Record<string, string> = {
+    ENOTFOUND: '无法解析模型服务域名',
+    ECONNREFUSED: '模型服务拒绝连接，请检查地址和端口',
+    ECONNRESET: '模型服务中断连接',
+    CERT_HAS_EXPIRED: '模型服务的 TLS 证书已过期',
+    DEPTH_ZERO_SELF_SIGNED_CERT: '模型服务使用了不受信任的自签名证书',
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: '无法验证模型服务的 TLS 证书链',
+    UND_ERR_CONNECT_TIMEOUT: '连接模型服务超时'
+  }
+  return new Error(`无法连接模型服务：${code && reasons[code] ? reasons[code] : '请检查 API URL、服务状态和服务端网络连接'}。`)
+}
+
 function reportPrompt(activity: PersonalActivity, range: { start: string; end: string }): string {
   const facts = {
     range,
@@ -182,13 +198,19 @@ export class PersonalAiService {
         body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: 'Reply with OK.' }], max_tokens: 8 }),
         signal: AbortSignal.timeout(30_000), redirect: 'error'
       })
-      if (!response.ok) throw new Error(`模型服务连接失败（HTTP ${response.status}）。请检查 API URL、模型名称和 API Key。`)
+      if (!response.ok) {
+        const reason = response.status === 401 || response.status === 403 ? 'API Key 无效或没有模型访问权限'
+          : response.status === 404 ? 'API URL 路径或模型名称不存在'
+            : response.status === 429 ? '请求过于频繁或额度不足' : '模型服务返回错误'
+        throw new Error(`模型服务连接失败（HTTP ${response.status}）：${reason}。`)
+      }
       const body = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> }
       if (typeof body.choices?.[0]?.message?.content !== 'string') throw new Error('服务已响应，但返回格式不兼容。请使用支持 OpenAI Chat Completions 的 API URL。')
       return { ok: true, message: '模型服务连接成功。' }
     } catch (err) {
       if (err instanceof Error && (err.message.startsWith('模型服务连接失败') || err.message.startsWith('服务已响应'))) throw err
-      throw new Error('无法连接模型服务。请检查公网 API URL、服务状态和网络连接。')
+      if (err instanceof SyntaxError) throw new Error('模型服务返回的不是有效 JSON，请检查 API URL 是否指向兼容接口。')
+      throw connectionError(err)
     }
   }
 
@@ -319,6 +341,7 @@ export class PersonalAiService {
     const row = this.storage.get<StoredConfig>('SELECT base_url, model, api_key_encrypted FROM user_ai_config WHERE user_key = ?', [userKey(session)])
     const baseUrl = row?.base_url ? safeBaseUrl(row.base_url) : ''
     const apiKey = decryptSecret(row?.api_key_encrypted)
+    if (row?.api_key_encrypted && !apiKey) throw new Error('已保存的 API 密钥无法解密，请检查服务端密钥配置，并重新填写 API Key 后保存。')
     if (!baseUrl || !row?.model || !apiKey) throw new Error('请先配置 API URL、模型和密钥。')
     return { baseUrl, model: row.model, apiKey }
   }
@@ -334,8 +357,8 @@ export class PersonalAiService {
       method: 'POST', headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify({ model: config.model, messages, ...(tools ? { tools } : {}), temperature: 0.2 }), signal: AbortSignal.timeout(60_000), redirect: 'error'
       })
-    } catch {
-      throw new Error('无法连接模型服务。请确认 API URL（通常需要填写 https://域名 或 https://域名/v1）、服务状态和网络连接。')
+    } catch (err) {
+      throw connectionError(err)
     }
     if (!response.ok) {
       const detail = (await response.text().catch(() => '')).slice(0, 300)

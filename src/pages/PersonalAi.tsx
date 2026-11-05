@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, KeyRound, MessageSquarePlus, Plus, Save, Send, Trash2, Wifi } from 'lucide-react'
+import { Bot, Eye, EyeOff, KeyRound, MessageSquarePlus, Plus, Save, Send, Trash2, Wifi } from 'lucide-react'
 import type { PersonalAiConfig, PersonalAiConversation, PersonalAiMessage, PersonalAiTask } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { Card } from '../components/ui'
@@ -34,6 +34,7 @@ export default function PersonalAi(): JSX.Element {
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
   const [loading, setLoading] = useState(true)
   const scroller = useRef<HTMLDivElement>(null)
 
@@ -143,7 +144,13 @@ export default function PersonalAi(): JSX.Element {
 
   const test = async (): Promise<void> => {
     setTesting(true)
-    try { const result = await window.gitmanager.testPersonalAiConnection(); toast(result.message, result.ok ? 'success' : 'error') }
+    try {
+      const saved = await window.gitmanager.savePersonalAiConfig(draft)
+      setConfig(saved)
+      setDraft((current) => ({ ...current, apiKey: '' }))
+      const result = await window.gitmanager.testPersonalAiConnection()
+      toast(result.message, result.ok ? 'success' : 'error')
+    }
     catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
     finally { setTesting(false) }
   }
@@ -170,9 +177,9 @@ export default function PersonalAi(): JSX.Element {
       <div className="grid gap-3 md:grid-cols-3">
         <label className="text-xs text-muted">API URL<input className="input mt-1 w-full" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} placeholder="https://api.example.com/v1" /></label>
         <label className="text-xs text-muted">{zh ? '模型' : 'Model'}<input className="input mt-1 w-full" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} placeholder="model-name" /></label>
-        <label className="text-xs text-muted">API Key<input className="input mt-1 w-full" type="password" autoComplete="new-password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={config.hasApiKey ? (zh ? '密钥已加密保存，留空保持不变' : 'Saved securely; leave blank to keep') : 'sk-...'} /></label>
+        <label className="text-xs text-muted">API Key<span className="relative mt-1 block"><input className="input w-full pr-9" type={showApiKey ? 'text' : 'password'} autoComplete="new-password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={config.hasApiKey ? (zh ? '密钥已保存，留空保持不变' : 'Saved; leave blank to keep') : 'sk-...'} /><button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg" aria-label={showApiKey ? '隐藏密钥' : '显示密钥'} title={showApiKey ? '隐藏密钥' : '显示密钥'} onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}</button></span></label>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><button className="btn btn-primary" disabled={testing} onClick={() => void save()}><Save size={14} />{zh ? '保存' : 'Save'}</button><button className="btn btn-secondary" disabled={testing || !config.hasApiKey} onClick={() => void test()}><Wifi size={14} />{testing ? (zh ? '连接中…' : 'Connecting…') : (zh ? '测试连接' : 'Test connection')}</button><span className="text-xs text-muted">{config.hasApiKey ? (zh ? '配置按个人账号保存在服务端；密钥加密且不会回传浏览器。' : 'Settings are private to your account; the key is encrypted server-side.') : (zh ? '填写 API URL、模型和 API Key 后即可使用助手。' : 'Enter API URL, model and API key to enable the assistant.')}</span></div>
+      <div className="mt-3 flex flex-wrap items-center gap-2"><button className="btn btn-primary" disabled={testing} onClick={() => void save()}><Save size={14} />{zh ? '保存' : 'Save'}</button><button className="btn btn-secondary" disabled={testing || !draft.baseUrl.trim() || !draft.model.trim() || (!config.hasApiKey && !draft.apiKey.trim())} onClick={() => void test()}><Wifi size={14} />{testing ? (zh ? '连接中…' : 'Connecting…') : (zh ? '测试连接' : 'Test connection')}</button><span className="text-xs text-muted">{config.hasApiKey ? (zh ? '配置按个人账号保存在服务端；密钥加密且不会回传浏览器。' : 'Settings are private to your account; the key is encrypted server-side.') : (zh ? '填写 API URL、模型和 API Key 后即可使用助手。' : 'Enter API URL, model and API key to enable the assistant.')}</span></div>
     </Card>
 
     <div className="grid min-h-[520px] gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
