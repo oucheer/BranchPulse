@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, ExternalLink, FileCode2, GitCommitHorizontal, GitMerge, History } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { ExternalLink, FileCode2, GitCommitHorizontal, GitMerge, History } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import type { PersonalActivity } from '@shared/types'
 import { readMyActivityMonths, saveMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge, Card } from '../components/ui'
@@ -111,7 +111,7 @@ export default function MyTimeline(): JSX.Element {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-2"><GitCommitHorizontal size={15} className="mt-0.5 shrink-0 text-primary" /><div className="min-w-0"><div className="break-words text-sm font-medium text-canvas-fg">{event.commit.subject || (zh ? '無提交说明' : 'Commit without a message')}</div><div className="mt-1 flex flex-wrap gap-x-2 text-xs text-muted"><span>{event.commit.repositoryName}</span><span>{new Date(event.commit.committedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><Badge>{event.commit.shortSha}</Badge></div></div></div>
                   <div className="flex shrink-0 gap-2">
-                    <button className="btn btn-secondary h-7 px-2 text-xs" onClick={() => navigate(`/my-activity/commit/${encodeURIComponent(event.commit.repositoryId)}/${encodeURIComponent(event.commit.sha)}`)}><FileCode2 size={13} />{zh ? '查看代码' : 'View code'}</button>
+                    <button className="btn btn-secondary h-7 px-2 text-xs" onClick={() => navigate(`/my-activity/commit/${encodeURIComponent(event.commit.repositoryId)}/${encodeURIComponent(event.commit.sha)}?months=${months}`)}><FileCode2 size={13} />{zh ? '查看代码' : 'View code'}</button>
                     {event.commit.webUrl ? <a className="btn btn-ghost h-7 px-2 text-xs" href={event.commit.webUrl} target="_blank" rel="noreferrer"><ExternalLink size={13} />{SOURCE_LABELS[event.commit.source]}</a> : null}
                   </div>
                 </div>
@@ -139,6 +139,5 @@ export default function MyTimeline(): JSX.Element {
       </section> : null}
     </div>
 
-    {activity?.branches.length ? <section className="border-t border-line pt-4"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-canvas-fg"><CalendarDays size={15} />{zh ? '已收录的分支记录' : 'Tracked branch records'}</h2><div className="flex flex-wrap gap-2">{activity.branches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="rounded border border-line px-2 py-1 text-xs text-primary">{branch.repositoryName} / {branch.name}</Link>)}</div></section> : null}
   </div>
 }

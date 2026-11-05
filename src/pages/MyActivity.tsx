@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity, CalendarDays, Download, FileCode, FileDiff, GitMerge, GitBranch, FileText
@@ -8,8 +8,46 @@ import { readMyActivityMonths, saveMyActivityMonths, useAppStore } from '../stor
 import { Badge, Card } from '../components/ui'
 import { Link, useNavigate } from 'react-router-dom'
 
-const ALL_BRANCHES = (branch: NonNullable<PersonalActivity['branches']>[number]) => true
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee', local: 'Local' } as const
+const ACTIVITY_VIEW_STATE_KEY = 'gitmanager:my-activity-view:v1'
+
+type ActivityViewState = {
+  months: number
+  draftRange: PersonalActivityRange
+  range: PersonalActivityRange | null
+  mrTab: 'authored' | 'pending' | 'participated' | 'done'
+  commitFilterMode: 'all' | 'with-diff'
+  showBranches: boolean
+  scrollTop: number
+}
+
+function activityViewIdentity(session: ReturnType<typeof useAppStore.getState>['session']): string | null {
+  if (!session) return null
+  return `${session.email.toLowerCase()}|${session.source ?? ''}|${session.accountId ?? session.username.toLowerCase()}`
+}
+
+function readActivityViewState(identity: string | null): Partial<ActivityViewState> {
+  if (!identity) return {}
+  try {
+    const saved = JSON.parse(localStorage.getItem(ACTIVITY_VIEW_STATE_KEY) ?? '{}') as Record<string, Partial<ActivityViewState>>
+    return saved[identity] ?? {}
+  } catch { return {} }
+}
+
+function saveActivityViewState(identity: string | null, state: ActivityViewState): void {
+  if (!identity) return
+  try {
+    const saved = JSON.parse(localStorage.getItem(ACTIVITY_VIEW_STATE_KEY) ?? '{}') as Record<string, Partial<ActivityViewState>>
+    saved[identity] = state
+    localStorage.setItem(ACTIVITY_VIEW_STATE_KEY, JSON.stringify(saved))
+  } catch { /* storage may be unavailable */ }
+}
+
+function validRange(value: unknown): value is PersonalActivityRange {
+  if (!value || typeof value !== 'object') return false
+  const range = value as PersonalActivityRange
+  return /^\d{4}-\d{2}-\d{2}$/.test(range.start) && /^\d{4}-\d{2}-\d{2}$/.test(range.end)
+}
 
 function downloadReview(name: string, type: string, content: string): void {
   const url = URL.createObjectURL(new Blob([content], { type }))
@@ -313,28 +351,58 @@ export default function MyActivity(): JSX.Element {
   const loadMyActivity = useAppStore((s) => s.loadMyActivity)
   const navigate = useNavigate()
   const zh = language === 'zh'
-  const [months, setMonths] = useState<number>(() => readMyActivityMonths(session))
-  const [draftRange, setDraftRange] = useState<PersonalActivityRange>({ start: '', end: '' })
-  const [range, setRange] = useState<PersonalActivityRange | null>(null)
+  const viewIdentity = activityViewIdentity(session)
+  const [savedView] = useState(() => readActivityViewState(viewIdentity))
+  const [months, setMonths] = useState<number>(() => savedView.months && [1, 3, 6, 12, 24, 36].includes(savedView.months) ? savedView.months : readMyActivityMonths(session))
+  const [draftRange, setDraftRange] = useState<PersonalActivityRange>(() => validRange(savedView.draftRange) ? savedView.draftRange : { start: '', end: '' })
+  const [range, setRange] = useState<PersonalActivityRange | null>(() => validRange(savedView.range) ? savedView.range : null)
   const repositoryScope = selectedRepositoryIds.slice().sort().join(',')
   const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}|${range ? `${range.start}|${range.end}` : ''}|${repositoryScope}`
   const data = activityCache[cacheKey] ?? null
-  const [mrTab, setMrTab] = useState<'authored' | 'pending' | 'participated' | 'done'>('authored')
+  const [activityReady, setActivityReady] = useState(Boolean(data))
+  const [mrTab, setMrTab] = useState<'authored' | 'pending' | 'participated' | 'done'>(() => savedView.mrTab ?? 'authored')
   const [review, setReview] = useState('')
-  const [commitFilter, setCommitFilter] = useState<(commit: PersonalActivity['commits'][number]) => boolean>(() => () => true)
-  const [commitFilterActive, setCommitFilterActive] = useState(false)
-  const [showBranches, setShowBranches] = useState(false)
-  const [branchFilter, setBranchFilter] = useState<(branch: NonNullable<PersonalActivity['branches']>[number]) => boolean>(() => ALL_BRANCHES)
-  const showCommits = (filter?: (commit: PersonalActivity['commits'][number]) => boolean): void => {
-    setCommitFilter(() => filter ?? (() => true))
-    setCommitFilterActive(Boolean(filter))
-  }
+  const [commitFilterMode, setCommitFilterMode] = useState<'all' | 'with-diff'>(() => savedView.commitFilterMode ?? 'all')
+  const [showBranches, setShowBranches] = useState(() => savedView.showBranches ?? false)
+  const pageRef = useRef<HTMLDivElement>(null)
+  const restoredScroll = useRef(false)
+  const commitFilterActive = commitFilterMode !== 'all'
+  const showCommits = (withDiff = false): void => setCommitFilterMode(withDiff ? 'with-diff' : 'all')
   const rangeQuery = range ? `&start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}` : ''
-  const openRepository = (repositoryId: string): void => navigate(`/my-activity/repository/${encodeURIComponent(repositoryId)}?months=${months}${rangeQuery}`)
-  const openMonthlyDetail = (kind: 'commits' | 'lines', month: string): void => navigate(`/my-activity/drilldown?kind=${kind}&month=${encodeURIComponent(month)}&months=${months}${rangeQuery}`)
+  const persistView = (scrollTop = pageRef.current?.parentElement?.scrollTop ?? 0): void => saveActivityViewState(viewIdentity, {
+    months, draftRange, range, mrTab, commitFilterMode, showBranches, scrollTop
+  })
+  const openRepository = (repositoryId: string): void => { persistView(); navigate(`/my-activity/repository/${encodeURIComponent(repositoryId)}?months=${months}${rangeQuery}`) }
+  const openMonthlyDetail = (kind: 'commits' | 'lines', month: string): void => { persistView(); navigate(`/my-activity/drilldown?kind=${kind}&month=${encodeURIComponent(month)}&months=${months}${rangeQuery}`) }
+  const openCommitDetail = (repositoryId: string, sha: string): void => { persistView(); navigate(`/my-activity/commit/${encodeURIComponent(repositoryId)}/${encodeURIComponent(sha)}?months=${months}${rangeQuery}`) }
+
+  useLayoutEffect(() => {
+    if (restoredScroll.current || !activityReady) return
+    restoredScroll.current = true
+    const scrollTop = Number(savedView.scrollTop)
+    if (Number.isFinite(scrollTop) && scrollTop > 0 && pageRef.current?.parentElement) {
+      pageRef.current.parentElement.scrollTop = scrollTop
+    }
+  }, [activityReady, savedView])
 
   useEffect(() => {
-    void loadMyActivity(months, false, range).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))
+    if (!restoredScroll.current) return
+    persistView()
+  }, [months, draftRange, range, mrTab, commitFilterMode, showBranches, viewIdentity, activityReady])
+
+  useEffect(() => {
+    const scrollContainer = pageRef.current?.parentElement
+    if (!scrollContainer) return
+    const onScroll = (): void => persistView(scrollContainer.scrollTop)
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true })
+    return () => scrollContainer.removeEventListener('scroll', onScroll)
+  })
+
+  useEffect(() => {
+    setActivityReady(Boolean(data))
+    void loadMyActivity(months, false, range)
+      .catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error'))
+      .finally(() => setActivityReady(true))
   }, [months, range?.start, range?.end, repositoryScope, session?.email, session?.source, loadMyActivity, toast])
 
   useEffect(() => {
@@ -361,11 +429,10 @@ export default function MyActivity(): JSX.Element {
     if (mrTab === 'pending') return mr.role === 'pending-reviewer'
     return mr.role === 'reviewer'
   })
-  const filteredCommits = (data?.commits ?? []).filter(commitFilter)
-  const filteredBranches = (data?.branches ?? []).filter(branchFilter)
+  const filteredCommits = (data?.commits ?? []).filter((commit) => commitFilterMode === 'all' || Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))
 
   return (
-    <div className="space-y-4">
+    <div ref={pageRef} className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-canvas-fg">{zh ? '个人活动' : 'My Activity'}</h1>
@@ -417,7 +484,7 @@ export default function MyActivity(): JSX.Element {
           <div className="flex items-center gap-2 text-xs text-muted"><CalendarDays size={14} /> {zh ? '活跃天数' : 'Active days'}</div>
           <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.activeDays ?? 0}</div>
         </Card></button>
-        <button className="text-left" onClick={() => showCommits((commit) => Boolean(detailBySha.get(`${commit.repositoryId}:${commit.sha}`)))}><Card className="p-3">
+        <button className="text-left" onClick={() => showCommits(true)}><Card className="p-3">
           <div className="text-xs text-muted">{zh ? '代码净变化' : 'Net code change'}</div>
           <div className="mt-1 text-xl font-bold text-canvas-fg">{stats?.netLines ?? 0}<span className="ml-1 text-xs font-normal text-muted">(+{stats?.linesAdded ?? 0} / -{stats?.linesRemoved ?? 0})</span></div>
         </Card></button>
@@ -428,8 +495,8 @@ export default function MyActivity(): JSX.Element {
       </div>
 
       {showBranches ? <section className="space-y-2 border-b border-line pb-4">
-        <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2>{branchFilter !== ALL_BRANCHES ? <button className="text-xs text-primary" onClick={() => setBranchFilter(() => ALL_BRANCHES)}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
-        {filteredBranches.length ? filteredBranches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
+        <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{zh ? '创建的分支（当前已收录分支）' : 'Created branches (currently tracked)'}</h2></div>
+        {data?.branches.length ? data.branches.map((branch) => <Link key={`${branch.repositoryId}:${branch.type}:${branch.name}`} to={`/branches/${encodeURIComponent(branch.repositoryId)}/${encodeURIComponent(branch.type)}/${encodeURIComponent(branch.name)}`} className="flex flex-wrap justify-between gap-2 border-b border-line py-2 text-xs text-primary">
           <span>{branch.repositoryName} / {branch.name}</span><span className="text-muted">{branch.createdAt ? new Date(branch.createdAt).toLocaleString() : (zh ? '创建时间未知' : 'Unknown creation date')}</span>
         </Link>) : <div className="text-xs text-muted">{zh ? '暂无已收录分支' : 'No tracked branches'}</div>}
       </section> : null}
@@ -469,7 +536,7 @@ export default function MyActivity(): JSX.Element {
 
       <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
         <Card className="flex h-[28rem] flex-col p-5">
-          <div className="mb-3 flex items-center justify-between text-sm font-semibold text-canvas-fg"><span>{zh ? '我的提交' : 'My Commits'}{commitFilterActive ? ` (${filteredCommits.length})` : ''}</span>{commitFilterActive ? <button className="text-xs text-primary" onClick={() => { setCommitFilter(() => () => true); setCommitFilterActive(false) }}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
+          <div className="mb-3 flex items-center justify-between text-sm font-semibold text-canvas-fg"><span>{zh ? '我的提交' : 'My Commits'}{commitFilterActive ? ` (${filteredCommits.length})` : ''}</span>{commitFilterActive ? <button className="text-xs text-primary" onClick={() => setCommitFilterMode('all')}>{zh ? '清除筛选' : 'Clear filter'}</button> : null}</div>
           <div className="min-h-0 flex-1 max-h-96 space-y-2 overflow-auto pr-1">
             {filteredCommits.length === 0 ? <div className="text-xs text-muted">{zh ? '没有符合条件的提交' : 'No matching commits'}</div> : null}
             {filteredCommits.map((c) => {
@@ -492,7 +559,7 @@ export default function MyActivity(): JSX.Element {
                     ) : null}
                   </div>
                   <div className="mt-2 flex gap-2">
-                    <button className="btn btn-secondary h-7 px-2 text-xs" onClick={() => navigate(`/my-activity/commit/${encodeURIComponent(c.repositoryId)}/${encodeURIComponent(c.sha)}`)}>
+                    <button className="btn btn-secondary h-7 px-2 text-xs" onClick={() => openCommitDetail(c.repositoryId, c.sha)}>
                       <FileDiff size={13} /> {zh ? '查看代码' : 'View diff'}
                     </button>
                     {c.webUrl ? (

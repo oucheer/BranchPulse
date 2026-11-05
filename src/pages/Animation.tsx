@@ -64,10 +64,10 @@ const effectToggles: EffectToggle[] = [
   },
   {
     key: 'ditherVeil',
-    labelZh: '导航微粒 veil',
-    labelEn: 'Navigation dither veil',
-    descZh: '侧栏导航区域的交互微粒效果',
-    descEn: 'Interactive dither particles in the navigation area'
+    labelZh: '用户区微粒 veil',
+    labelEn: 'User area dither veil',
+    descZh: '右下角用户名旁的交互微粒效果',
+    descEn: 'Interactive dither particles beside the user name in the lower-right corner'
   }
 ]
 

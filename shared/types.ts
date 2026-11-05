@@ -160,6 +160,8 @@ export interface PersonalCommit {
   repositoryName: string
   source: Exclude<RepositorySource, 'local'>
   webUrl?: string
+  /** Branch refs in the locally tracked branch snapshots that contain this commit. */
+  branchNames?: string[]
 }
 
 export interface PersonalCommitFile {

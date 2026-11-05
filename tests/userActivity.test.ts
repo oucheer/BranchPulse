@@ -36,12 +36,12 @@ const session: UserSession = {
   source: 'github', gitlabUserId: 42, displayName: '', hasGitlabToken: true, gitlabToken: 'secret'
 }
 
-function makeService(storage: MemoryStorage, gitlab: Record<string, unknown>): UserActivityService {
+function makeService(storage: MemoryStorage, gitlab: Record<string, unknown>, branches: unknown[] = []): UserActivityService {
   return new UserActivityService(
     storage as never,
     gitlab as never,
     { list: () => [repository] } as never,
-    { listBranches: () => [] } as never,
+    { listBranches: () => branches } as never,
     {} as never
   )
 }
@@ -121,5 +121,39 @@ describe('personal activity cache behavior', () => {
     expect(commitDiffDetails).toHaveBeenCalledOnce()
     await service.getActivity(session)
     expect(commitDiffDetails).toHaveBeenCalledOnce()
+  })
+
+  it('includes tracked branch names for matching commits within the selected repository scope', async () => {
+    const now = new Date().toISOString()
+    const listBranches = vi.fn((repositoryIds?: string[]) => {
+      expect(repositoryIds).toEqual([repository.id])
+      return [
+        { repositoryId: repository.id, name: 'feature/matched', recentCommits: [{ sha: 'commit-1' }] },
+        { repositoryId: 'other-repo', name: 'feature/out-of-scope', recentCommits: [{ sha: 'commit-1' }] },
+        { repositoryId: repository.id, name: 'feature/other', recentCommits: [{ sha: 'commit-2' }] }
+      ]
+    })
+    const service = new UserActivityService(
+      new MemoryStorage() as never,
+      {
+        listProjectCommits: vi.fn().mockResolvedValue([
+          { id: 'commit-1', committed_date: now },
+          { id: 'commit-2', committed_date: now }
+        ]),
+        commitDiffDetails: vi.fn().mockResolvedValue([]),
+        listProjectMergeRequests: vi.fn().mockResolvedValue([])
+      } as never,
+      { list: () => [repository] } as never,
+      { listBranches } as never,
+      {} as never
+    )
+
+    const result = await service.getActivity(session, 6, [repository.id])
+
+    expect(result.commits.map((commit) => [commit.sha, commit.branchNames])).toEqual([
+      ['commit-1', ['feature/matched']],
+      ['commit-2', ['feature/other']]
+    ])
+    expect(listBranches).toHaveBeenCalledWith([repository.id])
   })
 })

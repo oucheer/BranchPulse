@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, File, FileDiff, Folder, FolderOpen } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { PersonalActivity, PersonalCommit } from '@shared/types'
 import { readMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge } from '../components/ui'
@@ -27,14 +27,18 @@ function buildFileTree(paths: string[]): FileNode {
 
 export default function CommitDetails(): JSX.Element {
   const { repositoryId = '', sha = '' } = useParams()
+  const [params] = useSearchParams()
   const navigate = useNavigate()
   const language = useAppStore((s) => s.language)
   const session = useAppStore((s) => s.session)
   const cache = useAppStore((s) => s.myActivityCache)
   const busy = useAppStore((s) => s.myActivityBusy)
   const loadMyActivity = useAppStore((s) => s.loadMyActivity)
+  const selectedRepositoryIds = useAppStore((s) => s.selectedRepositoryIds)
   const zh = language === 'zh'
-  const months = readMyActivityMonths(session)
+  const months = Number(params.get('months')) || readMyActivityMonths(session)
+  const range = params.get('start') && params.get('end') ? { start: params.get('start')!, end: params.get('end')! } : null
+  const scope = selectedRepositoryIds.slice().sort().join(',')
   const [requested, setRequested] = useState(false)
   const [selectedPath, setSelectedPath] = useState('')
   const [view, setView] = useState<'diff' | 'file'>('diff')
@@ -46,8 +50,8 @@ export default function CommitDetails(): JSX.Element {
 
   const activity = useMemo(() => {
     const identity = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|`
-    return cache[`${identity}${months}`] ?? null
-  }, [cache, months, session])
+    return cache[`${identity}${months}|${range ? `${range.start}|${range.end}` : ''}|${scope}`] ?? null
+  }, [cache, months, range?.start, range?.end, scope, session])
   const commit: PersonalCommit | undefined = activity?.commits.find((item) => item.repositoryId === repositoryId && item.sha === sha)
   const detail = activity?.commitDetails.find((item) => item.repositoryId === repositoryId && item.sha === sha)
   const tree = useMemo(() => buildFileTree(detail?.files.map((file) => file.path) ?? []), [detail])
@@ -56,9 +60,9 @@ export default function CommitDetails(): JSX.Element {
   useEffect(() => {
     if (!commit && !busy && !requested) {
       setRequested(true)
-      void loadMyActivity(months, true).catch(() => undefined)
+      void loadMyActivity(months, true, range).catch(() => undefined)
     }
-  }, [commit, busy, requested, loadMyActivity, months])
+  }, [commit, busy, requested, loadMyActivity, months, range?.start, range?.end])
 
   useEffect(() => {
     if (!detail?.files.length || initializedFiles.current) return

@@ -157,6 +157,18 @@ export class UserActivityService {
       }
     }
     results.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
+    const branchesBySha = new Map<string, Set<string>>()
+    for (const branch of this.branchService.listBranches(repos.map((repo) => repo.id))) {
+      for (const recentCommit of branch.recentCommits ?? []) {
+        const key = `${branch.repositoryId}:${recentCommit.sha}`
+        const names = branchesBySha.get(key) ?? new Set<string>()
+        names.add(branch.name)
+        branchesBySha.set(key, names)
+      }
+    }
+    for (const commit of results) {
+      commit.branchNames = [...(branchesBySha.get(`${commit.repositoryId}:${commit.sha}`) ?? [])].sort((a, b) => a.localeCompare(b))
+    }
     const cachedDiffs = this.loadCache<CachedCommitDiff>(owner, 'commit_diffs:v2')
     let diffsChanged = false
     // 逐 commit 统计代码行数；单个失败不影响整体统计。
@@ -300,7 +312,7 @@ export class UserActivityService {
     startDay: string,
     endDay: string
   ): PersonalStats {
-    const allBranches = this.branchService.listBranches()
+    const allBranches = this.branchService.listBranches(repos.map((repo) => repo.id))
     const repoById = new Map(repos.map((repo) => [repo.id, repo]))
     const myBranches = allBranches.filter((branch) => matchesUserToCreator(
       session,

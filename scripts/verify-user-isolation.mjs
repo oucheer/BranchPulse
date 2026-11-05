@@ -26,6 +26,73 @@ const model = http.createServer((req, res) => {
   res.end(JSON.stringify({ choices: [{ message: { content: 'Verified private model answer.' } }] }))
 })
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const activityMonth = new Date().toISOString().slice(0, 7)
+const commitSha = '0123456789abcdef0123456789abcdef01234567'
+const activityFixture = {
+  branches: [],
+  commits: [{
+    sha: commitSha,
+    shortSha: commitSha.slice(0, 8),
+    subject: 'Fixture activity commit',
+    committedAt: `${activityMonth}-12T12:00:00.000Z`,
+    repositoryId: 'branch-fixture',
+    repositoryName: 'Branch verification',
+    source: 'gitlab',
+    webUrl: 'https://gitlab.example.test/group/project/-/commit/0123456789abcdef0123456789abcdef01234567',
+    branchNames: ['feature/fixture-activity']
+  }],
+  mergeRequests: [{
+    id: 42,
+    iid: 42,
+    title: 'Fixture merge request',
+    state: 'opened',
+    sourceBranch: 'feature/fixture-activity',
+    targetBranch: 'main',
+    createdAt: `${activityMonth}-13T12:00:00.000Z`,
+    repositoryId: 'branch-fixture',
+    repositoryName: 'Branch verification',
+    source: 'gitlab',
+    webUrl: 'https://gitlab.example.test/group/project/-/merge_requests/42',
+    role: 'author'
+  }],
+  stats: {
+    commitCount: 1,
+    linesAdded: 8,
+    linesRemoved: 3,
+    netLines: 5,
+    linesAddedByRepository: [{ repositoryId: 'branch-fixture', repositoryName: 'Branch verification', added: 8, removed: 3 }],
+    branchCount: 1,
+    validBranches: 1,
+    invalidBranches: 0,
+    repositoryCount: 1,
+    months: [{ month: activityMonth, commits: 1, branches: 1 }],
+    years: [],
+    bySource: [],
+    byRepository: [{ repositoryId: 'branch-fixture', repositoryName: 'Branch verification', source: 'gitlab', commits: 1, branches: 1, added: 8, removed: 3, activeDays: 1, mrAuthored: 1, mrReviewed: 0 }],
+    activeDays: 1,
+    activeWeeks: 1,
+    averageCommitsPerActiveDay: 1,
+    currentStreak: 1,
+    longestStreak: 1,
+    weekdays: Array(7).fill(0),
+    hours: Array(24).fill(0),
+    monthlyLines: [{ month: activityMonth, added: 8, removed: 3 }],
+    fileTypes: [],
+    topFiles: [],
+    mrAuthored: 1,
+    mrReviewed: 0,
+    diffsLoaded: 1,
+    diffsFailed: 0
+  },
+  commitDetails: [{
+    sha: commitSha,
+    repositoryId: 'branch-fixture',
+    added: 8,
+    removed: 3,
+    diffStatus: 'loaded',
+    files: [{ path: 'src/fixture.ts', added: 8, removed: 3, patch: '@@ -1 +1 @@\n-old\n+new' }]
+  }]
+}
 try {
   const seedBundle = path.join(temp, 'services.cjs')
   await build({ entryPoints: ['server/services.ts'], outfile: seedBundle, platform: 'node', format: 'cjs', bundle: true, packages: 'external', logLevel: 'silent' })
@@ -103,6 +170,60 @@ try {
   await first.getByRole('button', { name: /分支总数/ }).filter({ hasText: '205' }).waitFor()
   assert.equal(await first.evaluate(() => window.gitmanager.listBranches().then((rows) => rows.length)), 205)
   console.log('[playwright] Mine/All branch scope, reset filters and more than 200 branch rows passed')
+  const activityKey = 'one@example.com|gitlab|101|6||branch-fixture'
+  await first.evaluate(({ activityKey, activityFixture }) => {
+    localStorage.setItem('gitmanager:my-activity:v1', JSON.stringify({ [activityKey]: { savedAt: Date.now(), data: activityFixture } }))
+    localStorage.setItem('gitmanager:effectSettings', JSON.stringify({ enabled: true, ambientBackground: false, splashCursor: false, clickSpark: false, depthText: false, particleSplash: false, ditherVeil: true }))
+    window.dispatchEvent(new Event('gitmanager:effect-settings-change'))
+  }, { activityKey, activityFixture })
+  await first.reload({ waitUntil: 'domcontentloaded' })
+  await first.goto(`${base}/#/my-activity`, { waitUntil: 'domcontentloaded' })
+  await first.getByRole('heading', { name: '个人活动' }).waitFor()
+  const monthlyCommits = first.getByRole('img', { name: '按月提交与分支' })
+  await monthlyCommits.locator('rect.cursor-pointer').first().click()
+  await first.getByRole('heading', { name: '按月提交明细' }).waitFor()
+  assert.equal(new URL(await first.getByRole('link', { name: '跳转 GitLab' }).getAttribute('href')).hostname, 'gitlab.example.test')
+  assert.equal(new URL(await first.getByRole('link', { name: '打开' }).getAttribute('href')).pathname, '/group/project/-/merge_requests/42')
+  await first.getByRole('button', { name: '查看代码' }).click()
+  await first.waitForURL(/\/my-activity\/commit\//)
+  await first.getByText('src/fixture.ts', { exact: true }).waitFor()
+  await first.goBack()
+  await first.getByRole('heading', { name: '按月提交明细' }).waitFor()
+  await first.getByRole('button', { name: '返回个人活动' }).click()
+  await first.getByRole('heading', { name: '个人活动' }).waitFor()
+  const monthlyLines = first.getByRole('img', { name: '按月代码增删' })
+  await monthlyLines.locator('rect.cursor-pointer').first().click()
+  await first.getByRole('heading', { name: '按月代码增删明细' }).waitFor()
+  assert.equal(new URL(await first.getByRole('link', { name: '跳转 GitLab' }).getAttribute('href')).pathname, '/group/project/-/commit/0123456789abcdef0123456789abcdef01234567')
+  await first.getByRole('button', { name: '返回个人活动' }).click()
+  await first.getByRole('heading', { name: '个人活动' }).waitFor()
+  await first.getByRole('button', { name: 'Branch verification' }).first().click()
+  await first.getByRole('heading', { name: 'Branch verification' }).waitFor()
+  assert.equal(new URL(await first.getByRole('link', { name: '跳转 GitLab' }).first().getAttribute('href')).hostname, 'gitlab.example.test')
+  assert.equal(new URL(await first.getByRole('link', { name: '跳转 GitLab' }).nth(1).getAttribute('href')).pathname, '/group/project/-/merge_requests/42')
+  await first.getByRole('button', { name: '查看代码' }).click()
+  await first.waitForURL(/\/my-activity\/commit\//)
+  await first.getByText('src/fixture.ts', { exact: true }).waitFor()
+  await first.goBack()
+  await first.getByRole('heading', { name: 'Branch verification' }).waitFor()
+  const veilBounds = await first.locator('aside canvas[aria-hidden="true"]').evaluate((canvas) => {
+    const host = canvas.parentElement
+    const canvasRect = canvas.getBoundingClientRect()
+    const hostRect = host.getBoundingClientRect()
+    const userRect = host.parentElement.getBoundingClientRect()
+    return {
+      width: hostRect.width,
+      height: hostRect.height,
+      contained: canvasRect.left >= hostRect.left && canvasRect.top >= hostRect.top
+        && canvasRect.right <= hostRect.right && canvasRect.bottom <= hostRect.bottom,
+      besideUser: hostRect.left >= userRect.left && hostRect.right <= userRect.right
+        && hostRect.top >= userRect.top && hostRect.bottom <= userRect.bottom
+    }
+  })
+  assert.ok(veilBounds.width > 0 && veilBounds.width <= 64 && veilBounds.height <= 40, JSON.stringify(veilBounds))
+  assert.equal(veilBounds.contained, true, JSON.stringify(veilBounds))
+  assert.equal(veilBounds.besideUser, true, JSON.stringify(veilBounds))
+  console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
   await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')
   await keyInput.fill('secret-test')
