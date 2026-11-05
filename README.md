@@ -61,20 +61,18 @@ npm start
 
 ### Linux 服务端 AI 密钥
 
-无桌面环境的 Node 服务不需要系统密钥库。部署时生成一次 AES-256 密钥，并将其固定保存在服务的受保护环境配置中：
+无桌面环境的 Node 服务会在用户数据目录中自动生成并持久保存 AES-256 密钥，无需手工生成密钥或配置环境变量即可保存 AI API Key。服务账号必须能读写该目录；密钥文件权限设为 `0600`。可选地设置 `GITMANAGER_ENCRYPTION_KEY` 使用部署方提供的固定密钥：
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-export GITMANAGER_ENCRYPTION_KEY='<上一步生成的64位十六进制字符串>'
+# 可选：使用由部署方安全管理的 64 位十六进制 AES-256 密钥
+# export GITMANAGER_ENCRYPTION_KEY='<64位十六进制密钥>'
 # 连接内网模型时由服务器管理员显式开启
 export GITMANAGER_AI_ALLOW_PRIVATE_NETWORK=1
 npm start
 # 也可以直接运行 node dist/server/index.cjs
 ```
 
-以上变量必须传入实际运行 Node 的进程。使用 systemd 时写入权限为 `0600` 的 `EnvironmentFile`，修改后重启服务；仅在交互式终端 export 不会更新已运行的服务。应用不会自动读取项目根目录的 `.env`。
-
-密钥用于 AES-256-GCM 加密，API 配置按登录用户分别持久化，浏览器只读取是否已保存密钥。请备份并长期保留同一密钥，不要每次启动重新生成；丢失或更换后需要重新填写原有凭据。已有 Windows DPAPI 密文不能直接移到 Linux 解密，需要重新填写。不要提交真实密钥或将其写入前端环境变量。
+AI API Key 使用 AES-256-GCM 加密，并按登录用户分别持久化；浏览器只读取是否已保存密钥。默认密钥位于用户数据目录的 `gitmanager.key`，备份或迁移时必须与数据库一起保留，并确保仅服务账号可读取。丢失该文件后，已有凭据无法解密，需要重新填写；已有 Windows DPAPI 密文也不能直接移到 Linux 解密。显式设置 `GITMANAGER_ENCRYPTION_KEY` 时，该环境变量优先，仍需固定保存且不要每次启动更换。不要提交密钥或将其写入前端环境变量。
 
 ### 用户隔离
 

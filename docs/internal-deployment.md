@@ -8,16 +8,16 @@
 
 ### AI 密钥保存与内网模型
 
-Linux 的 Node 服务没有 Windows 桌面密钥库。请生成一次 32 字节密钥并持久保留：
+Linux 的 Node 服务会在 `GITMANAGER_USER_DATA_DIR`（未设置时为 `$XDG_CONFIG_HOME/gitmanager` 或 `~/.config/gitmanager`）自动创建 `gitmanager.key`，无需手工生成密钥即可保存 AI API Key。请确保服务账号对该目录有读写权限；密钥文件权限设为 `0600`。如需由部署方管理密钥，可选设置固定的 `GITMANAGER_ENCRYPTION_KEY` 覆盖自动密钥：
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-export GITMANAGER_ENCRYPTION_KEY='<生成的64位十六进制字符串>'
+# 可选：提供固定的 64 位十六进制 AES-256 密钥
+# export GITMANAGER_ENCRYPTION_KEY='<64位十六进制密钥>'
 export GITMANAGER_AI_ALLOW_PRIVATE_NETWORK=1
 node dist/server/index.cjs
 ```
 
-不要在每次启动时生成新密钥，否则旧凭据无法解密。systemd 服务需在权限为 `0600` 的 `EnvironmentFile` 中保存以上变量并在服务配置添加 `EnvironmentFile=/etc/gitmanager.env`，然后重启服务。项目目录的 `.env` 不会被自动加载。密钥丢失、更换或从 Windows 迁移时需重新填写 API 凭据；实际密钥不可提交到 Git。开启私网访问代表允许用户连接服务端可达的内网模型，仅应在可信内网部署启用。
+`gitmanager.key` 必须和数据库一起备份、迁移；丢失后已存 API Key 无法解密，需要重新填写。显式设置环境变量时务必长期固定同一值。systemd 的环境变量应通过受保护的 `EnvironmentFile` 提供；项目目录的 `.env` 不会被自动加载。Windows DPAPI 密文不能直接迁移到 Linux。开启私网访问代表允许用户连接服务端可达的内网模型，仅应在可信内网部署启用。
 
 **原因**：`server/index.ts:10` 的默认监听地址是 `127.0.0.1`，只绑定回环地址，外部机器连不上；服务本身是正常运行的。
 

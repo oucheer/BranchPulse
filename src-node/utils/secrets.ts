@@ -112,6 +112,53 @@ function loadDpapiKey(): Buffer | null {
   }
 }
 
+/** Persist a generated key outside the database so encrypted credentials survive restarts. */
+function loadOrCreateFileKey(): Buffer | null {
+  if (process.platform === 'win32') return null
+  const stored = path.join(userDataDir(), KEY_FILE)
+  let temporary: string | undefined
+  try {
+    fs.mkdirSync(path.dirname(stored), { recursive: true, mode: 0o700 })
+    fs.chmodSync(path.dirname(stored), 0o700)
+    if (fs.existsSync(stored)) {
+      fs.chmodSync(stored, 0o600)
+      const encoded = fs.readFileSync(stored, 'utf8').trim()
+      return /^[a-fA-F0-9]{64}$/.test(encoded) ? Buffer.from(encoded, 'hex') : null
+    }
+
+    const key = randomBytes(32)
+    temporary = `${stored}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`
+    const fd = fs.openSync(temporary, 'wx', 0o600)
+    try {
+      fs.writeFileSync(fd, key.toString('hex'), 'utf8')
+      fs.fsyncSync(fd)
+    } finally {
+      fs.closeSync(fd)
+    }
+    try {
+      // Publish only after the complete key is durable so concurrent processes
+      // never observe a partially written key file.
+      fs.linkSync(temporary, stored)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      const encoded = fs.readFileSync(stored, 'utf8').trim()
+      return /^[a-fA-F0-9]{64}$/.test(encoded) ? Buffer.from(encoded, 'hex') : null
+    }
+    return key
+  } catch (error) {
+    logger.warn(`Unable to load or persist the GitManager encryption key: ${String(error)}`)
+    return null
+  } finally {
+    if (temporary) {
+      try {
+        fs.unlinkSync(temporary)
+      } catch {
+        // The temporary file may already have been removed.
+      }
+    }
+  }
+}
+
 let cachedKey: Buffer | null | undefined
 
 function aesKey(): Buffer | null {
@@ -123,7 +170,7 @@ function aesKey(): Buffer | null {
     return Buffer.from(configured, 'hex')
   }
   if (cachedKey !== undefined) return cachedKey
-  cachedKey = chromiumOsCryptKey() ?? loadDpapiKey()
+  cachedKey = chromiumOsCryptKey() ?? loadDpapiKey() ?? loadOrCreateFileKey()
   return cachedKey
 }
 

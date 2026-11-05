@@ -40,6 +40,31 @@ afterEach(() => {
 })
 
 describe('secret round trip', () => {
+  it('creates a persistent server key automatically without an environment variable', async () => {
+    const first = await freshSecretsModule()
+    expect(first.isSecretEncryptionAvailable()).toBe(true)
+    const encrypted = first.encryptSecret('private-model-key')
+    expect(encrypted.startsWith('plain:')).toBe(false)
+
+    const restarted = await freshSecretsModule()
+    expect(restarted.decryptSecret(encrypted)).toBe('private-model-key')
+    const keyFile = path.join(workDir, 'gitmanager.key')
+    expect(fs.existsSync(keyFile)).toBe(true)
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(workDir).mode & 0o777).toBe(0o700)
+      expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600)
+    }
+  }, 120_000)
+
+  it('does not replace an invalid persisted key', async () => {
+    const keyFile = path.join(workDir, 'gitmanager.key')
+    fs.writeFileSync(keyFile, 'not-a-valid-key', 'utf8')
+
+    const secrets = await freshSecretsModule()
+    expect(secrets.isSecretEncryptionAvailable()).toBe(false)
+    expect(fs.readFileSync(keyFile, 'utf8')).toBe('not-a-valid-key')
+  }, 120_000)
+
   it('uses a server AES key without a desktop key store and survives restart', async () => {
     process.env.GITMANAGER_ENCRYPTION_KEY = 'ab'.repeat(32)
     const first = await freshSecretsModule()
