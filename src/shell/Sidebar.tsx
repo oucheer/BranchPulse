@@ -239,9 +239,9 @@ export default function Sidebar(): JSX.Element {
               </div>
             </div>
             {ditherEnabled ? <div
-              className="pointer-events-none absolute inset-0 z-0"
+              className="relative h-6 w-14 shrink-0 overflow-hidden rounded-full border border-line"
               aria-hidden="true"
-            ><DitherVeil opacity={0.85} pixelSize={2} revealRadius={280} /></div> : null}
+            ><DitherVeil fit="cover" pixelSize={2} revealRadius={36} softness={0.6} linger={1} /></div> : null}
             <button className="btn px-1.5 py-1" title={language === 'zh' ? '退出登录' : 'Sign out'} onClick={() => void logout()}>
               <LogOut size={13} />
             </button>

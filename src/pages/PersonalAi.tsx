@@ -182,14 +182,16 @@ export default function PersonalAi(): JSX.Element {
         </div>)}</div>
       </Card>
 
-      <Card className="flex min-h-0 flex-col p-4">
+      <Card className="flex h-[520px] flex-col p-4">
         <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold text-canvas-fg"><Bot size={15} />{zh ? '个人数据问答' : 'Ask about your activity'}</h2><span className="text-xs text-muted">{zh ? `使用个人活动页的最近 ${months} 个月范围` : `Using your ${months}-month activity range`}</span></div>
         <div className="mb-3 flex flex-wrap gap-1.5">{suggestions.map((item) => <button key={item} className="btn btn-ghost h-auto px-2 py-1 text-xs" disabled={busy || !config.hasApiKey} onClick={() => void ask(item)}><Plus size={12} />{item}</button>)}</div>
-        <div ref={scroller} className="min-h-[270px] flex-1 space-y-3 overflow-y-auto border-y border-line py-3">
-          {loading ? <div className="text-xs text-muted">{zh ? '正在恢复会话…' : 'Restoring chat…'}</div> : null}
-          {!loading && !messages.length ? <div className="text-xs text-muted">{zh ? '选择一个建议问题，或直接输入关于个人 Git 活动的问题。' : 'Choose a suggested question or ask about your Git activity.'}</div> : null}
-          {messages.map((message, index) => <div key={message.id ?? index} className={message.role === 'user' ? 'ml-8 whitespace-pre-wrap rounded-md bg-primary/10 p-3 text-sm text-canvas-fg' : `mr-4 whitespace-pre-wrap p-2 text-sm ${message.status === 'failed' ? 'text-danger' : 'text-canvas-fg'}`}>{message.content}</div>)}
-          {busy ? <div role="status" className="flex items-center gap-2 text-xs text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" />{zh ? '正在查询个人数据并生成回答，切换页面不会中断…' : 'Querying your data; this task continues in the background…'}</div> : null}
+        <div ref={scroller} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain border-y border-line py-3">
+          <div aria-live="polite">
+            {loading ? <div className="text-xs text-muted">{zh ? '正在恢复会话…' : 'Restoring chat…'}</div> : null}
+            {!loading && !messages.length ? <div className="text-xs text-muted">{zh ? '选择一个建议问题，或直接输入关于个人 Git 活动的问题。' : 'Choose a suggested question or ask about your Git activity.'}</div> : null}
+            {messages.map((message, index) => <div key={message.id ?? index} className={message.role === 'user' ? 'ml-8 whitespace-pre-wrap rounded-md bg-primary/10 p-3 text-sm text-canvas-fg' : `mr-4 whitespace-pre-wrap p-2 text-sm ${message.status === 'failed' ? 'text-danger' : 'text-canvas-fg'}`}>{message.content}</div>)}
+            {busy ? <div role="status" className="flex items-center gap-2 text-xs text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" />{zh ? '正在查询个人数据并生成回答，切换页面不会中断…' : 'Querying your data; this task continues in the background…'}</div> : null}
+          </div>
         </div>
         <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void ask() }}><input className="input min-w-0 flex-1" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={zh ? '继续追问个人研发数据' : 'Ask a follow-up'} /><button type="submit" className="btn btn-primary" disabled={busy || loading || !activeId || !config.hasApiKey || !question.trim()} aria-label={zh ? '发送问题' : 'Send question'} title={!config.hasApiKey ? (zh ? '请先配置并保存 API 密钥' : 'Configure and save an API key first') : undefined}><Send size={15} /></button></form>
       </Card>

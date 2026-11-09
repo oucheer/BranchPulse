@@ -206,61 +206,59 @@ try {
   await first.getByText('src/fixture.ts', { exact: true }).waitFor()
   await first.goBack()
   await first.getByRole('heading', { name: 'Branch verification' }).waitFor()
-  const veilBounds = await first.locator('aside canvas[aria-hidden="true"]').evaluate((canvas) => {
-    const host = canvas.parentElement
+  await first.waitForTimeout(1300)
+  const veilHost = first.locator('aside div[aria-hidden="true"]')
+  const veilBounds = await veilHost.evaluate((host) => {
+    const canvas = host.querySelector('canvas')
     const canvasRect = canvas.getBoundingClientRect()
     const hostRect = host.getBoundingClientRect()
     const sidebarRect = host.closest('aside').getBoundingClientRect()
-    let paintedPixels = -1
-    let brightPixels = -1
-    try {
-      const context = canvas.getContext('2d', { willReadFrequently: true })
-      const data = context?.getImageData(0, 0, canvas.width, canvas.height).data
-      if (data) {
-        paintedPixels = 0
-        brightPixels = 0
-        for (let index = 0; index < data.length; index += 4) {
-          if (data[index] > 16 || data[index + 1] > 16 || data[index + 2] > 16) paintedPixels++
-          if (data[index] > 100 || data[index + 1] > 100 || data[index + 2] > 100) brightPixels++
-        }
-      }
-    } catch {
-      paintedPixels = -1
-    }
     return {
       width: hostRect.width,
       height: hostRect.height,
       contained: canvasRect.left >= hostRect.left && canvasRect.top >= hostRect.top
         && canvasRect.right <= hostRect.right && canvasRect.bottom <= hostRect.bottom,
       insideSidebar: hostRect.left >= sidebarRect.left && hostRect.right <= sidebarRect.right
-        && hostRect.top >= sidebarRect.top && hostRect.bottom <= sidebarRect.bottom,
-      paintedPixels,
-      brightPixels
+        && hostRect.top >= sidebarRect.top && hostRect.bottom <= sidebarRect.bottom
     }
   })
   assert.ok(veilBounds.width > 0 && veilBounds.height > 0, JSON.stringify(veilBounds))
   assert.equal(veilBounds.contained, true, JSON.stringify(veilBounds))
   assert.equal(veilBounds.insideSidebar, true, JSON.stringify(veilBounds))
-  assert.notEqual(veilBounds.paintedPixels, -1, JSON.stringify(veilBounds))
-  assert.ok(veilBounds.paintedPixels > 0, JSON.stringify(veilBounds))
-  assert.ok(veilBounds.brightPixels > 20, JSON.stringify(veilBounds))
-  const readVeilPixels = () => first.locator('aside canvas[aria-hidden="true"]').evaluate((canvas) => {
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-    const data = context?.getImageData(0, 0, canvas.width, canvas.height).data
-    if (!data) return -1
-    let sum = 0
-    for (let index = 0; index < data.length; index += 4) sum += data[index] + data[index + 1] + data[index + 2]
-    return sum
-  })
+
+  const analyzeVeilScreenshot = async () => {
+    const hostBox = await veilHost.boundingBox()
+    assert.ok(hostBox, 'veil host is visible')
+    const shot = await first.screenshot({ clip: hostBox })
+    const { PNG } = await import('pngjs')
+    const png = PNG.sync.read(shot)
+    let painted = 0
+    let bright = 0
+    let colorSum = 0
+    for (let index = 0; index < png.data.length; index += 4) {
+      const red = png.data[index]
+      const green = png.data[index + 1]
+      const blue = png.data[index + 2]
+      colorSum += red + green + blue
+      if (red > 16 || green > 16 || blue > 16) painted++
+      if (red > 100 || green > 100 || blue > 100) bright++
+    }
+    return { painted, bright, colorSum, width: png.width, height: png.height }
+  }
+
+  await first.waitForTimeout(1300)
+  const veilPaint = await analyzeVeilScreenshot()
+  assert.ok(veilPaint.painted > 0, JSON.stringify(veilPaint))
+  assert.ok(veilPaint.bright > 20, JSON.stringify(veilPaint))
+
+  const hostBox = await veilHost.boundingBox()
+  await first.mouse.move(hostBox.x + hostBox.width / 2, hostBox.y + hostBox.height / 2)
+  await first.waitForTimeout(250)
+  const veilHover = await analyzeVeilScreenshot()
   await first.mouse.move(1200, 400)
-  await first.waitForTimeout(350)
-  const veilBeforeHover = await readVeilPixels()
-  const sidebarBox = await first.locator('aside').boundingBox()
-  await first.mouse.move(sidebarBox.x + sidebarBox.width / 2, sidebarBox.y + sidebarBox.height / 2)
-  await first.waitForTimeout(350)
-  const veilAfterHover = await readVeilPixels()
-  assert.notEqual(veilBeforeHover, -1, JSON.stringify({ veilBeforeHover }))
-  assert.notEqual(veilAfterHover, veilBeforeHover, JSON.stringify({ veilBeforeHover, veilAfterHover }))
+  await first.waitForTimeout(250)
+  const veilAway = await analyzeVeilScreenshot()
+  assert.notEqual(veilHover.colorSum, veilAway.colorSum, JSON.stringify({ veilHover, veilAway }))
   console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
   await first.goto(`${base}/#/settings`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')
