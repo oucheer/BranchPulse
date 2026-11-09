@@ -32,14 +32,16 @@ export default function MyTimeline(): JSX.Element {
   const cache = useAppStore((state) => state.myActivityCache)
   const busy = useAppStore((state) => state.myActivityBusy)
   const loadMyActivity = useAppStore((state) => state.loadMyActivity)
+  const selectedRepositoryIds = useAppStore((state) => state.selectedRepositoryIds)
+  const repositoryScope = selectedRepositoryIds.slice().sort().join(',')
   const navigate = useNavigate()
   const [months, setMonths] = useState(() => readMyActivityMonths(session))
-  const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}`
+  const cacheKey = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}|${months}||${repositoryScope}`
   const activity = cache[cacheKey]
 
   useEffect(() => {
     void loadMyActivity(months).catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
-  }, [loadMyActivity, months, session?.email, session?.source, toast])
+  }, [loadMyActivity, months, repositoryScope, session?.email, session?.source, toast])
 
   useEffect(() => saveMyActivityMonths(session, months), [months, session])
 

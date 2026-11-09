@@ -270,13 +270,33 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
     const session = activeSession()
     if (!session || session.role === 'admin') return base
     const row = storage.get<{ settings_json: string }>('SELECT settings_json FROM user_preferences WHERE user_key = ?', [personalKey(session)])
-    const preferences = row ? JSON.parse(row.settings_json) as Partial<AppSettings> : {
+    const repositoryIds = repository.list().map((repo) => repo.id)
+    const preferences = row ? JSON.parse(row.settings_json) as Partial<AppSettings> & { knownRepositoryIds?: string[] } : {
       theme: base.theme, colorTheme: base.colorTheme, backgroundTheme: base.backgroundTheme,
-      language: base.language, selectedRepositoryIds: []
+      language: base.language, selectedRepositoryIds: repositoryIds, knownRepositoryIds: repositoryIds
     }
     if (!row) {
       storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?)', [personalKey(session), JSON.stringify(preferences)])
       storage.save()
+    } else {
+      const known = preferences.knownRepositoryIds
+      if (Array.isArray(known)) {
+        const available = new Set(repositoryIds)
+        const selected = (preferences.selectedRepositoryIds ?? []).filter((id) => available.has(id))
+        const previous = new Set(known)
+        for (const id of repositoryIds) if (!previous.has(id)) selected.push(id)
+        if (repositoryIds.some((id) => !previous.has(id)) || selected.length !== (preferences.selectedRepositoryIds ?? []).length) {
+          preferences.selectedRepositoryIds = [...new Set(selected)]
+          preferences.knownRepositoryIds = repositoryIds
+          storage.run('UPDATE user_preferences SET settings_json = ? WHERE user_key = ?', [JSON.stringify(preferences), personalKey(session)])
+          storage.save()
+        }
+      } else {
+        preferences.selectedRepositoryIds = repositoryIds
+        preferences.knownRepositoryIds = repositoryIds
+        storage.run('UPDATE user_preferences SET settings_json = ? WHERE user_key = ?', [JSON.stringify(preferences), personalKey(session)])
+        storage.save()
+      }
     }
     return { ...base, ...preferences, gitPath: '', gitlabApiKey: undefined, hasGitlabApiKey: false }
   }
@@ -667,7 +687,8 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
         if (session && session.role !== 'admin') {
           const personal = {
             theme: s.theme, colorTheme: s.colorTheme, backgroundTheme: s.backgroundTheme, language: s.language,
-            selectedRepositoryIds: s.selectedRepositoryIds.filter((id) => repository.get(id))
+            selectedRepositoryIds: s.selectedRepositoryIds.filter((id) => repository.get(id)),
+            knownRepositoryIds: repository.list().map((repo) => repo.id)
           }
           storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?) ON CONFLICT(user_key) DO UPDATE SET settings_json = excluded.settings_json', [personalKey(session), JSON.stringify(personal)])
           storage.save()
@@ -699,7 +720,7 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
       const base = currentSettings()
       storage.run('INSERT INTO user_preferences (user_key, settings_json) VALUES (?, ?) ON CONFLICT(user_key) DO UPDATE SET settings_json = excluded.settings_json', [personalKey(session), JSON.stringify({
         theme: base.theme, colorTheme: base.colorTheme, backgroundTheme: base.backgroundTheme, language: base.language,
-        selectedRepositoryIds
+        selectedRepositoryIds, knownRepositoryIds: repository.list().map((repo) => repo.id)
       })])
       storage.save()
       return selectedRepositoryIds
@@ -816,14 +837,14 @@ export function createGitManagerApi(services: AppServices, options: GitManagerAp
 
     changePassword: async (newPassword) => users.changePassword(String(newPassword ?? '')),
 
-    getMyActivity: async (months: number = 6, repositoryIds?: string[], range?: import('@shared/types').PersonalActivityRange) => {
+    getMyActivity: async (months: number = 6, repositoryIds?: string[], range?: import('@shared/types').PersonalActivityRange, options?: { includeDiffs?: boolean }) => {
       const session = activeSession()
       if (!session) throw new Error('请先登录。')
       const selected = repositoryIds ?? currentSettings().selectedRepositoryIds
       const available = new Set(repository.list().map((repo) => repo.id))
       const filtered = selected.filter((id) => available.has(id))
       const scope = session.role === 'admin' && filtered.length === 0 ? undefined : filtered
-      return userActivity.getActivity(session, months, scope, range)
+      return userActivity.getActivity(session, months, scope, range, options)
     },
 
     getCommitFile: async (repositoryId: string, sha: string, path: string) => {

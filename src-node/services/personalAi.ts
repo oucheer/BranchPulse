@@ -29,6 +29,29 @@ function completionUrl(baseUrl: string): string {
   return `${normalized}/v1/chat/completions`
 }
 
+function responseText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return ''
+  return value.flatMap((part) => {
+    if (typeof part === 'string') return [part]
+    if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') return [(part as { text: string }).text]
+    return []
+  }).join('')
+}
+
+function needsCodeDetails(question: string): boolean {
+  return /代码|源码|文件|模块|目录|diff|patch|code|file(?:s)?|module|source code/i.test(question)
+}
+
+function activityContext(activity: PersonalActivity): string {
+  return `以下是已核验的 Git 活动摘要。统计只能引用这些事实，不要把代码行数等同工作量；根据提交描述进行归纳时需标注为推断。\n${JSON.stringify({
+    stats: activity.stats,
+    repositories: activity.stats.byRepository,
+    commits: activity.commits.slice(0, 100).map(({ subject, committedAt, repositoryName, shortSha }) => ({ subject, committedAt, repositoryName, shortSha })),
+    mergeRequests: activity.mergeRequests.slice(0, 100).map(({ title, state, role, repositoryName, sourceBranch, targetBranch, createdAt }) => ({ title, state, role, repositoryName, sourceBranch, targetBranch, createdAt }))
+  })}`
+}
+
 function connectionError(error: unknown): Error {
   const value = error as { name?: string; cause?: { code?: string } }
   if (value?.name === 'TimeoutError' || value?.name === 'AbortError') return new Error('模型服务请求超时，请检查服务状态或稍后重试。')
@@ -115,6 +138,7 @@ function localIsoDate(date: Date): string {
 
 export class PersonalAiService {
   private readonly running = new Map<string, Promise<void>>()
+  private readonly progressAt = new Map<string, number>()
   constructor(private readonly storage: StorageService, private readonly activityService: UserActivityService) {}
 
   listConversations(session: UserSession): PersonalAiConversation[] {
@@ -205,7 +229,7 @@ export class PersonalAiService {
         throw new Error(`模型服务连接失败（HTTP ${response.status}）：${reason}。`)
       }
       const body = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> }
-      if (typeof body.choices?.[0]?.message?.content !== 'string') throw new Error('服务已响应，但返回格式不兼容。请使用支持 OpenAI Chat Completions 的 API URL。')
+      if (!responseText(body.choices?.[0]?.message?.content)) throw new Error('服务已响应，但返回格式不兼容。请使用支持 OpenAI Chat Completions 的 API URL。')
       return { ok: true, message: '模型服务连接成功。' }
     } catch (err) {
       if (err instanceof Error && (err.message.startsWith('模型服务连接失败') || err.message.startsWith('服务已响应'))) throw err
@@ -218,19 +242,24 @@ export class PersonalAiService {
     const owner = userKey(session)
     try {
       const config = this.loadCredentials(session)
-      const activity = await this.activityService.getActivity(session, months)
+      const detailed = needsCodeDetails(question)
+      const activity = await this.activityService.getActivity(session, months, undefined, undefined, { includeDiffs: detailed })
       const history = this.storage.all<Record<string, unknown>>('SELECT role, content FROM user_ai_messages WHERE user_key = ? AND conversation_id = ? ORDER BY created_at, rowid', [owner, conversationId]).slice(-11, -1)
       const messages: Array<Record<string, unknown>> = [
         { role: 'system', content: '你是 GitManager 的只读个人研发数据分析助手。回答前优先使用提供的只读数据工具查询当前用户的 Git 活动，再用自然语言回答；不要使用固定标题或模板化段落。统计值必须来自工具返回的数据，不能估算或补齐；需要根据提交描述推断时明确说明是推断，不要把代码行数等同工作量。未知不等于0，工具没有覆盖的字段说明数据未提供。不能执行或建议通过本系统修改、删除仓库内容。' },
         ...history.filter((entry) => entry.role === 'user' || entry.role === 'assistant').map(({ role, content }) => ({ role: String(role), content: String(content).slice(0, 4000) })),
-        { role: 'user', content: question }
+        { role: 'user', content: detailed ? question : `${activityContext(activity)}\n\n用户问题：${question}` }
       ]
-      const answer = await this.agentLoop(config, messages, activity)
+      const answer = detailed
+        ? await this.agentLoop(config, messages, activity, 0, (chunk) => this.persistChatProgress(taskId, conversationId, owner, chunk))
+        : (await this.completeStreamed(config, messages, (chunk) => this.persistChatProgress(taskId, conversationId, owner, chunk))).content
+      this.storage.delete('user_ai_messages', 'user_key = ? AND conversation_id = ? AND status = ?', [owner, conversationId, 'running'])
       this.storage.insert('user_ai_messages', { id: newId(), conversation_id: conversationId, user_key: owner, role: 'assistant', content: answer, status: 'complete', created_at: nowIso() })
       this.storage.update('user_ai_tasks', { status: 'complete', error: null, updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, taskId])
       this.storage.update('user_ai_conversations', { status: 'idle', updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, conversationId])
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      this.storage.delete('user_ai_messages', 'user_key = ? AND conversation_id = ? AND status = ?', [owner, conversationId, 'running'])
       this.storage.insert('user_ai_messages', { id: newId(), conversation_id: conversationId, user_key: owner, role: 'assistant', content: `本次请求失败：${message}`, status: 'failed', created_at: nowIso() })
       this.storage.update('user_ai_tasks', { status: 'failed', error: message.slice(0, 500), updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, taskId])
       this.storage.update('user_ai_conversations', { status: 'failed', updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, conversationId])
@@ -250,19 +279,22 @@ export class PersonalAiService {
   private agentLoop(
     config: { baseUrl: string; model: string; apiKey: string },
     messages: Array<Record<string, unknown>>,
-    activity: PersonalActivity
+    activity: PersonalActivity,
+    round: number,
+    onProgress?: (chunk: string) => void
   ): Promise<string> {
-    return this.runAgentLoop(config, messages, activity, 0)
+    return this.runAgentLoop(config, messages, activity, round, onProgress)
   }
 
   private async runAgentLoop(
     config: { baseUrl: string; model: string; apiKey: string },
     messages: Array<Record<string, unknown>>,
     activity: PersonalActivity,
-    round: number
+    round: number,
+    onProgress?: (chunk: string) => void
   ): Promise<string> {
     if (round >= 5) return '这个问题需要的数据工具调用次数过多，请把问题拆小后再试。'
-    const result = await this.complete(config, messages, AGENT_TOOLS)
+    const result = await this.completeStreamed(config, messages, onProgress, AGENT_TOOLS)
     if (!result.toolCalls.length) return result.content
     messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.rawToolCalls })
     for (const call of result.toolCalls) {
@@ -274,7 +306,7 @@ export class PersonalAiService {
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(payload) })
     }
-    return this.runAgentLoop(config, messages, activity, round + 1)
+    return this.runAgentLoop(config, messages, activity, round + 1, onProgress)
   }
 
   private runTool(name: string, rawArguments: string, activity: PersonalActivity): unknown {
@@ -333,6 +365,23 @@ export class PersonalAiService {
     return { id: String(row.id), title: String(row.title), status: row.status === 'running' || row.status === 'failed' ? row.status : 'idle', createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
   }
 
+  private persistChatProgress(taskId: string, conversationId: string, owner: string, content: string): void {
+    const trimmed = content.trim()
+    if (!trimmed) return
+    const now = Date.now()
+    if ((this.progressAt.get(taskId) ?? 0) + 800 > now) return
+    this.progressAt.set(taskId, now)
+    this.storage.update('user_ai_tasks', { status: 'running', error: null, updated_at: nowIso() }, 'user_key = ?', [taskId])
+    this.storage.update('user_ai_conversations', { status: 'running', updated_at: nowIso() }, 'id = ?', [conversationId])
+    const running = this.storage.all<Record<string, unknown>>('SELECT id FROM user_ai_messages WHERE user_key = ? AND conversation_id = ? AND status = ? ORDER BY created_at, rowid LIMIT 1', [owner, conversationId, 'running'])
+    const messageId = String(running[0]?.id ?? '')
+    if (messageId) {
+      this.storage.update('user_ai_messages', { content }, 'id = ?', [messageId])
+      return
+    }
+    this.storage.insert('user_ai_messages', { id: newId(), conversation_id: conversationId, user_key: owner, role: 'assistant', content, status: 'running', created_at: nowIso() })
+  }
+
   private toTask(row: Record<string, unknown>): PersonalAiTask {
     return { id: String(row.id), conversationId: row.conversation_id ? String(row.conversation_id) : null, kind: 'chat', status: row.status === 'running' || row.status === 'failed' ? row.status : 'complete', error: row.error ? String(row.error) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
   }
@@ -344,6 +393,85 @@ export class PersonalAiService {
     if (row?.api_key_encrypted && !apiKey) throw new Error('已保存的 API 密钥无法解密，请检查服务端密钥配置，并重新填写 API Key 后保存。')
     if (!baseUrl || !row?.model || !apiKey) throw new Error('请先配置 API URL、模型和密钥。')
     return { baseUrl, model: row.model, apiKey }
+  }
+
+  private async completeStreamed(
+    config: { baseUrl: string; model: string; apiKey: string },
+    messages: Array<Record<string, unknown>>,
+    onProgress?: (chunk: string) => void,
+    tools?: typeof AGENT_TOOLS
+  ): Promise<{ content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; rawToolCalls: unknown }> {
+    let response: Response
+    try {
+      response = await fetch(completionUrl(config.baseUrl), {
+        method: 'POST', headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json', accept: 'text/event-stream' },
+        body: JSON.stringify({ model: config.model, messages, ...(tools ? { tools } : {}), temperature: 0.2, stream: true }),
+        signal: AbortSignal.timeout(60_000), redirect: 'error'
+      })
+    } catch (err) {
+      throw connectionError(err)
+    }
+    if (!response.ok || !response.body) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`AI 请求失败（HTTP ${response.status}）${detail ? `：${detail.slice(0, 300)}` : ''}`)
+    }
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+    if (!contentType.includes('event-stream')) return this.complete(config, messages, tools)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    let rawToolCalls: unknown[] = []
+    let sawData = false
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        for (;;) {
+          const newlineIndex = buffer.indexOf('\n')
+          if (newlineIndex === -1) break
+          const line = buffer.slice(0, newlineIndex).replace(/\r$/, '').trim()
+          buffer = buffer.slice(newlineIndex + 1)
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (!payload) continue
+          if (payload === '[DONE]') continue
+          sawData = true
+          let event: { choices?: Array<{ delta?: { content?: unknown; tool_calls?: Array<{ index?: number; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }> }
+          try { event = JSON.parse(payload) as typeof event } catch { continue }
+          const delta = event.choices?.[0]?.delta
+          const chunk = responseText(delta?.content)
+          if (chunk) {
+            content += chunk
+            onProgress?.(content)
+          }
+          for (const call of delta?.tool_calls ?? []) {
+            const index = Math.max(0, Number(call.index ?? rawToolCalls.length) || 0)
+            const current = (rawToolCalls[index] ?? {}) as Record<string, unknown>
+            current.id = call.id ?? current.id
+            current.type = call.type ?? current.type
+            current.function = {
+              ...current.function as Record<string, unknown> | undefined,
+              name: call.function?.name ?? (current.function as { name?: unknown } | undefined)?.name,
+              arguments: `${(current.function as { arguments?: unknown } | undefined)?.arguments ?? ''}${call.function?.arguments ?? ''}`
+            }
+            rawToolCalls[index] = current
+          }
+        }
+      }
+    } catch (err) {
+      if (content) return { content, toolCalls: [], rawToolCalls }
+      throw connectionError(err)
+    }
+    if (!sawData) throw new Error('模型服务未返回兼容的流式内容。请使用支持 OpenAI Chat Completions 的 API URL。')
+    const toolCalls = rawToolCalls.flatMap((entry) => {
+      const call = entry as { id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }
+      if (call.type !== 'function' || !call.id || typeof call.function?.name !== 'string') return []
+      return [{ id: String(call.id), name: call.function.name, arguments: typeof call.function.arguments === 'string' ? call.function.arguments : '{}' }]
+    })
+    if (!content.trim() && !toolCalls.length) throw new Error('模型未返回有效内容。请确认模型名称有效且服务支持 Chat Completions。')
+    return { content, toolCalls, rawToolCalls }
   }
 
   private async complete(
@@ -367,7 +495,7 @@ export class PersonalAiService {
     let body: { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }> }
     try { body = await response.json() as typeof body } catch { throw new Error('模型服务返回的不是有效 JSON。请检查 API URL 是否指向兼容接口。') }
     const message = body.choices?.[0]?.message
-    const content = typeof message?.content === 'string' ? message.content.trim() : ''
+    const content = responseText(message?.content).trim()
     const rawToolCalls = Array.isArray(message?.tool_calls) ? message?.tool_calls : []
     const toolCalls = rawToolCalls.flatMap((entry) => {
       const call = entry as { id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }

@@ -75,7 +75,9 @@ interface AppState {
   toasts: Toast[]
   myActivityCache: Record<string, PersonalActivity>
   myActivityBusy: boolean
+  myActivityDiffBusy: boolean
   loadMyActivity: (months: number, force?: boolean, range?: { start: string; end: string } | null) => Promise<void>
+  loadMyActivityDiffs: (months: number, range?: { start: string; end: string } | null) => Promise<void>
   refresh: () => Promise<void>
   restoreSession: () => Promise<UserSession | null>
   login: (username: string | null, password: string | null, email: string | null, gitlabToken?: string) => Promise<void>
@@ -95,7 +97,8 @@ interface AppState {
 }
 
 let toastId = 0
-let myActivityRequestId = 0
+const activityRequests = new Map<string, Promise<void>>()
+const activityDiffRequests = new Map<string, Promise<void>>()
 
 function activityIdentity(session: UserSession): string {
   return `${session.email.toLowerCase()}|${session.source ?? ''}|${session.accountId ?? session.username.toLowerCase()}`
@@ -205,37 +208,83 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
   myActivityCache: readActivityCache(),
   myActivityBusy: false,
+  myActivityDiffBusy: false,
   loadMyActivity: async (months, force = false, range = null) => {
     const session = get().session
     if (!session) return
+    const sessionToken = session.token
     const repositoryScope = [...get().selectedRepositoryIds].sort().join(',')
     const rangeKey = range ? `${range.start}|${range.end}` : ''
     const key = `${activityIdentity(session)}|${months}|${rangeKey}|${repositoryScope}`
-    if (!force && get().myActivityCache[key]) return
-    const requestId = ++myActivityRequestId
-    set({ myActivityBusy: true })
-    try {
-      const result = await window.gitmanager.getMyActivity(months, get().selectedRepositoryIds, range ?? undefined)
-      if (requestId !== myActivityRequestId || get().session?.email.toLowerCase() !== session.email.toLowerCase()) return
-      const next = { ...get().myActivityCache, [key]: result }
-      set({ myActivityCache: next })
-      try {
-        const stored = JSON.parse(localStorage.getItem(ACTIVITY_CACHE_KEY) ?? '{}') as Record<string, CachedPersonalActivity>
-        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
-        const entries = Object.entries(next).slice(-18)
-        const persisted: Record<string, CachedPersonalActivity> = {}
-        for (const [cacheKey, data] of entries) {
-          const entry = {
-            savedAt: cacheKey === key ? Date.now() : stored[cacheKey]?.savedAt ?? Date.now(),
-            data
-          }
-          if (entry.savedAt >= cutoff) persisted[cacheKey] = entry
-        }
-        localStorage.setItem(ACTIVITY_CACHE_KEY, JSON.stringify(persisted))
-      } catch { /* storage may be full or unavailable */ }
-    } finally {
-      if (requestId === myActivityRequestId) set({ myActivityBusy: false })
+    const cached = get().myActivityCache[key]
+    if (!force && cached) {
+      if (cached.commitDetails.some((detail) => detail.diffStatus === 'skipped')) void get().loadMyActivityDiffs(months, range)
+      return
     }
+    const existing = activityRequests.get(key)
+    if (existing) return existing
+    set({ myActivityBusy: true })
+    const request: Promise<void> = (async () => {
+      try {
+        const selectedRepositoryIds = get().selectedRepositoryIds
+        const result = await window.gitmanager.getMyActivity(months, selectedRepositoryIds, range ?? undefined, { includeDiffs: false })
+        if (get().session?.token !== sessionToken || activityIdentity(get().session ?? session) !== activityIdentity(session)) return
+        const next = { ...get().myActivityCache, [key]: result }
+        set({ myActivityCache: next })
+        try {
+          const stored = JSON.parse(localStorage.getItem(ACTIVITY_CACHE_KEY) ?? '{}') as Record<string, CachedPersonalActivity>
+          const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+          const entries = Object.entries(next).slice(-18)
+          const persisted: Record<string, CachedPersonalActivity> = {}
+          for (const [cacheKey, data] of entries) {
+            const entry = {
+              savedAt: cacheKey === key ? Date.now() : stored[cacheKey]?.savedAt ?? Date.now(),
+              data
+            }
+            if (entry.savedAt >= cutoff) persisted[cacheKey] = entry
+          }
+          localStorage.setItem(ACTIVITY_CACHE_KEY, JSON.stringify(persisted))
+        } catch { /* storage may be full or unavailable */ }
+        if (result.commitDetails.some((detail) => detail.diffStatus === 'skipped')) {
+          void get().loadMyActivityDiffs(months, range).catch(() => undefined)
+        }
+      } finally {
+        activityRequests.delete(key)
+        if (!activityRequests.size) set({ myActivityBusy: false })
+      }
+    })()
+    activityRequests.set(key, request)
+    return request
+  },
+  loadMyActivityDiffs: async (months, range = null) => {
+    const session = get().session
+    if (!session) return
+    const sessionToken = session.token
+    const repositoryScope = [...get().selectedRepositoryIds].sort().join(',')
+    const rangeKey = range ? `${range.start}|${range.end}` : ''
+    const key = `${activityIdentity(session)}|${months}|${rangeKey}|${repositoryScope}`
+    const cached = get().myActivityCache[key]
+    if (!cached?.commitDetails.some((detail) => detail.diffStatus === 'skipped')) return
+    const existing = activityDiffRequests.get(key)
+    if (existing) return existing
+    set({ myActivityDiffBusy: true })
+    const request: Promise<void> = (async () => {
+      try {
+        const result = await window.gitmanager.getMyActivity(months, get().selectedRepositoryIds, range ?? undefined, { includeDiffs: true })
+        if (get().session?.token !== sessionToken || activityIdentity(get().session ?? session) !== activityIdentity(session)) return
+        const next = { ...get().myActivityCache, [key]: result }
+        set({ myActivityCache: next })
+        try {
+          const stored = JSON.parse(localStorage.getItem(ACTIVITY_CACHE_KEY) ?? '{}') as Record<string, CachedPersonalActivity>
+          localStorage.setItem(ACTIVITY_CACHE_KEY, JSON.stringify(Object.fromEntries(Object.entries(next).slice(-18).map(([cacheKey, data]) => [cacheKey, { savedAt: cacheKey === key ? Date.now() : stored[cacheKey]?.savedAt ?? Date.now(), data }]))))
+        } catch { /* storage may be full or unavailable */ }
+      } finally {
+        activityDiffRequests.delete(key)
+        if (!activityDiffRequests.size) set({ myActivityDiffBusy: false })
+      }
+    })()
+    activityDiffRequests.set(key, request)
+    return request
   },
 
   refresh: async () => {
@@ -254,6 +303,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const snapshot = await window.gitmanager.init()
       const selected = snapshot.selectedRepositoryIds ?? snapshot.settings.selectedRepositoryIds ?? []
+      if (get().session?.token !== sessionToken) return
+      set({
+        ready: true,
+        repositories: snapshot.repositories,
+        branches: snapshot.branches,
+        scanRuns: snapshot.scanRuns,
+        notifications: snapshot.notifications,
+        selectedRepositoryIds: selected,
+        settings: snapshot.settings,
+        monitoring: snapshot.monitoring
+      })
       const [jobs, calendarRuns, reports, reportSchedules, audit, namingRules, whitelist, protectedList, emailConfig, emailGroups, backups, appVersion] = await Promise.all([
         window.gitmanager.listJobs(selected),
         window.gitmanager.calendarRuns(selected),
@@ -341,7 +401,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     // `ready` here would strand the tab on the root Loading screen because no
     // startup refresh runs after logout.
     set({ session: null, role: null, myEmail: '', repositories: [], branches: [], notifications: [], scanRuns: [], selectedRepositoryIds: [], reports: [], audit: [], jobs: [], calendarRuns: [], reportSchedules: [], backups: [], emailGroups: [], namingRules: [], whitelist: [], protected: [], emailConfig: null, progress: null, scanning: false, myActivityBusy: false })
-    myActivityRequestId += 1
   },
 
   setLanguage: (language) => {

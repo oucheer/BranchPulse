@@ -167,9 +167,10 @@ describe('user permissions', () => {
       expect(task, JSON.stringify(started.body)).toBeTruthy()
       if (!task?.id) throw new Error(`AI chat did not return a task: ${JSON.stringify(started.body)}`)
       expect(task.id).toBeTruthy()
-      await new Promise((resolve) => setTimeout(resolve, 20))
-      const status = await rpc(token, 'getPersonalAiTask', [task.id])
-      expect((status.body.result as { status: string }).status).toBe('complete')
+      await vi.waitFor(async () => {
+        const status = await rpc(token, 'getPersonalAiTask', [task.id])
+        expect((status.body.result as { status: string }).status).toBe('complete')
+      })
       const messages = await rpc(token, 'listPersonalAiMessages', [conversation.id])
       expect(messages.status).toBe(200)
       expect((messages.body.result as Array<{ content: string }>).map((message) => message.content)).toContain('测试回答')

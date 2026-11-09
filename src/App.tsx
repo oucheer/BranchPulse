@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { useAppStore } from './stores/appStore'
 import { isEffectOn, useEffectSettings } from './lib/effects'
 import { Toasts } from './components/ui'
@@ -69,12 +69,16 @@ export default function App(): JSX.Element {
   const effectsEnabled = isEffectOn(effectSettings, 'ambientBackground')
   const splashParticlesEnabled = isEffectOn(effectSettings, 'particleSplash')
   const location = useLocation()
+  const navigationType = useNavigationType()
   const navigate = useNavigate()
   const [splashDone, setSplashDone] = useState(false)
   const [splashStartedAt] = useState(() => Date.now())
   const lastPathname = useRef(location.pathname)
   const restoredRoute = useRef(false)
   const routeIdentity = useRef('')
+  const contentScroll = useRef<HTMLDivElement | null>(null)
+  const scrollKey = (key: string): string => `gitmanager:scroll:${role ?? ''}:${session?.email.toLowerCase() ?? ''}:${session?.source ?? ''}:${session?.accountId ?? session?.username.toLowerCase() ?? ''}:${key}`
+  const routeScrollKey = (): string => `gitmanager:scroll-route:${role ?? ''}:${session?.email.toLowerCase() ?? ''}:${session?.source ?? ''}:${session?.accountId ?? session?.username.toLowerCase() ?? ''}:${location.pathname}${location.search}`
 
   const routeKey = (currentSession: typeof session, currentRole: typeof role): string =>
     `gitmanager:last-route:${currentRole ?? ''}:${currentSession?.email.toLowerCase() ?? ''}:${currentSession?.source ?? ''}:${currentSession?.accountId ?? currentSession?.username.toLowerCase() ?? ''}`
@@ -140,6 +144,35 @@ export default function App(): JSX.Element {
       localStorage.setItem(identity, `${location.pathname}${location.search}`)
     } catch { /* storage may be unavailable */ }
   }, [session, role, location.pathname, location.search])
+
+  useEffect(() => {
+    const element = contentScroll.current
+    if (!element || !session) return
+    const save = (): void => {
+      try {
+        sessionStorage.setItem(scrollKey(location.key), String(element.scrollTop))
+        sessionStorage.setItem(routeScrollKey(), String(element.scrollTop))
+      } catch { /* storage may be unavailable */ }
+    }
+    element.addEventListener('scroll', save, { passive: true })
+    return () => {
+      save()
+      element.removeEventListener('scroll', save)
+    }
+  }, [location.key, location.pathname, location.search, role, session])
+
+  useLayoutEffect(() => {
+    const element = contentScroll.current
+    if (!element) return
+    let saved = 0
+    try {
+      const byEntry = sessionStorage.getItem(scrollKey(location.key))
+      const byRoute = sessionStorage.getItem(routeScrollKey())
+      saved = navigationType === 'POP' ? Number(byEntry ?? byRoute ?? 0) : 0
+    } catch { /* storage may be unavailable */ }
+    const frame = requestAnimationFrame(() => { element.scrollTop = Number.isFinite(saved) ? saved : 0 })
+    return () => cancelAnimationFrame(frame)
+  }, [location.key, location.pathname, location.search, navigationType, role, session])
 
   useEffect(() => {
     return window.gitmanager.onNavigate((route) => navigate(route))
@@ -250,7 +283,7 @@ export default function App(): JSX.Element {
 
   return (
     <Layout>
-      <div className="h-full overflow-auto">
+      <div ref={contentScroll} className="h-full overflow-auto">
         <Routes key={language} location={location}>
           {pages.map((p) => (
             <Route key={p.path} path={p.path} element={p.element} />

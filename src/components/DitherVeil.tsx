@@ -5,7 +5,25 @@ interface DitherVeilProps {
   opacity?: number
 }
 
-/** A small, dependency-free dither veil for shell surfaces. It stays behind navigation content. */
+const CANVAS_WIDTH = 32
+const CANVAS_HEIGHT = 32
+
+function buildPortraitMask(width: number, height: number): Uint8Array {
+  const mask = new Uint8Array(width * height)
+  const cx = width / 2
+  const head = { cx, cy: height * 0.39, rx: width * 0.18, ry: height * 0.19 }
+  const shoulders = { cx, cy: height * 0.83, rx: width * 0.31, ry: height * 0.23 }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const headDistance = ((x - head.cx) / head.rx) ** 2 + ((y - head.cy) / head.ry) ** 2
+      const bodyDistance = ((x - shoulders.cx) / shoulders.rx) ** 2 + ((y - shoulders.cy) / shoulders.ry) ** 2
+      if (headDistance <= 1 || bodyDistance <= 1) mask[y * width + x] = 1
+    }
+  }
+  return mask
+}
+
+/** A compact dithered portrait that stays inside its navigation container. */
 export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVeilProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -15,6 +33,7 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
     if (!canvas || !host) return
     const context = canvas.getContext('2d')
     if (!context) return
+    const mask = buildPortraitMask(CANVAS_WIDTH, CANVAS_HEIGHT)
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '124 92 252'
     let frame = 0
     let width = 1
@@ -41,16 +60,21 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
       pointer.x += (target.x - pointer.x) * 0.08
       pointer.y += (target.y - pointer.y) * 0.08
       context.clearRect(0, 0, width, height)
-      const spacing = 7
-      const pulse = 0.5 + Math.sin(time / 1800) * 0.12
-      for (let y = spacing / 2; y < height; y += spacing) {
-        for (let x = spacing / 2; x < width; x += spacing) {
-          const distance = Math.hypot(x - pointer.x, y - pointer.y)
-          const reveal = Math.max(0, 1 - distance / 150)
-          const alpha = (0.16 + pulse * 0.12) * (1 - reveal * 0.8)
-          const size = 1 + reveal * 1.5
-          context.fillStyle = `rgb(${accent} / ${alpha * opacity})`
-          context.fillRect(x, y, size, size)
+      const scaleX = width / CANVAS_WIDTH
+      const scaleY = height / CANVAS_HEIGHT
+      const pulse = 0.5 + Math.sin(time / 1700) * 0.22
+      for (let y = 0; y < CANVAS_HEIGHT; y++) {
+        for (let x = 0; x < CANVAS_WIDTH; x++) {
+          if (!mask[y * CANVAS_WIDTH + x]) continue
+          const centerX = (x + 0.5) * scaleX
+          const centerY = (y + 0.5) * scaleY
+          const distance = Math.hypot(centerX - pointer.x, centerY - pointer.y)
+          const reveal = Math.max(0, 1 - distance / Math.max(width, 45))
+          const brightness = 0.28 + pulse * 0.18 + reveal * 0.54
+          if (brightness <= 0.26) continue
+          const size = 1.4 + reveal * 1.1
+          context.fillStyle = `rgb(${accent} / ${Math.min(0.85, brightness * opacity)})`
+          context.fillRect(centerX - size / 2, centerY - size / 2, size, size)
         }
       }
       frame = requestAnimationFrame(draw)

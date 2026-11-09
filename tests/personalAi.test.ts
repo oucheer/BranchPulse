@@ -37,7 +37,7 @@ const storage = {
   delete: vi.fn((table: string, where: string, params: unknown[]) => {
     const owner = String(params[0]); const id = String(params[1])
     if (table === 'user_ai_conversations' && conversations.get(id)?.user_key === owner) conversations.delete(id)
-    if (table === 'user_ai_messages') for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.user_key === owner && messages[i]?.conversation_id === id) messages.splice(i, 1)
+    if (table === 'user_ai_messages') for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.user_key === owner && messages[i]?.conversation_id === id && (!String(params[2]) || messages[i]?.status === String(params[2]))) messages.splice(i, 1)
   })
 }
 const activityService = { getActivity: vi.fn() }
@@ -127,7 +127,7 @@ describe('PersonalAiService', () => {
     expect(request).toHaveBeenCalledTimes(2)
   })
 
-  it('persists a private conversation and completes its background task with read-only tools', async () => {
+  it('persists a private conversation and completes code questions with read-only tools', async () => {
     service.saveConfig(user('one@example.com', '1'), { baseUrl: 'https://ai.example/v1', model: 'model-a', apiKey: 'secret-a' })
     activityService.getActivity.mockResolvedValue({
       commits: [{ subject: 'Kernel fix', committedAt: '2026-01-01', repositoryName: 'kernel', sha: 'omitted' }],
@@ -136,7 +136,7 @@ describe('PersonalAiService', () => {
     })
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '事实：1 次提交。' } }] }), { status: 200 }))
     const conversation = service.createConversation(user('one@example.com', '1'))
-    const task = service.startChat(user('one@example.com', '1'), conversation.id, '这周做了什么？', 1)
+    const task = service.startChat(user('one@example.com', '1'), conversation.id, '这次改动了哪些代码文件？', 1)
     await vi.waitFor(() => expect(service.getTask(user('one@example.com', '1'), task.id)?.status).toBe('complete'))
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
       messages: Array<{ content: string }>
@@ -149,5 +149,22 @@ describe('PersonalAiService', () => {
     expect(JSON.stringify(body)).not.toContain('drivers/print.c')
     expect(service.listMessages(user('one@example.com', '1'), conversation.id)).toHaveLength(2)
     expect(() => service.listMessages(user('two@example.com', '2'), conversation.id)).toThrow('会话不存在')
+  })
+
+  it('falls back to ordinary chat completions when streaming is unavailable', async () => {
+    service.saveConfig(user('one@example.com', '1'), { baseUrl: 'https://ai.example/v1', model: 'model-a', apiKey: 'secret-a' })
+    activityService.getActivity.mockResolvedValue({
+      commits: [], mergeRequests: [], commitDetails: [], stats: { activeDays: 0, commitCount: 0, mrAuthored: 0, mrReviewed: 0, byRepository: [] }, branches: []
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '本周还没有提交。' } }] }), {
+      status: 200, headers: { 'content-type': 'application/json' }
+    }))
+    const conversation = service.createConversation(user('one@example.com', '1'))
+    const task = service.startChat(user('one@example.com', '1'), conversation.id, '这周做了什么？', 1)
+    await vi.waitFor(() => expect(service.getTask(user('one@example.com', '1'), task.id)?.status).toBe('complete'))
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { stream?: boolean; messages: Array<{ content: string }> }
+    expect(body.stream).toBe(true)
+    expect(body.messages.at(-1)?.content).toContain('这周做了什么？')
+    expect(service.listMessages(user('one@example.com', '1'), conversation.id)).toHaveLength(2)
   })
 })

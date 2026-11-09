@@ -53,6 +53,18 @@ function emptyRepositoryStats(repositoryId: string, repositoryName: string, sour
   return { repositoryId, repositoryName, source, commits: 0, branches: 0, added: 0, removed: 0, activeDays: 0, mrAuthored: 0, mrReviewed: 0 }
 }
 
+async function mapLimit<T, R>(values: T[], limit: number, worker: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++
+      results[index] = await worker(values[index]!)
+    }
+  }))
+  return results
+}
+
 export class UserActivityService {
   private cacheOwner(session: UserSession): string {
     return `v2:${session.source ?? ''}:${session.accountId ?? session.username}:${session.email.toLowerCase().trim()}`
@@ -65,7 +77,7 @@ export class UserActivityService {
     private readonly namingService: NamingService
   ) {}
 
-  async getActivity(session: UserSession, months: number = 6, repositoryIds?: string[], range?: PersonalActivityRange): Promise<PersonalActivity> {
+  async getActivity(session: UserSession, months: number = 6, repositoryIds?: string[], range?: PersonalActivityRange, options: { includeDiffs?: boolean } = {}): Promise<PersonalActivity> {
     const accessToken = session.gitlabToken
     if (!accessToken) throw new Error('请先使用 Access Token 登录后再查看个人活动。')
     const normalizedMonths = Math.max(1, Math.min(Number(months) || 6, 36))
@@ -85,8 +97,10 @@ export class UserActivityService {
     const endIso = endExclusive.toISOString()
 
     const cacheMonths = validRange ? rangeMonths : normalizedMonths
-    const { commits, details } = await this.collectCommits(session, email, repos, sinceIso, endIso, accessToken, cacheMonths)
-    const mergeRequests = await this.collectMergeRequests(session, repos, sinceIso, endIso, accessToken, cacheMonths)
+    const [{ commits, details }, mergeRequests] = await Promise.all([
+      this.collectCommits(session, email, repos, sinceIso, endIso, accessToken, cacheMonths, options.includeDiffs !== false),
+      this.collectMergeRequests(session, repos, sinceIso, endIso, accessToken, cacheMonths)
+    ])
     const stats = this.buildStats(session, commits, details, mergeRequests, repos, cacheMonths, localDate(since), localDate(new Date(endExclusive.getTime() - 1)))
     const repoById = new Map(repos.map((repo) => [repo.id, repo]))
     const branches = this.branchService.listBranches(repos.map((repo) => repo.id)).filter((branch) => matchesUserToCreator(
@@ -127,7 +141,8 @@ export class UserActivityService {
     sinceIso: string,
     endIso: string,
     gitlabToken: string,
-    months: number
+    months: number,
+    includeDiffs: boolean
   ): Promise<{ commits: PersonalCommit[]; details: PersonalActivity['commitDetails'] }> {
     const forgeAccount = { id: session.gitlabUserId, username: session.username.trim().toLowerCase() }
     const cacheKind = `commits:${months}m`
@@ -136,9 +151,11 @@ export class UserActivityService {
     const legacyCached = this.loadCache<CachedCommit>(owner, 'commits')
     const results: PersonalCommit[] = []
     const linesBySha = new Map<string, CommitDiffTotals>()
-    const diffStatus = new Map<string, 'loaded' | 'failed'>()
-    for (const repo of repos) {
-      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
+    const diffStatus = new Map<string, 'loaded' | 'failed' | 'skipped'>()
+    const supportedRepos = repos.filter((repo): repo is Repository & { gitlabProjectId: number; source: 'gitlab' | 'github' | 'gitee' } =>
+      ['gitlab', 'github', 'gitee'].includes(repo.source) && Boolean(repo.gitlabProjectId)
+    )
+    const commitsByRepository = await mapLimit(supportedRepos, 4, async (repo) => {
       let rows = cached.get(repo.id) ?? legacyCached.get(repo.id) ?? []
       try {
         const account = session.source === repo.source ? forgeAccount : undefined
@@ -152,10 +169,9 @@ export class UserActivityService {
         rows = rows.filter((row) => row.committedAt >= sinceIso && row.committedAt < endIso)
         logger.warn(`Commit list lookup failed for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`)
       }
-      for (const c of rows) {
-        results.push({ ...c, repositoryId: repo.id, repositoryName: repo.name, source: repo.source })
-      }
-    }
+      return rows.map((commit) => ({ ...commit, repositoryId: repo.id, repositoryName: repo.name, source: repo.source }))
+    })
+    results.push(...commitsByRepository.flat())
     results.sort((a, b) => b.committedAt.localeCompare(a.committedAt))
     const branchesBySha = new Map<string, Set<string>>()
     for (const branch of this.branchService.listBranches(repos.map((repo) => repo.id))) {
@@ -169,11 +185,16 @@ export class UserActivityService {
     for (const commit of results) {
       commit.branchNames = [...(branchesBySha.get(`${commit.repositoryId}:${commit.sha}`) ?? [])].sort((a, b) => a.localeCompare(b))
     }
+    if (!includeDiffs) {
+      return {
+        commits: results,
+        details: results.map((commit) => ({ sha: commit.sha, repositoryId: commit.repositoryId, added: 0, removed: 0, diffStatus: 'skipped', files: [] }))
+      }
+    }
     const cachedDiffs = this.loadCache<CachedCommitDiff>(owner, 'commit_diffs:v2')
     let diffsChanged = false
-    // 逐 commit 统计代码行数；单个失败不影响整体统计。
-    for (const repo of repos) {
-      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
+    const missingDiffs: Array<{ repo: Repository & { gitlabProjectId: number; source: 'gitlab' | 'github' | 'gitee' }; sha: string }> = []
+    for (const repo of supportedRepos) {
       const shas = results.filter((c) => c.repositoryId === repo.id).map((c) => c.sha)
       const cachedBySha = new Map((cachedDiffs.get(repo.id) ?? []).map((d) => [d.sha, d]))
       for (const sha of shas) {
@@ -184,21 +205,25 @@ export class UserActivityService {
           diffStatus.set(cacheKey, 'loaded')
           continue
         }
-        try {
-          const details = await this.gitlab.commitDiffDetails(repo.gitlabProjectId, sha, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
-          linesBySha.set(cacheKey, {
-            added: details.reduce((sum, file) => sum + file.added, 0),
-            removed: details.reduce((sum, file) => sum + file.removed, 0),
-            files: details
-          })
-          diffStatus.set(cacheKey, 'loaded')
-          diffsChanged = true
-        } catch (error) {
-          diffStatus.set(cacheKey, 'failed')
-          logger.error(`Commit diff lookup failed for ${repo.name}@${sha}: ${error instanceof Error ? error.message : String(error)}`)
-        }
+        missingDiffs.push({ repo, sha })
       }
     }
+    await mapLimit(missingDiffs, 6, async ({ repo, sha }) => {
+      const cacheKey = `${repo.id}:${sha}`
+      try {
+        const details = await this.gitlab.commitDiffDetails(repo.gitlabProjectId, sha, { apiKey: gitlabToken, url: repo.gitlabUrl, provider: repo.source as 'gitlab' | 'github' | 'gitee', projectPath: repo.remoteProjectPath })
+        linesBySha.set(cacheKey, {
+          added: details.reduce((sum, file) => sum + file.added, 0),
+          removed: details.reduce((sum, file) => sum + file.removed, 0),
+          files: details
+        })
+        diffStatus.set(cacheKey, 'loaded')
+        diffsChanged = true
+      } catch (error) {
+        diffStatus.set(`${repo.id}:${sha}`, 'failed')
+        logger.error(`Commit diff lookup failed for ${repo.name}@${sha}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
     if (diffsChanged) {
       const shasByProject = new Map<string, string[]>()
       for (const repo of repos) {
@@ -250,11 +275,19 @@ export class UserActivityService {
     const owner = this.cacheOwner(session)
     const cachedByRepo = this.loadCache<CachedMergeRequest>(owner, cacheKind)
     const legacyCached = this.loadCache<CachedMergeRequest>(owner, 'mrs')
-    for (const repo of repos) {
-      if ((repo.source !== 'gitlab' && repo.source !== 'github' && repo.source !== 'gitee') || !repo.gitlabProjectId) continue
+    const supportedRepos = repos.filter((repo): repo is Repository & { gitlabProjectId: number; source: 'gitlab' | 'github' | 'gitee' } =>
+      ['gitlab', 'github', 'gitee'].includes(repo.source) && Boolean(repo.gitlabProjectId)
+    )
+    const byRepository = await mapLimit(supportedRepos, 4, async (repo) => {
       const previous = cachedByRepo.get(repo.id) ?? legacyCached.get(repo.id) ?? []
       const rowsByRole = new Map(previous.map((row) => [`${row.id}:${row.role}`, row]))
-      const fetched = await this.fetchMergeRequests(repo, session, sinceIso, gitlabToken)
+      let fetched: Record<'author' | 'reviewer', CachedMergeRequest[] | null>
+      try {
+        fetched = await this.fetchMergeRequests(repo, session, sinceIso, gitlabToken)
+      } catch (error) {
+        logger.warn(`Merge request lookup failed for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`)
+        fetched = { author: null, reviewer: null }
+      }
       let succeeded = false
       for (const role of ['author', 'reviewer'] as const) {
         if (fetched[role] === null) continue
@@ -268,10 +301,9 @@ export class UserActivityService {
       const authored = new Set(rows.filter((r) => r.role === 'author').map((r) => r.id))
       rows = rows.filter((r) => r.role !== 'reviewer' || !authored.has(r.id))
       if (succeeded) this.saveCache(owner, repo.id, cacheKind, rows)
-      for (const mr of rows) {
-        results.push({ ...mr, repositoryId: repo.id, repositoryName: repo.name, source: repo.source })
-      }
-    }
+      return rows.map((mr) => ({ ...mr, repositoryId: repo.id, repositoryName: repo.name, source: repo.source }))
+    })
+    results.push(...byRepository.flat())
     results.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     return results
   }

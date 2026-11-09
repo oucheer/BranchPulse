@@ -106,6 +106,19 @@ export default function PersonalAi(): JSX.Element {
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [messages, busy])
 
+  useEffect(() => {
+    if (!activeId) return
+    let stopped = false
+    const tick = async (): Promise<void> => {
+      try {
+        const list = await window.gitmanager.listPersonalAiMessages(activeId)
+        if (!stopped) setMessages(list)
+      } catch { /* polling is best effort; task errors are surfaced after completion */ }
+    }
+    const interval = setInterval(() => void tick(), 1200)
+    return () => { stopped = true; clearInterval(interval) }
+  }, [activeId, busy])
+
   const selectConversation = async (id: string): Promise<void> => {
     setActiveId(id)
     if (identity) localStorage.setItem(`${ACTIVE_CONVERSATION_KEY}:${identity}`, id)
@@ -163,6 +176,19 @@ export default function PersonalAi(): JSX.Element {
     setBusy(true)
     try {
       const task: PersonalAiTask = await window.gitmanager.startPersonalAiChat(activeId, prompt, months)
+      setMessages(await window.gitmanager.listPersonalAiMessages(activeId))
+      await new Promise<void>((resolve) => {
+        const started = Date.now()
+        const poll = async (): Promise<void> => {
+          try {
+            const current = await window.gitmanager.getPersonalAiTask(task.id)
+            if (!current || current.status !== 'running') { resolve(); return }
+            if (Date.now() - started > 5 * 60 * 1000) { resolve(); return }
+          } catch { resolve(); return }
+          setTimeout(() => void poll(), 1200)
+        }
+        void poll()
+      })
       setMessages(await window.gitmanager.listPersonalAiMessages(activeId))
       void task
       await refreshConversations()

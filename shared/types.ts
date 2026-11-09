@@ -260,7 +260,7 @@ export interface PersonalActivity {
     repositoryId: string
     added: number
     removed: number
-    diffStatus: 'loaded' | 'failed'
+    diffStatus: 'loaded' | 'failed' | 'skipped'
     files: PersonalCommitFile[]
   }>
 }
@@ -812,7 +812,7 @@ export interface BranchApi {
   logout(): Promise<boolean>
   getSession(): Promise<UserSession | null>
   changePassword(newPassword: string): Promise<boolean>
-  getMyActivity(months?: number, repositoryIds?: string[], range?: PersonalActivityRange): Promise<PersonalActivity>
+  getMyActivity(months?: number, repositoryIds?: string[], range?: PersonalActivityRange, options?: { includeDiffs?: boolean }): Promise<PersonalActivity>
   getCommitFile(repositoryId: string, sha: string, path: string): Promise<string>
   getPersonalAiConfig(): Promise<PersonalAiConfig>
   savePersonalAiConfig(config: PersonalAiConfigDraft): Promise<PersonalAiConfig>
