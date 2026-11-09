@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, Eye, EyeOff, KeyRound, MessageSquarePlus, Plus, Save, Send, Trash2, Wifi } from 'lucide-react'
+import { Bot, MessageSquarePlus, Plus, Send, Trash2 } from 'lucide-react'
 import type { PersonalAiConfig, PersonalAiConversation, PersonalAiMessage, PersonalAiTask } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { Card } from '../components/ui'
@@ -7,17 +7,7 @@ import { readMyActivityMonths } from '../stores/appStore'
 
 const suggestions = ['我上周做了什么？', '最近我主要修改了哪些模块？', '哪些 MR 还没有合并？', '我最近的代码返工情况如何？', '帮我生成研发周报', '我最近三个月的研发趋势是什么？']
 const ACTIVE_CONVERSATION_KEY = 'gitmanager:personal-ai-active:v1'
-const CONFIG_DRAFT_KEY = 'gitmanager:personal-ai-config-draft:v1'
 const CONVERSATION_SNAPSHOT_KEY = 'gitmanager:personal-ai-conversation-snapshot:v1'
-
-function readConfigDraft(identity: string): { baseUrl: string; model: string } {
-  try {
-    const saved = JSON.parse(localStorage.getItem(`${CONFIG_DRAFT_KEY}:${identity}`) ?? 'null') as { baseUrl?: string; model?: string } | null
-    return { baseUrl: saved?.baseUrl ?? '', model: saved?.model ?? '' }
-  } catch {
-    return { baseUrl: '', model: '' }
-  }
-}
 
 function readAiSnapshot(identity: string): { activeId?: string; conversations?: PersonalAiConversation[]; messages?: Record<string, PersonalAiMessage[]> } {
   try {
@@ -52,16 +42,13 @@ export default function PersonalAi(): JSX.Element {
   const zh = language === 'zh'
   const [months] = useState(() => readMyActivityMonths(session))
   const [config, setConfig] = useState<PersonalAiConfig>({ baseUrl: '', model: '', hasApiKey: false })
-  const [draft, setDraft] = useState(() => ({ ...readConfigDraft(identity), apiKey: '' }))
-  const [conversations, setConversations] = useState<PersonalAiConversation[]>([])
   const [snapshot] = useState(() => readAiSnapshot(identity))
+  const [conversations, setConversations] = useState<PersonalAiConversation[]>(snapshot.conversations ?? [])
   const [activeId, setActiveId] = useState(snapshot.activeId ?? '')
   const [messages, setMessages] = useState<PersonalAiMessage[]>(() => snapshot.activeId ? snapshot.messages?.[snapshot.activeId] ?? [] : [])
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!snapshot.activeId)
   const scroller = useRef<HTMLDivElement>(null)
 
   const refreshConversations = useCallback(async (): Promise<PersonalAiConversation[]> => {
@@ -86,12 +73,10 @@ export default function PersonalAi(): JSX.Element {
   useEffect(() => {
     if (role !== 'user' || !identity) return
     let cancelled = false
-    setLoading(true)
+    setLoading(!snapshot.activeId)
     void Promise.all([window.gitmanager.getPersonalAiConfig(), window.gitmanager.listPersonalAiConversations()]).then(async ([saved, list]) => {
       if (cancelled) return
       setConfig(saved)
-      const localDraft = readConfigDraft(identity)
-      setDraft((current) => ({ ...current, baseUrl: saved.baseUrl || localDraft.baseUrl, model: saved.model || localDraft.model }))
       setConversations(list)
       const selected = localStorage.getItem(`${ACTIVE_CONVERSATION_KEY}:${identity}`)
       let target = list.find((item) => item.id === selected)?.id ?? list[0]?.id ?? ''
@@ -115,15 +100,6 @@ export default function PersonalAi(): JSX.Element {
   }, [role, identity, toast])
 
   useEffect(() => {
-    if (!identity) return
-    try {
-      localStorage.setItem(`${CONFIG_DRAFT_KEY}:${identity}`, JSON.stringify({ baseUrl: draft.baseUrl, model: draft.model }))
-    } catch {
-      // Server-side saved settings remain available when browser storage is full.
-    }
-  }, [identity, draft.baseUrl, draft.model])
-
-  useEffect(() => {
     if (!activeId || !busy) return
     let alive = true
     const timer = window.setInterval(() => {
@@ -133,24 +109,11 @@ export default function PersonalAi(): JSX.Element {
         setConversations(items)
         setBusy(items.find((item) => item.id === activeId)?.status === 'running')
       }).catch(() => undefined)
-    }, 1200)
+    }, 600)
     return () => { alive = false; window.clearInterval(timer) }
   }, [activeId, busy])
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [messages, busy])
-
-  useEffect(() => {
-    if (!activeId) return
-    let stopped = false
-    const tick = async (): Promise<void> => {
-      try {
-        const list = await window.gitmanager.listPersonalAiMessages(activeId)
-        if (!stopped) setMessages(list)
-      } catch { /* polling is best effort; task errors are surfaced after completion */ }
-    }
-    const interval = setInterval(() => void tick(), 1200)
-    return () => { stopped = true; clearInterval(interval) }
-  }, [activeId, busy])
 
   const selectConversation = async (id: string): Promise<void> => {
     setActiveId(id)
@@ -179,28 +142,6 @@ export default function PersonalAi(): JSX.Element {
     } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
   }
 
-  const save = async (): Promise<void> => {
-    try {
-      const saved = await window.gitmanager.savePersonalAiConfig(draft)
-      setConfig(saved)
-      setDraft((current) => ({ ...current, apiKey: '' }))
-      toast(zh ? 'AI 配置已保存' : 'AI settings saved', 'success')
-    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
-  }
-
-  const test = async (): Promise<void> => {
-    setTesting(true)
-    try {
-      const saved = await window.gitmanager.savePersonalAiConfig(draft)
-      setConfig(saved)
-      setDraft((current) => ({ ...current, apiKey: '' }))
-      const result = await window.gitmanager.testPersonalAiConnection()
-      toast(result.message, result.ok ? 'success' : 'error')
-    }
-    catch (err) { toast(err instanceof Error ? err.message : String(err), 'error') }
-    finally { setTesting(false) }
-  }
-
   const ask = async (value = question): Promise<void> => {
     const prompt = value.trim()
     if (!prompt || !activeId || busy) return
@@ -218,7 +159,7 @@ export default function PersonalAi(): JSX.Element {
             if (!current || current.status !== 'running') { resolve(); return }
             if (Date.now() - started > 5 * 60 * 1000) { resolve(); return }
           } catch { resolve(); return }
-          setTimeout(() => void poll(), 1200)
+          setTimeout(() => void poll(), 600)
         }
         void poll()
       })
@@ -230,16 +171,7 @@ export default function PersonalAi(): JSX.Element {
 
   if (role !== 'user') return <div className="text-sm text-muted">{zh ? '此页面仅对普通用户开放。' : 'Available to regular users only.'}</div>
   return <div className="space-y-4">
-    <header><h1 className="text-lg font-bold text-canvas-fg">{zh ? 'AI 研发助手' : 'AI Development Assistant'}</h1><p className="mt-1 text-xs text-muted">{zh ? '只读分析个人 Git 数据；会话和进行状态会自动保存' : 'Read-only Git activity analysis with saved conversations and task status'}</p></header>
-    <Card className="p-4">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg"><KeyRound size={15} />{zh ? '模型配置' : 'Model configuration'}</h2>
-      <div className="grid gap-3 md:grid-cols-3">
-        <label className="text-xs text-muted">API URL<input className="input mt-1 w-full" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} placeholder="https://api.example.com/v1" /></label>
-        <label className="text-xs text-muted">{zh ? '模型' : 'Model'}<input className="input mt-1 w-full" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} placeholder="model-name" /></label>
-        <label className="text-xs text-muted">API Key<span className="relative mt-1 block"><input className="input w-full pr-9" type={showApiKey ? 'text' : 'password'} autoComplete="new-password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} placeholder={config.hasApiKey ? (zh ? '密钥已保存，留空保持不变' : 'Saved; leave blank to keep') : 'sk-...'} /><button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-canvas-fg" aria-label={showApiKey ? '隐藏密钥' : '显示密钥'} title={showApiKey ? '隐藏密钥' : '显示密钥'} onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}</button></span></label>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2"><button className="btn btn-primary" disabled={testing} onClick={() => void save()}><Save size={14} />{zh ? '保存' : 'Save'}</button><button className="btn btn-secondary" disabled={testing || !draft.baseUrl.trim() || !draft.model.trim() || (!config.hasApiKey && !draft.apiKey.trim())} onClick={() => void test()}><Wifi size={14} />{testing ? (zh ? '连接中…' : 'Connecting…') : (zh ? '测试连接' : 'Test connection')}</button><span className="text-xs text-muted">{config.hasApiKey ? (zh ? '配置按个人账号保存在服务端；密钥加密且不会回传浏览器。' : 'Settings are private to your account; the key is encrypted server-side.') : (zh ? '填写 API URL、模型和 API Key 后即可使用助手。' : 'Enter API URL, model and API key to enable the assistant.')}</span></div>
-    </Card>
+    <header><h1 className="text-lg font-bold text-canvas-fg">{zh ? 'AI 研发助手' : 'AI Development Assistant'}</h1></header>
 
     <div className="grid min-h-[520px] gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
       <Card className="flex min-h-0 flex-col p-3">

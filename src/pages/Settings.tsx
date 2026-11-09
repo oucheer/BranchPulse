@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Cloud,
+  Bot,
   Eye,
   EyeOff,
   Save,
@@ -39,6 +40,12 @@ export default function Settings(): JSX.Element {
   const [pendingImport, setPendingImport] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [aiBaseUrl, setAiBaseUrl] = useState('')
+  const [aiModel, setAiModel] = useState('')
+  const [hasAiApiKey, setHasAiApiKey] = useState(false)
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [showAiApiKey, setShowAiApiKey] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
   const isAdmin = role === 'admin'
 
   const changePassword = async (): Promise<void> => {
@@ -65,6 +72,51 @@ export default function Settings(): JSX.Element {
   useEffect(() => {
     setGitlabApiKey(settings.gitlabApiKey ?? '')
   }, [settings.gitlabApiKey])
+
+  useEffect(() => {
+    if (isAdmin) return
+    let active = true
+    void window.gitmanager.getPersonalAiConfig().then((config) => {
+      if (!active) return
+      setAiBaseUrl(config.baseUrl)
+      setAiModel(config.model)
+      setHasAiApiKey(config.hasApiKey)
+    }).catch((err) => { if (active) toast(String(err), 'error') })
+    return () => { active = false }
+  }, [isAdmin, toast])
+
+  const saveAiSettings = async (): Promise<void> => {
+    setAiBusy(true)
+    try {
+      const saved = await window.gitmanager.savePersonalAiConfig({
+        baseUrl: aiBaseUrl,
+        model: aiModel,
+        ...(aiApiKey.trim() ? { apiKey: aiApiKey.trim() } : {})
+      })
+      setAiBaseUrl(saved.baseUrl)
+      setAiModel(saved.model)
+      setAiApiKey('')
+      setHasAiApiKey(saved.hasApiKey)
+      toast(zh ? 'AI 模型配置已保存' : 'AI model settings saved', 'success')
+      void refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const testAiSettings = async (): Promise<void> => {
+    setAiBusy(true)
+    try {
+      const result = await window.gitmanager.testPersonalAiConnection()
+      toast(result.message, result.ok ? 'success' : 'error')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   const saveApp = async (): Promise<void> => {
     setSavingApp(true)
@@ -258,6 +310,53 @@ export default function Settings(): JSX.Element {
                 <Cloud size={14} /> 连接
               </button>
               <Badge tone={draft.hasGitlabApiKey ? 'ok' : 'default'}>{draft.hasGitlabApiKey ? '已保存' : '未配置'}</Badge>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-canvas-fg">
+            <Bot size={15} className="text-primary" /> AI 模型配置
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block">
+                <span className="label mb-1.5 block">API URL</span>
+                <input className="input" value={aiBaseUrl} onChange={(e) => setAiBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
+              </label>
+            </div>
+            <div>
+              <label className="block">
+                <span className="label mb-1.5 block">模型</span>
+                <input className="input" value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder="model-name" />
+              </label>
+            </div>
+            <div>
+              <label className="block">
+                <span className="label mb-1.5 block">API Key</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="input flex-1"
+                    type={showAiApiKey ? 'text' : 'password'}
+                    value={aiApiKey}
+                    onChange={(e) => setAiApiKey(e.target.value)}
+                    placeholder={hasAiApiKey ? '密钥已保存，留空保持不变' : 'sk-...'}
+                    autoComplete="new-password"
+                  />
+                  <button className="btn px-2" type="button" onClick={() => setShowAiApiKey(!showAiApiKey)} title={showAiApiKey ? '隐藏 API Key' : '显示 API Key'}>
+                    {showAiApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+              <button className="btn btn-primary" disabled={aiBusy || !aiBaseUrl.trim() || !aiModel.trim() || (!hasAiApiKey && !aiApiKey.trim())} onClick={() => void saveAiSettings()}>
+                <Save size={14} /> {aiBusy ? '处理中…' : '保存'}
+              </button>
+              <button className="btn btn-secondary" disabled={aiBusy || !hasAiApiKey} onClick={() => void testAiSettings()}>
+                保存后测试连接
+              </button>
+              <Badge tone={hasAiApiKey ? 'ok' : 'default'}>{hasAiApiKey ? '已配置' : '未配置'}</Badge>
             </div>
           </div>
         </Card>

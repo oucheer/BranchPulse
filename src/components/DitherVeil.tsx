@@ -85,7 +85,7 @@ function buildDitherFrame(
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const index = y * width + x
-        const threshold = (matrix[(y % 8) * 8 + (x % 8)] + 0.5) * 16
+        const threshold = (matrix[(y % 4) * 4 + (x % 4)] + 0.5) * 16
         bits[index] = gray[index] > threshold ? 1 : 0
       }
     }
@@ -106,9 +106,9 @@ function fallbackFrame(width: number, height: number): DitherFrame {
       const neckDistance = ((x - neck.cx) / neck.rx) ** 2 + ((y - neck.cy) / neck.ry) ** 2
       const inside = headDistance <= 1 || neckDistance <= 1
       gray[index] = inside ? 150 + Math.sin((x / width) * 7 + (y / height) * 4) * 70 : 8
-      colors[index * 4] = inside ? 210 : 18
-      colors[index * 4 + 1] = inside ? 225 : 15
-      colors[index * 4 + 2] = inside ? 255 : 23
+      colors[index * 4] = inside ? 220 : 150
+      colors[index * 4 + 1] = inside ? 235 : 145
+      colors[index * 4 + 2] = inside ? 255 : 160
       colors[index * 4 + 3] = 255
     }
   }
@@ -224,12 +224,11 @@ export default function DitherVeil({
       const cellX = width / activeFrame.width
       const cellY = height / activeFrame.height
       const radius = Math.max(8, revealRadius)
-      const lingerDecay = 1 - 0.025 * (1 - Math.max(0, Math.min(1, linger)))
+      const lingerDecay = Math.exp(-1 / (60 * Math.max(0.05, linger)))
       for (let index = 0; index < reveal.length; index++) reveal[index] *= lingerDecay
       for (let y = 0; y < activeFrame.height; y++) {
         for (let x = 0; x < activeFrame.width; x++) {
           const index = y * activeFrame.width + x
-          if (!activeFrame.bits[index]) continue
           const centerX = (x + 0.5) * cellX
           const centerY = (y + 0.5) * cellY
           const distance = Math.hypot(centerX - pointer.x, centerY - pointer.y)
@@ -239,7 +238,7 @@ export default function DitherVeil({
           const current = reveal[index]
           // The reference animation shows the full ink portrait before the
           // cursor reveals colour; dimming it here turns tiny nav cells black.
-          const brightness = 1
+          const brightness = activeFrame.bits[index] ? 1 : current
           const offset = index * 4
           const red = activeFrame.colors[offset]
           const green = activeFrame.colors[offset + 1]
@@ -249,7 +248,9 @@ export default function DitherVeil({
           const saturation = maxColor === 0 ? 0 : (maxColor - minColor) / maxColor
           const useAccent = saturation > 0.35 && maxColor > 90
           context.globalAlpha = Math.min(1, brightness * opacity)
-          const dotColor = useAccent
+          const dotColor = current > 0.01
+            ? `rgb(${clampByte(red)} ${clampByte(green)} ${clampByte(blue)})`
+            : useAccent
             ? `rgb(${clampByte(red)} ${clampByte(green)} ${clampByte(blue)})`
             : inkColor
           context.fillStyle = dotColor
@@ -268,15 +269,15 @@ export default function DitherVeil({
     const observer = new ResizeObserver(resize)
     observer.observe(host)
     loadImage()
-    host.addEventListener('pointermove', move, { passive: true })
-    host.addEventListener('pointerleave', leave, { passive: true })
+    window.addEventListener('pointermove', move, { passive: true })
+    window.addEventListener('pointerleave', leave, { passive: true })
     resize()
     frame = requestAnimationFrame(draw)
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      host.removeEventListener('pointermove', move)
-      host.removeEventListener('pointerleave', leave)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerleave', leave)
     }
   }, [opacity, src, pattern, pixelSize, inkColor, paperColor, revealRadius, softness, linger])
 

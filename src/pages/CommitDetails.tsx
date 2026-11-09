@@ -42,10 +42,11 @@ export default function CommitDetails(): JSX.Element {
   const range = params.get('start') && params.get('end') ? { start: params.get('start')!, end: params.get('end')! } : null
   const scope = selectedRepositoryIds.slice().sort().join(',')
   const [requested, setRequested] = useState(false)
+  const stateKey = `${session?.source ?? ''}:${session?.accountId ?? session?.email.toLowerCase() ?? ''}:${repositoryId}:${sha}`
   const [savedView] = useState<CommitDetailViewState>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COMMIT_DETAILS_STATE_KEY) ?? '{}') as Record<string, CommitDetailViewState>
-      return saved[`${repositoryId}:${sha}`] ?? {}
+      return saved[stateKey] ?? {}
     } catch { return {} }
   })
   const [selectedPath, setSelectedPath] = useState(savedView.selectedPath ?? '')
@@ -75,7 +76,7 @@ export default function CommitDetails(): JSX.Element {
   useEffect(() => {
     if (!detail?.files.length || initializedFiles.current) return
     initializedFiles.current = true
-    setSelectedPath(detail.files[0]?.path ?? '')
+    setSelectedPath((current) => detail.files.some((file) => file.path === current) ? current : detail.files[0]?.path ?? '')
     const directories: Record<string, boolean> = {}
     for (const file of detail.files) {
       const parts = file.path.split('/')
@@ -85,14 +86,14 @@ export default function CommitDetails(): JSX.Element {
         directories[path] = true
       }
     }
-    setExpandedDirectories(directories)
+    setExpandedDirectories((current) => ({ ...directories, ...current }))
   }, [detail])
 
   useEffect(() => {
     if (!detail?.files.length) return
     try {
       const saved = JSON.parse(localStorage.getItem(COMMIT_DETAILS_STATE_KEY) ?? '{}') as Record<string, CommitDetailViewState>
-      saved[`${repositoryId}:${sha}`] = { selectedPath, view, expandedDirectories }
+      saved[stateKey] = { selectedPath, view, expandedDirectories }
       localStorage.setItem(COMMIT_DETAILS_STATE_KEY, JSON.stringify(saved))
     } catch { /* storage may be unavailable */ }
   }, [detail?.files.length, expandedDirectories, repositoryId, selectedPath, sha, view])

@@ -69,7 +69,7 @@ export default function RepositoryActivityDetail(): JSX.Element {
     <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
       <Card className="flex h-[30rem] min-h-0 flex-col p-5">
         <div className="mb-3 flex shrink-0 items-center gap-2 text-sm font-semibold text-canvas-fg"><GitCommitHorizontal size={15} />{zh ? `提交 (${commits.length})` : `Commits (${commits.length})`}</div>
-        <div ref={commitsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => setListScrollTop((current) => ({ ...current, commits: event.currentTarget.scrollTop }))}>
+        <div ref={commitsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => { const top = event.currentTarget.scrollTop; setListScrollTop((current) => ({ ...current, commits: top })) }}>
           {commits.length ? commits.map((commit) => <div key={commit.sha} className="rounded-md border border-line bg-elevated px-3 py-2">
             <div className="break-words text-sm text-canvas-fg">{commit.subject}</div>
             <div className="mt-1 text-xs text-muted">{commit.shortSha} · {new Date(commit.committedAt).toLocaleString()}</div>
@@ -82,7 +82,7 @@ export default function RepositoryActivityDetail(): JSX.Element {
       </Card>
       <Card className="flex h-[30rem] min-h-0 flex-col p-5">
         <div className="mb-3 flex shrink-0 items-center gap-2 text-sm font-semibold text-canvas-fg"><GitMerge size={15} />{zh ? `合并请求与评审 (${mergeRequests.length})` : `Merge requests and reviews (${mergeRequests.length})`}</div>
-        <div ref={mergeRequestsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => setListScrollTop((current) => ({ ...current, mergeRequests: event.currentTarget.scrollTop }))}>
+        <div ref={mergeRequestsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => { const top = event.currentTarget.scrollTop; setListScrollTop((current) => ({ ...current, mergeRequests: top })) }}>
           {mergeRequests.length ? mergeRequests.map((mr) => <div key={`${mr.id}:${mr.role}`} className="rounded-md border border-line bg-elevated px-3 py-2">
             <div className="flex items-center justify-between gap-2"><span className="truncate text-sm text-canvas-fg">{mr.title}</span><Badge tone={mr.state === 'opened' ? 'primary' : mr.state === 'merged' ? 'ok' : 'default'}>{mr.state}</Badge></div>
             <div className="mt-1 text-xs text-muted">{mr.sourceBranch} → {mr.targetBranch} · {mr.role === 'author' ? (zh ? '发起' : 'Authored') : (zh ? '参与评审' : 'Reviewed')}</div>

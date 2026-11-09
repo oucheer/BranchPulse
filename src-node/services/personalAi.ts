@@ -369,10 +369,10 @@ export class PersonalAiService {
     const trimmed = content.trim()
     if (!trimmed) return
     const now = Date.now()
-    if ((this.progressAt.get(taskId) ?? 0) + 800 > now) return
+    if ((this.progressAt.get(taskId) ?? 0) + 300 > now) return
     this.progressAt.set(taskId, now)
-    this.storage.update('user_ai_tasks', { status: 'running', error: null, updated_at: nowIso() }, 'user_key = ?', [taskId])
-    this.storage.update('user_ai_conversations', { status: 'running', updated_at: nowIso() }, 'id = ?', [conversationId])
+    this.storage.update('user_ai_tasks', { status: 'running', error: null, updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, taskId])
+    this.storage.update('user_ai_conversations', { status: 'running', updated_at: nowIso() }, 'user_key = ? AND id = ?', [owner, conversationId])
     const running = this.storage.all<Record<string, unknown>>('SELECT id FROM user_ai_messages WHERE user_key = ? AND conversation_id = ? AND status = ? ORDER BY created_at, rowid LIMIT 1', [owner, conversationId, 'running'])
     const messageId = String(running[0]?.id ?? '')
     if (messageId) {
@@ -416,7 +416,7 @@ export class PersonalAiService {
       throw new Error(`AI 请求失败（HTTP ${response.status}）${detail ? `：${detail.slice(0, 300)}` : ''}`)
     }
     const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-    if (!contentType.includes('event-stream')) return this.complete(config, messages, tools)
+    if (!contentType.includes('event-stream')) return this.parseCompletion(response)
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -492,6 +492,10 @@ export class PersonalAiService {
       const detail = (await response.text().catch(() => '')).slice(0, 300)
       throw new Error(`AI 请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`)
     }
+    return this.parseCompletion(response)
+  }
+
+  private async parseCompletion(response: Response): Promise<{ content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; rawToolCalls: unknown }> {
     let body: { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }> }
     try { body = await response.json() as typeof body } catch { throw new Error('模型服务返回的不是有效 JSON。请检查 API URL 是否指向兼容接口。') }
     const message = body.choices?.[0]?.message

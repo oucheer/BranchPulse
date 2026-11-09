@@ -156,7 +156,6 @@ export default function App(): JSX.Element {
     }
     element.addEventListener('scroll', save, { passive: true })
     return () => {
-      save()
       element.removeEventListener('scroll', save)
     }
   }, [location.key, location.pathname, location.search, role, session])

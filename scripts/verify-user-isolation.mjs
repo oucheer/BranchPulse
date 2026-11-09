@@ -210,7 +210,7 @@ try {
     const host = canvas.parentElement
     const canvasRect = canvas.getBoundingClientRect()
     const hostRect = host.getBoundingClientRect()
-    const userRect = host.parentElement.getBoundingClientRect()
+    const sidebarRect = host.closest('aside').getBoundingClientRect()
     let paintedPixels = -1
     let brightPixels = -1
     try {
@@ -232,30 +232,49 @@ try {
       height: hostRect.height,
       contained: canvasRect.left >= hostRect.left && canvasRect.top >= hostRect.top
         && canvasRect.right <= hostRect.right && canvasRect.bottom <= hostRect.bottom,
-      besideUser: hostRect.left >= userRect.left && hostRect.right <= userRect.right
-        && hostRect.top >= userRect.top && hostRect.bottom <= userRect.bottom
-      ,
+      insideSidebar: hostRect.left >= sidebarRect.left && hostRect.right <= sidebarRect.right
+        && hostRect.top >= sidebarRect.top && hostRect.bottom <= sidebarRect.bottom,
       paintedPixels,
       brightPixels
     }
   })
-  assert.ok(veilBounds.width > 0 && veilBounds.width <= 64 && veilBounds.height <= 40, JSON.stringify(veilBounds))
+  assert.ok(veilBounds.width > 0 && veilBounds.height > 0, JSON.stringify(veilBounds))
   assert.equal(veilBounds.contained, true, JSON.stringify(veilBounds))
-  assert.equal(veilBounds.besideUser, true, JSON.stringify(veilBounds))
+  assert.equal(veilBounds.insideSidebar, true, JSON.stringify(veilBounds))
   assert.notEqual(veilBounds.paintedPixels, -1, JSON.stringify(veilBounds))
   assert.ok(veilBounds.paintedPixels > 0, JSON.stringify(veilBounds))
   assert.ok(veilBounds.brightPixels > 20, JSON.stringify(veilBounds))
+  const readVeilPixels = () => first.locator('aside canvas[aria-hidden="true"]').evaluate((canvas) => {
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    const data = context?.getImageData(0, 0, canvas.width, canvas.height).data
+    if (!data) return -1
+    let sum = 0
+    for (let index = 0; index < data.length; index += 4) sum += data[index] + data[index + 1] + data[index + 2]
+    return sum
+  })
+  await first.mouse.move(1200, 400)
+  await first.waitForTimeout(350)
+  const veilBeforeHover = await readVeilPixels()
+  const sidebarBox = await first.locator('aside').boundingBox()
+  await first.mouse.move(sidebarBox.x + sidebarBox.width / 2, sidebarBox.y + sidebarBox.height / 2)
+  await first.waitForTimeout(350)
+  const veilAfterHover = await readVeilPixels()
+  assert.notEqual(veilBeforeHover, -1, JSON.stringify({ veilBeforeHover }))
+  assert.notEqual(veilAfterHover, veilBeforeHover, JSON.stringify({ veilBeforeHover, veilAfterHover }))
   console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
-  await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
+  await first.goto(`${base}/#/settings`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')
   await keyInput.fill('secret-test')
-  await first.getByRole('button', { name: '显示密钥', exact: true }).click()
+  await first.getByTitle('显示 API Key').click()
   assert.equal(await keyInput.getAttribute('type'), 'text')
-  await first.getByRole('button', { name: '隐藏密钥', exact: true }).click()
+  await first.getByTitle('隐藏 API Key').click()
   assert.equal(await keyInput.getAttribute('type'), 'password')
   await first.getByLabel('API URL', { exact: true }).fill(modelUrl)
   await first.getByLabel('模型', { exact: true }).fill('internal')
-  await first.getByRole('button', { name: '测试连接', exact: true }).click()
+  await first.getByRole('button', { name: '保存' }).nth(1).click()
+  await first.getByText('AI 模型配置已保存', { exact: true }).waitFor({ timeout: 5000 })
+  await first.getByRole('button', { name: '保存后测试连接', exact: true }).waitFor({ state: 'visible' })
+  await first.getByRole('button', { name: '保存后测试连接', exact: true }).click()
   await first.getByText('模型服务连接成功。', { exact: true }).waitFor()
   console.log('[playwright] Key visibility and testing the current draft passed')
   const rpc = (page, method, args = []) => page.evaluate(async ({ method, args }) => {
@@ -269,7 +288,7 @@ try {
   const conversation = (await rpc(first, 'createPersonalAiConversation')).body.result
   assert.equal((await rpc(second, 'getPersonalAiConfig')).body.result.hasApiKey, false)
   assert.ok((await rpc(second, 'listPersonalAiMessages', [conversation.id])).status >= 400)
-  await first.reload({ waitUntil: 'domcontentloaded' })
+  await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
   await first.getByPlaceholder('继续追问个人研发数据').waitFor()
   assert.equal((await rpc(first, 'getPersonalAiConfig')).body.result.hasApiKey, true)
   await first.getByPlaceholder('继续追问个人研发数据').fill('Hello')
