@@ -165,9 +165,9 @@ try {
   await first.getByRole('button', { name: '所有分支', exact: true }).click()
   await first.getByText('feature/verified-204', { exact: true }).first().waitFor()
   await first.goto(`${base}/#/`, { waitUntil: 'domcontentloaded' })
-  await first.getByRole('button', { name: /分支总数/ }).filter({ hasText: '1' }).waitFor()
+  await first.getByRole('button', { name: '分支总数 1' }).waitFor()
   await first.getByRole('button', { name: '全部', exact: true }).click()
-  await first.getByRole('button', { name: /分支总数/ }).filter({ hasText: '205' }).waitFor()
+  await first.getByRole('button', { name: '分支总数 205' }).waitFor()
   assert.equal(await first.evaluate(() => window.gitmanager.listBranches().then((rows) => rows.length)), 205)
   console.log('[playwright] Mine/All branch scope, reset filters and more than 200 branch rows passed')
   const activityKey = 'one@example.com|gitlab|101|6||branch-fixture'
@@ -212,10 +212,18 @@ try {
     const hostRect = host.getBoundingClientRect()
     const userRect = host.parentElement.getBoundingClientRect()
     let paintedPixels = -1
+    let brightPixels = -1
     try {
       const context = canvas.getContext('2d', { willReadFrequently: true })
       const data = context?.getImageData(0, 0, canvas.width, canvas.height).data
-      if (data) paintedPixels = Array.from(data).reduce((count, byte) => count + (byte > 16 ? 1 : 0), 0)
+      if (data) {
+        paintedPixels = 0
+        brightPixels = 0
+        for (let index = 0; index < data.length; index += 4) {
+          if (data[index] > 16 || data[index + 1] > 16 || data[index + 2] > 16) paintedPixels++
+          if (data[index] > 100 || data[index + 1] > 100 || data[index + 2] > 100) brightPixels++
+        }
+      }
     } catch {
       paintedPixels = -1
     }
@@ -227,7 +235,8 @@ try {
       besideUser: hostRect.left >= userRect.left && hostRect.right <= userRect.right
         && hostRect.top >= userRect.top && hostRect.bottom <= userRect.bottom
       ,
-      paintedPixels
+      paintedPixels,
+      brightPixels
     }
   })
   assert.ok(veilBounds.width > 0 && veilBounds.width <= 64 && veilBounds.height <= 40, JSON.stringify(veilBounds))
@@ -235,6 +244,7 @@ try {
   assert.equal(veilBounds.besideUser, true, JSON.stringify(veilBounds))
   assert.notEqual(veilBounds.paintedPixels, -1, JSON.stringify(veilBounds))
   assert.ok(veilBounds.paintedPixels > 0, JSON.stringify(veilBounds))
+  assert.ok(veilBounds.brightPixels > 20, JSON.stringify(veilBounds))
   console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
   await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')

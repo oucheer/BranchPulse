@@ -237,7 +237,9 @@ export default function DitherVeil({
           const revealAmount = Math.pow(falloff, 1 / Math.max(0.05, softness))
           reveal[index] = Math.max(reveal[index], revealAmount)
           const current = reveal[index]
-          const brightness = 0.42 + current * 0.58
+          // The reference animation shows the full ink portrait before the
+          // cursor reveals colour; dimming it here turns tiny nav cells black.
+          const brightness = 1
           const offset = index * 4
           const red = activeFrame.colors[offset]
           const green = activeFrame.colors[offset + 1]
@@ -246,14 +248,21 @@ export default function DitherVeil({
           const minColor = Math.min(red, green, blue)
           const saturation = maxColor === 0 ? 0 : (maxColor - minColor) / maxColor
           const useAccent = saturation > 0.35 && maxColor > 90
+          context.globalAlpha = Math.min(1, brightness * opacity)
           const dotColor = useAccent
-            ? `rgb(${clampByte(red)} ${clampByte(green)} ${clampByte(blue)} / ${Math.min(1, brightness * opacity)})`
-            : `${inkColor} / ${Math.min(1, brightness * opacity)}`
+            ? `rgb(${clampByte(red)} ${clampByte(green)} ${clampByte(blue)})`
+            : inkColor
           context.fillStyle = dotColor
-          const size = Math.min(cellX, cellY) * (0.72 + current * 0.28)
-          context.fillRect(centerX - size / 2, centerY - size / 2, size, size)
+          // Tiny nav cells are subpixel-sized; fractional fills get antialiased
+          // into near-black noise. Snap each dither cell to the pixel grid.
+          const left = Math.round(x * cellX)
+          const top = Math.round(y * cellY)
+          const right = Math.round((x + 1) * cellX)
+          const bottom = Math.round((y + 1) * cellY)
+          context.fillRect(left, top, right - left, bottom - top)
         }
       }
+      context.globalAlpha = 1
       frame = requestAnimationFrame(draw)
     }
     const observer = new ResizeObserver(resize)
