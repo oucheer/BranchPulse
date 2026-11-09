@@ -8,6 +8,7 @@ import { readMyActivityMonths } from '../stores/appStore'
 const suggestions = ['我上周做了什么？', '最近我主要修改了哪些模块？', '哪些 MR 还没有合并？', '我最近的代码返工情况如何？', '帮我生成研发周报', '我最近三个月的研发趋势是什么？']
 const ACTIVE_CONVERSATION_KEY = 'gitmanager:personal-ai-active:v1'
 const CONFIG_DRAFT_KEY = 'gitmanager:personal-ai-config-draft:v1'
+const CONVERSATION_SNAPSHOT_KEY = 'gitmanager:personal-ai-conversation-snapshot:v1'
 
 function readConfigDraft(identity: string): { baseUrl: string; model: string } {
   try {
@@ -15,6 +16,30 @@ function readConfigDraft(identity: string): { baseUrl: string; model: string } {
     return { baseUrl: saved?.baseUrl ?? '', model: saved?.model ?? '' }
   } catch {
     return { baseUrl: '', model: '' }
+  }
+}
+
+function readAiSnapshot(identity: string): { activeId?: string; conversations?: PersonalAiConversation[]; messages?: Record<string, PersonalAiMessage[]> } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${CONVERSATION_SNAPSHOT_KEY}:${identity}`) ?? 'null') as
+      | { activeId?: string; conversations?: PersonalAiConversation[]; messages?: Record<string, PersonalAiMessage[]> }
+      | null
+    return { activeId: saved?.activeId, conversations: Array.isArray(saved?.conversations) ? saved.conversations : [], messages: saved?.messages ?? {} }
+  } catch {
+    return { conversations: [], messages: {} }
+  }
+}
+
+function saveAiSnapshot(identity: string, activeId: string, conversations: PersonalAiConversation[], messages: PersonalAiMessage[]): void {
+  if (!identity) return
+  try {
+    localStorage.setItem(`${CONVERSATION_SNAPSHOT_KEY}:${identity}`, JSON.stringify({
+      activeId,
+      conversations,
+      messages: { [activeId]: messages }
+    }))
+  } catch {
+    // Background refresh still restores from the server when storage is full.
   }
 }
 
@@ -29,8 +54,9 @@ export default function PersonalAi(): JSX.Element {
   const [config, setConfig] = useState<PersonalAiConfig>({ baseUrl: '', model: '', hasApiKey: false })
   const [draft, setDraft] = useState(() => ({ ...readConfigDraft(identity), apiKey: '' }))
   const [conversations, setConversations] = useState<PersonalAiConversation[]>([])
-  const [activeId, setActiveId] = useState('')
-  const [messages, setMessages] = useState<PersonalAiMessage[]>([])
+  const [snapshot] = useState(() => readAiSnapshot(identity))
+  const [activeId, setActiveId] = useState(snapshot.activeId ?? '')
+  const [messages, setMessages] = useState<PersonalAiMessage[]>(() => snapshot.activeId ? snapshot.messages?.[snapshot.activeId] ?? [] : [])
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -54,6 +80,10 @@ export default function PersonalAi(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    if (identity && conversations.length && activeId) saveAiSnapshot(identity, activeId, conversations, messages)
+  }, [activeId, conversations, identity, messages])
+
+  useEffect(() => {
     if (role !== 'user' || !identity) return
     let cancelled = false
     setLoading(true)
@@ -73,9 +103,12 @@ export default function PersonalAi(): JSX.Element {
       }
       setActiveId(target)
       localStorage.setItem(`${ACTIVE_CONVERSATION_KEY}:${identity}`, target)
+      const cachedMessages = snapshot.activeId === target ? snapshot.messages?.[target] : undefined
+      if (cachedMessages?.length) setMessages(cachedMessages)
       const stored = await window.gitmanager.listPersonalAiMessages(target)
       if (cancelled) return
       setMessages(stored)
+      if (identity && stored.length) saveAiSnapshot(identity, target, list, stored)
       setBusy(list.find((item) => item.id === target)?.status === 'running')
     }).catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), 'error')).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

@@ -6,7 +6,9 @@ import { readMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge } from '../components/ui'
 
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee', local: 'Local' } as const
+const COMMIT_DETAILS_STATE_KEY = 'gitmanager:my-activity-commit-details:v1'
 type FileNode = { name: string; path: string; files: string[]; directories: Record<string, FileNode> }
+type CommitDetailViewState = { selectedPath?: string; view?: 'diff' | 'file'; expandedDirectories?: Record<string, boolean> }
 
 function buildFileTree(paths: string[]): FileNode {
   const root: FileNode = { name: '', path: '', files: [], directories: {} }
@@ -40,9 +42,15 @@ export default function CommitDetails(): JSX.Element {
   const range = params.get('start') && params.get('end') ? { start: params.get('start')!, end: params.get('end')! } : null
   const scope = selectedRepositoryIds.slice().sort().join(',')
   const [requested, setRequested] = useState(false)
-  const [selectedPath, setSelectedPath] = useState('')
-  const [view, setView] = useState<'diff' | 'file'>('diff')
-  const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>({})
+  const [savedView] = useState<CommitDetailViewState>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COMMIT_DETAILS_STATE_KEY) ?? '{}') as Record<string, CommitDetailViewState>
+      return saved[`${repositoryId}:${sha}`] ?? {}
+    } catch { return {} }
+  })
+  const [selectedPath, setSelectedPath] = useState(savedView.selectedPath ?? '')
+  const [view, setView] = useState<'diff' | 'file'>(savedView.view ?? 'diff')
+  const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>(savedView.expandedDirectories ?? {})
   const [fileContents, setFileContents] = useState<Record<string, string>>({})
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
   const [loadingFile, setLoadingFile] = useState(false)
@@ -79,6 +87,15 @@ export default function CommitDetails(): JSX.Element {
     }
     setExpandedDirectories(directories)
   }, [detail])
+
+  useEffect(() => {
+    if (!detail?.files.length) return
+    try {
+      const saved = JSON.parse(localStorage.getItem(COMMIT_DETAILS_STATE_KEY) ?? '{}') as Record<string, CommitDetailViewState>
+      saved[`${repositoryId}:${sha}`] = { selectedPath, view, expandedDirectories }
+      localStorage.setItem(COMMIT_DETAILS_STATE_KEY, JSON.stringify(saved))
+    } catch { /* storage may be unavailable */ }
+  }, [detail?.files.length, expandedDirectories, repositoryId, selectedPath, sha, view])
 
   useEffect(() => {
     if (view !== 'file' || !selectedFile || !commit || fileContents[selectedFile.path] !== undefined) return

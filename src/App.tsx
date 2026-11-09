@@ -168,7 +168,9 @@ export default function App(): JSX.Element {
     try {
       const byEntry = sessionStorage.getItem(scrollKey(location.key))
       const byRoute = sessionStorage.getItem(routeScrollKey())
-      saved = navigationType === 'POP' ? Number(byEntry ?? byRoute ?? 0) : 0
+      // Drill-down pages push a new history entry, so restoring by route is
+      // also required when the user returns from a commit or chart detail.
+      saved = navigationType === 'POP' || byRoute ? Number(byEntry ?? byRoute ?? 0) : 0
     } catch { /* storage may be unavailable */ }
     const frame = requestAnimationFrame(() => { element.scrollTop = Number.isFinite(saved) ? saved : 0 })
     return () => cancelAnimationFrame(frame)

@@ -1,11 +1,12 @@
 import { ArrowLeft, ExternalLink, GitCommitHorizontal, GitBranch, GitMerge, FileDiff } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { PersonalActivity } from '@shared/types'
 import { readMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge, Card } from '../components/ui'
 
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee' } as const
+const MONTHLY_DETAIL_STATE_KEY = 'gitmanager:my-activity-monthly-detail:v1'
 
 function localMonth(value: string): string {
   const date = new Date(value)
@@ -32,8 +33,33 @@ export default function MonthlyActivityDetail(): JSX.Element {
   const mergeRequests = useMemo(() => data?.mergeRequests.filter((request) => localMonth(request.createdAt) === month) ?? [], [data, month])
   const details = useMemo(() => new Map((data?.commitDetails ?? []).map((detail) => [`${detail.repositoryId}:${detail.sha}`, detail])), [data])
   const zh = language === 'zh'
+  const identity = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}`
+  const detailKey = `${identity}|${kind}|${month}|${months}|${range ? `${range.start}|${range.end}` : ''}|${scope}`
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const restoredScroll = useRef(false)
+  const [listScrollTop, setListScrollTop] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MONTHLY_DETAIL_STATE_KEY) ?? '{}') as Record<string, number>
+      return saved[detailKey] ?? 0
+    } catch { return 0 }
+  })
 
   useEffect(() => { void load(months, false, range) }, [load, months, range?.start, range?.end, scope])
+
+  useLayoutEffect(() => {
+    if (restoredScroll.current || !data) return
+    restoredScroll.current = true
+    if (listRef.current && listScrollTop > 0) listRef.current.scrollTop = listScrollTop
+  }, [data, listScrollTop])
+
+  useEffect(() => {
+    if (!restoredScroll.current) return
+    try {
+      const saved = JSON.parse(localStorage.getItem(MONTHLY_DETAIL_STATE_KEY) ?? '{}') as Record<string, number>
+      saved[detailKey] = listScrollTop
+      localStorage.setItem(MONTHLY_DETAIL_STATE_KEY, JSON.stringify(saved))
+    } catch { /* storage may be unavailable */ }
+  }, [detailKey, listScrollTop])
 
   return <div className="space-y-4">
     <button className="btn btn-ghost" onClick={() => window.history.state?.idx > 0 ? navigate(-1) : navigate('/my-activity')}><ArrowLeft size={14} />{zh ? '返回个人活动' : 'Back to my activity'}</button>
@@ -43,7 +69,7 @@ export default function MonthlyActivityDetail(): JSX.Element {
     </div>
     <Card className="p-5">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-canvas-fg"><GitBranch size={15} />{zh ? '本月提交与合并请求' : 'Commits and merge requests for this month'}</div>
-      <div className="max-h-[34rem] space-y-4 overflow-y-auto pr-1">
+      <div ref={listRef} className="max-h-[34rem] space-y-4 overflow-y-auto pr-1" onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}>
         <section className="space-y-2">
           <h2 className="text-xs font-semibold text-muted">{zh ? '提交' : 'Commits'}</h2>
         {commits.length ? commits.map((commit) => {

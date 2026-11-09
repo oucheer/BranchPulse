@@ -1,11 +1,12 @@
 import { ArrowLeft, ExternalLink, FileDiff, GitBranch, GitMerge, GitCommitHorizontal } from 'lucide-react'
-import { useMemo, useEffect } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { PersonalActivity } from '@shared/types'
 import { readMyActivityMonths, useAppStore } from '../stores/appStore'
 import { Badge, Card } from '../components/ui'
 
 const SOURCE_LABELS = { github: 'GitHub', gitlab: 'GitLab', gitee: 'Gitee' } as const
+const REPOSITORY_DETAIL_STATE_KEY = 'gitmanager:my-activity-repository-detail:v1'
 
 export default function RepositoryActivityDetail(): JSX.Element {
   const { repositoryId = '' } = useParams()
@@ -25,8 +26,35 @@ export default function RepositoryActivityDetail(): JSX.Element {
   const commits = useMemo(() => data?.commits.filter((commit) => commit.repositoryId === repositoryId) ?? [], [data, repositoryId])
   const mergeRequests = useMemo(() => data?.mergeRequests.filter((mr) => mr.repositoryId === repositoryId) ?? [], [data, repositoryId])
   const zh = language === 'zh'
+  const identity = `${session?.email.toLowerCase() ?? ''}|${session?.source ?? ''}|${session?.accountId ?? session?.username.toLowerCase() ?? ''}`
+  const detailKey = `${identity}|${repositoryId}|${months}|${range ? `${range.start}|${range.end}` : ''}|${scope}`
+  const commitsRef = useRef<HTMLDivElement | null>(null)
+  const mergeRequestsRef = useRef<HTMLDivElement | null>(null)
+  const restoredScroll = useRef(false)
+  const [listScrollTop, setListScrollTop] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(REPOSITORY_DETAIL_STATE_KEY) ?? '{}') as Record<string, { commits?: number; mergeRequests?: number }>
+      return saved[detailKey] ?? { commits: 0, mergeRequests: 0 }
+    } catch { return { commits: 0, mergeRequests: 0 } }
+  })
 
   useEffect(() => { void load(months, false, range) }, [load, months, range?.start, range?.end, scope])
+
+  useLayoutEffect(() => {
+    if (restoredScroll.current || !data) return
+    restoredScroll.current = true
+    if (commitsRef.current && (listScrollTop.commits ?? 0) > 0) commitsRef.current.scrollTop = listScrollTop.commits ?? 0
+    if (mergeRequestsRef.current && (listScrollTop.mergeRequests ?? 0) > 0) mergeRequestsRef.current.scrollTop = listScrollTop.mergeRequests ?? 0
+  }, [data, listScrollTop])
+
+  useEffect(() => {
+    if (!restoredScroll.current) return
+    try {
+      const saved = JSON.parse(localStorage.getItem(REPOSITORY_DETAIL_STATE_KEY) ?? '{}') as Record<string, typeof listScrollTop>
+      saved[detailKey] = listScrollTop
+      localStorage.setItem(REPOSITORY_DETAIL_STATE_KEY, JSON.stringify(saved))
+    } catch { /* storage may be unavailable */ }
+  }, [detailKey, listScrollTop])
 
   if (!data || !repository) {
     return <Card className="p-6"><div className="text-sm text-muted">{zh ? '正在加载仓库明细…' : 'Loading repository details...'}</div></Card>
@@ -41,7 +69,7 @@ export default function RepositoryActivityDetail(): JSX.Element {
     <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr))]">
       <Card className="flex h-[30rem] min-h-0 flex-col p-5">
         <div className="mb-3 flex shrink-0 items-center gap-2 text-sm font-semibold text-canvas-fg"><GitCommitHorizontal size={15} />{zh ? `提交 (${commits.length})` : `Commits (${commits.length})`}</div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        <div ref={commitsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => setListScrollTop((current) => ({ ...current, commits: event.currentTarget.scrollTop }))}>
           {commits.length ? commits.map((commit) => <div key={commit.sha} className="rounded-md border border-line bg-elevated px-3 py-2">
             <div className="break-words text-sm text-canvas-fg">{commit.subject}</div>
             <div className="mt-1 text-xs text-muted">{commit.shortSha} · {new Date(commit.committedAt).toLocaleString()}</div>
@@ -54,7 +82,7 @@ export default function RepositoryActivityDetail(): JSX.Element {
       </Card>
       <Card className="flex h-[30rem] min-h-0 flex-col p-5">
         <div className="mb-3 flex shrink-0 items-center gap-2 text-sm font-semibold text-canvas-fg"><GitMerge size={15} />{zh ? `合并请求与评审 (${mergeRequests.length})` : `Merge requests and reviews (${mergeRequests.length})`}</div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        <div ref={mergeRequestsRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" onScroll={(event) => setListScrollTop((current) => ({ ...current, mergeRequests: event.currentTarget.scrollTop }))}>
           {mergeRequests.length ? mergeRequests.map((mr) => <div key={`${mr.id}:${mr.role}`} className="rounded-md border border-line bg-elevated px-3 py-2">
             <div className="flex items-center justify-between gap-2"><span className="truncate text-sm text-canvas-fg">{mr.title}</span><Badge tone={mr.state === 'opened' ? 'primary' : mr.state === 'merged' ? 'ok' : 'default'}>{mr.state}</Badge></div>
             <div className="mt-1 text-xs text-muted">{mr.sourceBranch} → {mr.targetBranch} · {mr.role === 'author' ? (zh ? '发起' : 'Authored') : (zh ? '参与评审' : 'Reviewed')}</div>
