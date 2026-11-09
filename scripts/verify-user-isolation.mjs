@@ -211,6 +211,14 @@ try {
     const canvasRect = canvas.getBoundingClientRect()
     const hostRect = host.getBoundingClientRect()
     const userRect = host.parentElement.getBoundingClientRect()
+    let paintedPixels = -1
+    try {
+      const context = canvas.getContext('2d', { willReadFrequently: true })
+      const data = context?.getImageData(0, 0, canvas.width, canvas.height).data
+      if (data) paintedPixels = Array.from(data).reduce((count, byte) => count + (byte > 16 ? 1 : 0), 0)
+    } catch {
+      paintedPixels = -1
+    }
     return {
       width: hostRect.width,
       height: hostRect.height,
@@ -218,11 +226,15 @@ try {
         && canvasRect.right <= hostRect.right && canvasRect.bottom <= hostRect.bottom,
       besideUser: hostRect.left >= userRect.left && hostRect.right <= userRect.right
         && hostRect.top >= userRect.top && hostRect.bottom <= userRect.bottom
+      ,
+      paintedPixels
     }
   })
   assert.ok(veilBounds.width > 0 && veilBounds.width <= 64 && veilBounds.height <= 40, JSON.stringify(veilBounds))
   assert.equal(veilBounds.contained, true, JSON.stringify(veilBounds))
   assert.equal(veilBounds.besideUser, true, JSON.stringify(veilBounds))
+  assert.notEqual(veilBounds.paintedPixels, -1, JSON.stringify(veilBounds))
+  assert.ok(veilBounds.paintedPixels > 0, JSON.stringify(veilBounds))
   console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
   await first.goto(`${base}/#/my-ai`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')

@@ -3,29 +3,151 @@ import { useEffect, useRef } from 'react'
 interface DitherVeilProps {
   className?: string
   opacity?: number
+  src?: string
+  pattern?: 'floyd' | 'ordered'
+  pixelSize?: number
+  inkColor?: string
+  paperColor?: string
+  revealRadius?: number
+  softness?: number
+  linger?: number
 }
 
-const CANVAS_WIDTH = 32
-const CANVAS_HEIGHT = 32
+interface DitherFrame {
+  width: number
+  height: number
+  bits: Uint8Array
+  colors: Uint8ClampedArray
+}
 
-function buildPortraitMask(width: number, height: number): Uint8Array {
-  const mask = new Uint8Array(width * height)
-  const cx = width / 2
-  const head = { cx, cy: height * 0.39, rx: width * 0.18, ry: height * 0.19 }
-  const shoulders = { cx, cy: height * 0.83, rx: width * 0.31, ry: height * 0.23 }
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const headDistance = ((x - head.cx) / head.rx) ** 2 + ((y - head.cy) / head.ry) ** 2
-      const bodyDistance = ((x - shoulders.cx) / shoulders.rx) ** 2 + ((y - shoulders.cy) / shoulders.ry) ** 2
-      if (headDistance <= 1 || bodyDistance <= 1) mask[y * width + x] = 1
+const DEFAULT_SRC = 'https://images.unsplash.com/photo-1737071371043-761e02b1ef95?q=80&w=1400&auto=format&fit=crop'
+
+function clampByte(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)))
+}
+
+function buildDitherFrame(
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  pattern: 'floyd' | 'ordered'
+): DitherFrame {
+  const sample = document.createElement('canvas')
+  sample.width = width
+  sample.height = height
+  const context = sample.getContext('2d', { willReadFrequently: true })
+  if (!context) return { width, height, bits: new Uint8Array(width * height), colors: new Uint8ClampedArray(width * height * 4) }
+
+  context.fillStyle = '#000'
+  context.fillRect(0, 0, width, height)
+  const sourceRatio = image.naturalWidth / image.naturalHeight
+  const targetRatio = width / height
+  let drawWidth = width
+  let drawHeight = height
+  if (sourceRatio > targetRatio) drawWidth = Math.round(height * sourceRatio)
+  else drawHeight = Math.round(width / sourceRatio)
+  context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+
+  const data = context.getImageData(0, 0, width, height).data
+  const gray = new Float32Array(width * height)
+  const colors = new Uint8ClampedArray(width * height * 4)
+  for (let index = 0; index < width * height; index++) {
+    const offset = index * 4
+    const red = data[offset]
+    const green = data[offset + 1]
+    const blue = data[offset + 2]
+    colors[offset] = red
+    colors[offset + 1] = green
+    colors[offset + 2] = blue
+    colors[offset + 3] = data[offset + 3]
+    gray[index] = red * 0.299 + green * 0.587 + blue * 0.114
+  }
+
+  const bits = new Uint8Array(width * height)
+  if (pattern === 'floyd') {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = y * width + x
+        const old = gray[index]
+        const next = old < 128 ? 0 : 255
+        bits[index] = next ? 1 : 0
+        const error = old - next
+        if (x + 1 < width) gray[index + 1] += error * 7 / 16
+        if (y + 1 < height) {
+          if (x > 0) gray[index + width - 1] += error * 3 / 16
+          gray[index + width] += error * 5 / 16
+          if (x + 1 < width) gray[index + width + 1] += error * 1 / 16
+        }
+      }
+    }
+  } else {
+    const matrix = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = y * width + x
+        const threshold = (matrix[(y % 8) * 8 + (x % 8)] + 0.5) * 16
+        bits[index] = gray[index] > threshold ? 1 : 0
+      }
     }
   }
-  return mask
+  return { width, height, bits, colors }
 }
 
-/** A compact dithered portrait that stays inside its navigation container. */
-export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVeilProps): JSX.Element {
+function fallbackFrame(width: number, height: number): DitherFrame {
+  const colors = new Uint8ClampedArray(width * height * 4)
+  const gray = new Float32Array(width * height)
+  const cx = width / 2
+  const head = { cx, cy: height * 0.42, rx: width * 0.28, ry: height * 0.34 }
+  const neck = { cx, cy: height * 0.9, rx: width * 0.16, ry: height * 0.24 }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x
+      const headDistance = ((x - head.cx) / head.rx) ** 2 + ((y - head.cy) / head.ry) ** 2
+      const neckDistance = ((x - neck.cx) / neck.rx) ** 2 + ((y - neck.cy) / neck.ry) ** 2
+      const inside = headDistance <= 1 || neckDistance <= 1
+      gray[index] = inside ? 150 + Math.sin((x / width) * 7 + (y / height) * 4) * 70 : 8
+      colors[index * 4] = inside ? 210 : 18
+      colors[index * 4 + 1] = inside ? 225 : 15
+      colors[index * 4 + 2] = inside ? 255 : 23
+      colors[index * 4 + 3] = 255
+    }
+  }
+  const bits = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x
+      const old = gray[index]
+      const next = old < 128 ? 0 : 255
+      bits[index] = next ? 1 : 0
+      const error = old - next
+      if (x + 1 < width) gray[index + 1] += error * 7 / 16
+      if (y + 1 < height) {
+        if (x > 0) gray[index + width - 1] += error * 3 / 16
+        gray[index + width] += error * 5 / 16
+        if (x + 1 < width) gray[index + width + 1] += error * 1 / 16
+      }
+    }
+  }
+  return { width, height, bits, colors }
+}
+
+/** A compact image-based dithered portrait that stays inside its navigation container. */
+export default function DitherVeil({
+  className = '',
+  opacity = 0.24,
+  src = DEFAULT_SRC,
+  pattern = 'floyd',
+  pixelSize = 2,
+  inkColor = '#f4f1ea',
+  paperColor = '#120f17',
+  revealRadius = 200,
+  softness = 0.6,
+  linger = 1
+}: DitherVeilProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const frameRef = useRef<DitherFrame | null>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
+  const revealRef = useRef<Float32Array | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -33,13 +155,42 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
     if (!canvas || !host) return
     const context = canvas.getContext('2d')
     if (!context) return
-    const mask = buildPortraitMask(CANVAS_WIDTH, CANVAS_HEIGHT)
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '124 92 252'
     let frame = 0
     let width = 1
     let height = 1
     let pointer = { x: -1000, y: -1000 }
     let target = { x: -1000, y: -1000 }
+
+    const ensureFrame = (): void => {
+      const cell = Math.max(1, Math.min(pixelSize, Math.floor(host.clientWidth / 48) || 1))
+      const frameWidth = Math.max(8, Math.floor(host.clientWidth / cell))
+      const frameHeight = Math.max(8, Math.floor(host.clientHeight / cell))
+      const previous = frameRef.current
+      if (previous && previous.width === frameWidth && previous.height === frameHeight) return
+      try {
+        frameRef.current = imageRef.current
+          ? buildDitherFrame(imageRef.current, frameWidth, frameHeight, pattern)
+          : fallbackFrame(frameWidth, frameHeight)
+      } catch {
+        imageRef.current = null
+        frameRef.current = fallbackFrame(frameWidth, frameHeight)
+      }
+      revealRef.current = new Float32Array(frameWidth * frameHeight)
+    }
+
+    const loadImage = (): void => {
+      const image = new Image()
+      image.crossOrigin = 'anonymous'
+      image.onload = () => {
+        imageRef.current = image
+        frameRef.current = null
+      }
+      image.onerror = () => {
+        imageRef.current = null
+        frameRef.current = null
+      }
+      image.src = src
+    }
 
     const resize = (): void => {
       const ratio = Math.min(window.devicePixelRatio || 1, 2)
@@ -50,6 +201,7 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
       canvas.style.width = `${width}px`
       canvas.style.height = `${height}px`
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
+      frameRef.current = null
     }
     const move = (event: PointerEvent): void => {
       const rect = host.getBoundingClientRect()
@@ -60,20 +212,45 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
       pointer.x += (target.x - pointer.x) * 0.08
       pointer.y += (target.y - pointer.y) * 0.08
       context.clearRect(0, 0, width, height)
-      const scaleX = width / CANVAS_WIDTH
-      const scaleY = height / CANVAS_HEIGHT
-      const pulse = 0.5 + Math.sin(time / 1700) * 0.22
-      for (let y = 0; y < CANVAS_HEIGHT; y++) {
-        for (let x = 0; x < CANVAS_WIDTH; x++) {
-          if (!mask[y * CANVAS_WIDTH + x]) continue
-          const centerX = (x + 0.5) * scaleX
-          const centerY = (y + 0.5) * scaleY
+      ensureFrame()
+      const activeFrame = frameRef.current
+      const reveal = revealRef.current
+      if (!activeFrame || !reveal) {
+        frame = requestAnimationFrame(draw)
+        return
+      }
+      context.fillStyle = paperColor
+      context.fillRect(0, 0, width, height)
+      const cellX = width / activeFrame.width
+      const cellY = height / activeFrame.height
+      const radius = Math.max(8, revealRadius)
+      const lingerDecay = 1 - 0.025 * (1 - Math.max(0, Math.min(1, linger)))
+      for (let index = 0; index < reveal.length; index++) reveal[index] *= lingerDecay
+      for (let y = 0; y < activeFrame.height; y++) {
+        for (let x = 0; x < activeFrame.width; x++) {
+          const index = y * activeFrame.width + x
+          if (!activeFrame.bits[index]) continue
+          const centerX = (x + 0.5) * cellX
+          const centerY = (y + 0.5) * cellY
           const distance = Math.hypot(centerX - pointer.x, centerY - pointer.y)
-          const reveal = Math.max(0, 1 - distance / Math.max(width, 45))
-          const brightness = 0.28 + pulse * 0.18 + reveal * 0.54
-          if (brightness <= 0.26) continue
-          const size = 1.4 + reveal * 1.1
-          context.fillStyle = `rgb(${accent} / ${Math.min(0.85, brightness * opacity)})`
+          const falloff = Math.max(0, 1 - distance / radius)
+          const revealAmount = Math.pow(falloff, 1 / Math.max(0.05, softness))
+          reveal[index] = Math.max(reveal[index], revealAmount)
+          const current = reveal[index]
+          const brightness = 0.42 + current * 0.58
+          const offset = index * 4
+          const red = activeFrame.colors[offset]
+          const green = activeFrame.colors[offset + 1]
+          const blue = activeFrame.colors[offset + 2]
+          const maxColor = Math.max(red, green, blue)
+          const minColor = Math.min(red, green, blue)
+          const saturation = maxColor === 0 ? 0 : (maxColor - minColor) / maxColor
+          const useAccent = saturation > 0.35 && maxColor > 90
+          const dotColor = useAccent
+            ? `rgb(${clampByte(red)} ${clampByte(green)} ${clampByte(blue)} / ${Math.min(1, brightness * opacity)})`
+            : `${inkColor} / ${Math.min(1, brightness * opacity)}`
+          context.fillStyle = dotColor
+          const size = Math.min(cellX, cellY) * (0.72 + current * 0.28)
           context.fillRect(centerX - size / 2, centerY - size / 2, size, size)
         }
       }
@@ -81,6 +258,7 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
     }
     const observer = new ResizeObserver(resize)
     observer.observe(host)
+    loadImage()
     host.addEventListener('pointermove', move, { passive: true })
     host.addEventListener('pointerleave', leave, { passive: true })
     resize()
@@ -91,7 +269,7 @@ export default function DitherVeil({ className = '', opacity = 0.24 }: DitherVei
       host.removeEventListener('pointermove', move)
       host.removeEventListener('pointerleave', leave)
     }
-  }, [opacity])
+  }, [opacity, src, pattern, pixelSize, inkColor, paperColor, revealRadius, softness, linger])
 
   return <canvas ref={canvasRef} aria-hidden="true" className={`pointer-events-none absolute inset-0 z-0 h-full w-full overflow-hidden ${className}`} />
 }
