@@ -173,7 +173,7 @@ try {
   const activityKey = 'one@example.com|gitlab|101|6||branch-fixture'
   await first.evaluate(({ activityKey, activityFixture }) => {
     localStorage.setItem('gitmanager:my-activity:v1', JSON.stringify({ [activityKey]: { savedAt: Date.now(), data: activityFixture } }))
-    localStorage.setItem('gitmanager:effectSettings', JSON.stringify({ enabled: true, ambientBackground: false, splashCursor: false, clickSpark: false, depthText: false, particleSplash: false, ditherVeil: true }))
+    localStorage.setItem('gitmanager:effectSettings', JSON.stringify({ enabled: true, ambientBackground: false, splashCursor: false, clickSpark: false, depthText: false, particleSplash: false }))
     window.dispatchEvent(new Event('gitmanager:effect-settings-change'))
   }, { activityKey, activityFixture })
   await first.reload({ waitUntil: 'domcontentloaded' })
@@ -206,60 +206,7 @@ try {
   await first.getByText('src/fixture.ts', { exact: true }).waitFor()
   await first.goBack()
   await first.getByRole('heading', { name: 'Branch verification' }).waitFor()
-  await first.waitForTimeout(1300)
-  const veilHost = first.locator('aside div[aria-hidden="true"]')
-  const veilBounds = await veilHost.evaluate((host) => {
-    const canvas = host.querySelector('canvas')
-    const canvasRect = canvas.getBoundingClientRect()
-    const hostRect = host.getBoundingClientRect()
-    const sidebarRect = host.closest('aside').getBoundingClientRect()
-    return {
-      width: hostRect.width,
-      height: hostRect.height,
-      contained: canvasRect.left >= hostRect.left && canvasRect.top >= hostRect.top
-        && canvasRect.right <= hostRect.right && canvasRect.bottom <= hostRect.bottom,
-      insideSidebar: hostRect.left >= sidebarRect.left && hostRect.right <= sidebarRect.right
-        && hostRect.top >= sidebarRect.top && hostRect.bottom <= sidebarRect.bottom
-    }
-  })
-  assert.ok(veilBounds.width > 0 && veilBounds.height > 0, JSON.stringify(veilBounds))
-  assert.equal(veilBounds.contained, true, JSON.stringify(veilBounds))
-  assert.equal(veilBounds.insideSidebar, true, JSON.stringify(veilBounds))
-
-  const analyzeVeilScreenshot = async () => {
-    const hostBox = await veilHost.boundingBox()
-    assert.ok(hostBox, 'veil host is visible')
-    const shot = await first.screenshot({ clip: hostBox })
-    const { PNG } = await import('pngjs')
-    const png = PNG.sync.read(shot)
-    let painted = 0
-    let bright = 0
-    let colorSum = 0
-    for (let index = 0; index < png.data.length; index += 4) {
-      const red = png.data[index]
-      const green = png.data[index + 1]
-      const blue = png.data[index + 2]
-      colorSum += red + green + blue
-      if (red > 16 || green > 16 || blue > 16) painted++
-      if (red > 100 || green > 100 || blue > 100) bright++
-    }
-    return { painted, bright, colorSum, width: png.width, height: png.height }
-  }
-
-  await first.waitForTimeout(1300)
-  const veilPaint = await analyzeVeilScreenshot()
-  assert.ok(veilPaint.painted > 0, JSON.stringify(veilPaint))
-  assert.ok(veilPaint.bright > 20, JSON.stringify(veilPaint))
-
-  const hostBox = await veilHost.boundingBox()
-  await first.mouse.move(hostBox.x + hostBox.width / 2, hostBox.y + hostBox.height / 2)
-  await first.waitForTimeout(250)
-  const veilHover = await analyzeVeilScreenshot()
-  await first.mouse.move(1200, 400)
-  await first.waitForTimeout(250)
-  const veilAway = await analyzeVeilScreenshot()
-  assert.notEqual(veilHover.colorSum, veilAway.colorSum, JSON.stringify({ veilHover, veilAway }))
-  console.log('[playwright] Monthly/repository commit and MR links, code details, browser history, and bounded user-area veil passed')
+  console.log('[playwright] Monthly/repository commit and MR links, code details, and browser history passed')
   await first.goto(`${base}/#/settings`, { waitUntil: 'domcontentloaded' })
   const keyInput = first.getByPlaceholder('sk-...')
   await keyInput.fill('secret-test')

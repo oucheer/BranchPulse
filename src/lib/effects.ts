@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { readStorage } from './legacyKeys'
 
-export type EffectKey = 'ambientBackground' | 'splashCursor' | 'clickSpark' | 'depthText' | 'particleSplash' | 'ditherVeil'
+export type EffectKey = 'ambientBackground' | 'splashCursor' | 'clickSpark' | 'depthText' | 'particleSplash'
 
 export interface EffectSettings {
   enabled: boolean
@@ -10,7 +10,6 @@ export interface EffectSettings {
   clickSpark: boolean
   depthText: boolean
   particleSplash: boolean
-  ditherVeil: boolean
 }
 
 const STORAGE_KEY = 'gitmanager:effectSettings'
@@ -27,8 +26,7 @@ const DEFAULT_SETTINGS: EffectSettings = {
   splashCursor: false,
   clickSpark: true,
   depthText: true,
-  particleSplash: true,
-  ditherVeil: false
+  particleSplash: true
 }
 
 export const EFFECT_KEYS: EffectKey[] = [
@@ -36,8 +34,7 @@ export const EFFECT_KEYS: EffectKey[] = [
   'splashCursor',
   'clickSpark',
   'depthText',
-  'particleSplash',
-  'ditherVeil'
+  'particleSplash'
 ]
 
 let cachedWebGLAvailable: boolean | null = null

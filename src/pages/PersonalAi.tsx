@@ -170,10 +170,10 @@ export default function PersonalAi(): JSX.Element {
   }
 
   if (role !== 'user') return <div className="text-sm text-muted">{zh ? '此页面仅对普通用户开放。' : 'Available to regular users only.'}</div>
-  return <div className="space-y-4">
+  return <div className="flex h-full min-h-0 flex-col">
     <header><h1 className="text-lg font-bold text-canvas-fg">{zh ? 'AI 研发助手' : 'AI Development Assistant'}</h1></header>
 
-    <div className="grid min-h-[520px] gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="mt-4 grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
       <Card className="flex min-h-0 flex-col p-3">
         <button className="btn btn-secondary mb-3 w-full" onClick={() => void createConversation()}><MessageSquarePlus size={14} />{zh ? '新建会话' : 'New chat'}</button>
         <div className="min-h-0 flex-1 space-y-1 overflow-auto">{conversations.map((conversation) => <div key={conversation.id} className={`flex items-center gap-1 rounded-md px-2 ${activeId === conversation.id ? 'bg-primary/10' : 'hover:bg-elevated'}`}>
@@ -182,7 +182,7 @@ export default function PersonalAi(): JSX.Element {
         </div>)}</div>
       </Card>
 
-      <Card className="flex h-[520px] flex-col p-4">
+      <Card className="flex min-h-[360px] flex-col p-4">
         <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold text-canvas-fg"><Bot size={15} />{zh ? '个人数据问答' : 'Ask about your activity'}</h2><span className="text-xs text-muted">{zh ? `使用个人活动页的最近 ${months} 个月范围` : `Using your ${months}-month activity range`}</span></div>
         <div className="mb-3 flex flex-wrap gap-1.5">{suggestions.map((item) => <button key={item} className="btn btn-ghost h-auto px-2 py-1 text-xs" disabled={busy || !config.hasApiKey} onClick={() => void ask(item)}><Plus size={12} />{item}</button>)}</div>
         <div ref={scroller} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain border-y border-line py-3">

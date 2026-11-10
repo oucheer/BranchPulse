@@ -62,13 +62,6 @@ const effectToggles: EffectToggle[] = [
     descZh: '启动画面的粒子文字',
     descEn: 'Particle text on the splash screen'
   },
-  {
-    key: 'ditherVeil',
-    labelZh: '用户区微粒 veil',
-    labelEn: 'User area dither veil',
-    descZh: '右下角用户名旁的交互微粒效果',
-    descEn: 'Interactive dither particles beside the user name in the lower-right corner'
-  }
 ]
 
 export default function Animation(): JSX.Element {

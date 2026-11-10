@@ -13,7 +13,6 @@ import { tr, useAppStore } from '../stores/appStore'
 import { motion as motionToken, layout } from '../design-system/tokens'
 import { isEffectOn, useEffectSettings } from '../lib/effects'
 import DepthText from '../components/DepthText'
-import DitherVeil from '../components/DitherVeil'
 
 interface NavItem {
   to: string
@@ -92,7 +91,6 @@ export default function Sidebar(): JSX.Element {
   const scanning = useAppStore((s) => s.scanning)
   const effectSettings = useEffectSettings()
   const effectsEnabled = isEffectOn(effectSettings, 'depthText')
-  const ditherEnabled = isEffectOn(effectSettings, 'ditherVeil')
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const navRef = useRef<HTMLElement | null>(null)
@@ -238,10 +236,6 @@ export default function Sidebar(): JSX.Element {
                 {session.role === 'admin' ? (language === 'zh' ? '管理员' : 'Administrator') : (language === 'zh' ? '普通用户' : 'User')}
               </div>
             </div>
-            {ditherEnabled ? <div
-              className="relative h-6 w-14 shrink-0 overflow-hidden rounded-full border border-line"
-              aria-hidden="true"
-            ><DitherVeil fit="cover" pixelSize={2} revealRadius={36} softness={0.6} linger={1} /></div> : null}
             <button className="btn px-1.5 py-1" title={language === 'zh' ? '退出登录' : 'Sign out'} onClick={() => void logout()}>
               <LogOut size={13} />
             </button>
